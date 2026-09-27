@@ -87,6 +87,9 @@ type SubmitParams struct {
 	Abc    string `json:"abc,omitempty"`
 	// черновик ~40 с вместо полного трека (быстрое предпрослушивание стиля)
 	Draft bool `json:"draft,omitempty"`
+	// драматургия поверх плана: "" | build (нарастание) | wave (волна) |
+	// burst (взрыв: пол-время на входе, breakdown, финал — голос на октаву выше)
+	Arc string `json:"arc,omitempty"`
 }
 
 type PlanParams struct {

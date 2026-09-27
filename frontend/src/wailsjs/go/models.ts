@@ -300,6 +300,7 @@ export namespace yue {
 	    cot: string;
 	    abc?: string;
 	    draft?: boolean;
+	    arc?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SubmitParams(source);
@@ -314,6 +315,7 @@ export namespace yue {
 	        this.cot = source["cot"];
 	        this.abc = source["abc"];
 	        this.draft = source["draft"];
+	        this.arc = source["arc"];
 	    }
 	}
 	export class TranscribeResult {

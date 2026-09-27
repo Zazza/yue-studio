@@ -54,6 +54,7 @@ const styleOverride = ref('')
 const lyrics = ref(`[Verse]\n...\n\n[Chorus]\n...`)
 const seed = ref(null)
 const cot = ref('full')
+const arcKind = ref('')  // драматургия: '' | build | wave | burst
 // «без слов»: стих не нужен, на воркер уйдёт заглушка [Instrumental]
 const noLyrics = ref(false)
 // длительность инструментала: длина трека у YuE2 задаётся числом секций в тексте,
@@ -128,7 +129,9 @@ function payload(extra = {}) {
     title: title.value,
     lyrics: effectiveLyrics(lyrics.value, noLyrics.value, durMode.value),
     seed: seed.value ? Number(seed.value) : 0,
-    cot: cot.value,
+    // драматургии нужен план: off его не строит — молча повышаем до melody
+    cot: arcKind.value && cot.value === 'off' ? 'melody' : cot.value,
+    arc: arcKind.value,
     ...extra,
   }
 }
@@ -598,6 +601,13 @@ function onWindowClick(e) {
           <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
         </div>
 
+        <div class="row arc-row">
+          <span class="arc-title">{{ t('arc.title') }}:</span>
+          <button v-for="a in ['', 'build', 'wave', 'burst']" :key="a" class="toggle small-btn"
+                  :class="{ on: arcKind === a }" :title="t('arc.' + (a || 'flat') + '.tip')"
+                  @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
+        </div>
+
         <div class="actions">
           <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
             {{ submitting ? t('form.submitting') : t('form.submit') }}
@@ -814,6 +824,8 @@ textarea { width: 100%; resize: vertical; font-family: inherit; }
 button.toggle { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 400; font-size: 12px; padding: 3px 10px; }
 button.toggle.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .seed input { width: 110px; min-width: 0; }
+.arc-row { align-items: center; gap: 6px; }
+.arc-title { font-size: 12px; color: var(--muted); }
 .cot-radios { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .cot-radios label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .cot-title { font-weight: 600; }

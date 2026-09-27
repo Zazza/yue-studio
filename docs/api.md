@@ -6,7 +6,9 @@
 ```
 GET/POST /config       настройки: ollama_url, ollama_model (меняются на лету)
 GET  /health           статус, модель в памяти?
-POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?}  — abc: свой план; draft: черновик ~15-20 с
+POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?} — abc: свой план; draft: черновик ~15-20 с;
+                       arc: драматургия поверх плана (build|wave|burst: дуга темпа по секциям,
+                       burst — голос на октаву выше в финале; с abc несовместим)
 POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
 POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации

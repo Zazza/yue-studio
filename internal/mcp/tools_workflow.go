@@ -52,6 +52,7 @@ func RegisterWorkflowTools(s *Server) {
 			"seed":   prop("сид (0 = случайный)", "integer"),
 			"cot":    prop("режим размышлений: full | melody | off", "string"),
 			"draft":  prop("черновик ~15-20 с: быстро послушать стиль до полного рендера", "boolean"),
+			"arc":    prop("драматургия поверх плана: build (нарастание) | wave (волна) | burst (взрыв: пол-время, breakdown, голос на октаву выше в финале)", "string"),
 			"n":      prop("веер: число джоб с сидами base+0..n-1 (1..10)", "integer"),
 		}, "style", "lyrics"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -62,6 +63,7 @@ func RegisterWorkflowTools(s *Server) {
 				Seed:   argInt(args, "seed"),
 				Cot:    argString(args, "cot"),
 				Draft:  argBool(args, "draft"),
+				Arc:    argString(args, "arc"),
 			}
 			if p.Cot == "" {
 				p.Cot = "full"

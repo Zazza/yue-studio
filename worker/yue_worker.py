@@ -23,6 +23,7 @@ import threading
 import time
 import urllib.request
 
+import arc
 import llm
 import media
 from pathlib import Path
@@ -112,6 +113,8 @@ def _migrate():
             conn.execute("ALTER TABLE jobs ADD COLUMN overdub_gain REAL DEFAULT 0.5")
         if "draft" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN draft INTEGER DEFAULT 0")
+        if "arc" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN arc TEXT DEFAULT ''")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,6 +254,17 @@ def _run_job(job_id: int):
                 abc_path = job_dir / row["req_abc"]
                 if abc_path.is_file():
                     request["abc"] = abc_path.read_text()
+            elif row["arc"]:
+                # драматургия: строим план сами, правим темп/вокал по дуге —
+                # и рендерим по своему ABC (механизм req_abc)
+                counters["phase"] = "arc-plan"
+                plan_res = pipe.plan(style=request["style"], lyrics=request["lyrics"],
+                                     cot=row["cot"],
+                                     **({"seed": row["seed"]} if row["seed"] else {}))
+                request["style"] = arc.style_with_arc(request["style"], row["arc"])
+                request["abc"] = arc.apply_arc(plan_res.abc, row["arc"])
+                (job_dir / "request.abc").write_text(request["abc"], encoding="utf-8")
+                log.info("job %s: arc=%s applied to plan", job_id, row["arc"])
             t0 = time.time()
             try:
                 try:
@@ -349,6 +363,8 @@ class JobIn(BaseModel):
     abc: str | None = None
     # черновик ~15-20 с вместо полного трека: быстро послушать, стоит ли рендерить целиком
     draft: bool = False
+    # драматургия: "" | build (нарастание) | wave (волна) | burst (взрыв)
+    arc: str = Field(default="", pattern="^(|build|wave|burst)$")
 
 
 class PlanIn(BaseModel):
@@ -482,11 +498,15 @@ def translate(req: TranslateIn):
 def submit(req: JobIn):
     if req.abc is not None and req.cot == "off":
         raise HTTPException(422, "abc requires cot=full or cot=melody")
+    if req.arc and req.abc is not None and req.abc.strip():
+        raise HTTPException(422, "arc is applied to the generated plan; explicit abc wins")
+    if req.arc and req.cot == "off":
+        raise HTTPException(422, "arc requires cot=full or cot=melody (needs the plan)")
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,arc,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
-             req.lyrics, req.seed, req.cot, int(req.draft), time.strftime("%Y-%m-%dT%H:%M:%S")))
+             req.lyrics, req.seed, req.cot, int(req.draft), req.arc, time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
             (JOBS_DIR / str(job_id)).mkdir(parents=True, exist_ok=True)

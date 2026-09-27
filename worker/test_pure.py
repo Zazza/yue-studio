@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import abcparse
+import arc
 import llm
 
 
@@ -63,6 +64,74 @@ class TestEncodeMp3(unittest.TestCase):
         rms_r = float(np.sqrt((out[:, 1] ** 2).mean()))
         self.assertGreater(rms_l, 0.2)   # тон в левом
         self.assertLess(rms_r, 0.02)     # справа тишина
+
+
+ABC = """X:1
+T:arc test
+M:4/4
+L:1/16
+Q:1/4=100
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Inst." snm="Ins."
+K:Dm
+% intro
+V: Vocal
+z16|
+V: Ins
+d8z8|
+% verse
+V: Vocal
+"Dm"d2a2g2e2|
+V: Ins
+d4d4d4d4|
+% chorus
+V: Vocal
+"Dm"d2a2g2e2|
+V: Ins
+e4e4e4e4|
+% interlude
+V: Ins
+f4f4f4f4|
+% chorus
+V: Vocal
+"Dm"d2a2g2e2|
+V: Ins
+g4g4g4g4|
+"""
+
+
+class TestApplyArc(unittest.TestCase):
+    """Спецификация arc.apply_arc: дуги темпа по секциям от базового Q,
+    burst поднимает голос на октаву в финальном припеве."""
+
+    def test_no_arc_unchanged(self):
+        self.assertEqual(arc.apply_arc(ABC, ""), ABC)
+        self.assertEqual(arc.apply_arc(ABC, "nope"), ABC)
+
+    def test_burst_tempos_and_octave(self):
+        out = arc.apply_arc(ABC, "burst")
+        qs = [ln for ln in out.split("\n") if ln.startswith("Q:1/4=")]
+        self.assertIn("Q:1/4=55", qs)   # intro 0.55
+        self.assertIn("Q:1/4=72", qs)   # interlude 0.72
+        self.assertIn("Q:1/4=117", qs)  # финальный chorus 1.17
+        # голос в финальном припеве поднялся: d2 -> d'2
+        self.assertIn("d'2a'2g'2e'2", out)
+        # ранние секции не транспонированы (куплет + первый припев)
+        self.assertEqual(out.count("d2a2g2e2"), 2)
+
+    def test_build_lifts_only_finale(self):
+        out = arc.apply_arc(ABC, "build")
+        qs = [ln for ln in out.split("\n") if ln.startswith("Q:1/4=")]
+        self.assertIn("Q:1/4=85", qs)   # intro 0.85
+        self.assertIn("Q:1/4=112", qs)  # финальный chorus 1.12
+        self.assertNotIn("d'2", out)    # голос не трогаем
+
+    def test_style_suffix(self):
+        s = arc.style_with_arc("post-punk", "burst")
+        self.assertTrue(s.startswith("post-punk, "))
+        self.assertIn("soaring", s)
+        # повторное применение не дублирует
+        self.assertEqual(arc.style_with_arc(s, "burst"), s)
 
 
 class TestStripMd(unittest.TestCase):
