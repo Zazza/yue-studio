@@ -1,0 +1,329 @@
+export namespace dsp {
+	
+	export class Param {
+	    id: string;
+	    label: string;
+	    min: number;
+	    max: number;
+	    step: number;
+	    default: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Param(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.min = source["min"];
+	        this.max = source["max"];
+	        this.step = source["step"];
+	        this.default = source["default"];
+	    }
+	}
+	export class Chain {
+	    id: string;
+	    name: string;
+	    note: string;
+	    params: Param[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Chain(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.note = source["note"];
+	        this.params = this.convertValues(source["params"], Param);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace main {
+	
+	export class YuePlayerState {
+	    playing: boolean;
+	    position_sec: number;
+	    duration_sec: number;
+	    job_id: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new YuePlayerState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.playing = source["playing"];
+	        this.position_sec = source["position_sec"];
+	        this.duration_sec = source["duration_sec"];
+	        this.job_id = source["job_id"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
+export namespace yue {
+	
+	export class CopilotParams {
+	    theme: string;
+	    style: string;
+	    example: string;
+	    lang: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CopilotParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.theme = source["theme"];
+	        this.style = source["style"];
+	        this.example = source["example"];
+	        this.lang = source["lang"];
+	    }
+	}
+	export class CopilotResult {
+	    text: string;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CopilotResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.seconds = source["seconds"];
+	    }
+	}
+	export class Corpus {
+	    id: number;
+	    name: string;
+	    status: string;
+	    created_at: string;
+	    tracks: number;
+	    has_profile: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Corpus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.created_at = source["created_at"];
+	        this.tracks = source["tracks"];
+	        this.has_profile = source["has_profile"];
+	    }
+	}
+	export class DspVariant {
+	    file: string;
+	    created_at: string;
+	    metrics: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new DspVariant(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file = source["file"];
+	        this.created_at = source["created_at"];
+	        this.metrics = source["metrics"];
+	    }
+	}
+	export class HealthInfo {
+	    status: string;
+	    model_loaded: boolean;
+	    load_error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HealthInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.model_loaded = source["model_loaded"];
+	        this.load_error = source["load_error"];
+	    }
+	}
+	export class Job {
+	    id: number;
+	    title: string;
+	    status: string;
+	    style: string;
+	    lyrics: string;
+	    seed: number;
+	    cot: string;
+	    req_abc: string;
+	    error: string;
+	    duration_sec: number;
+	    audio_file: string;
+	    mp3_file: string;
+	    wav_file: string;
+	    abc_file: string;
+	    created_at: string;
+	    finished_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Job(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.status = source["status"];
+	        this.style = source["style"];
+	        this.lyrics = source["lyrics"];
+	        this.seed = source["seed"];
+	        this.cot = source["cot"];
+	        this.req_abc = source["req_abc"];
+	        this.error = source["error"];
+	        this.duration_sec = source["duration_sec"];
+	        this.audio_file = source["audio_file"];
+	        this.mp3_file = source["mp3_file"];
+	        this.wav_file = source["wav_file"];
+	        this.abc_file = source["abc_file"];
+	        this.created_at = source["created_at"];
+	        this.finished_at = source["finished_at"];
+	    }
+	}
+	export class PlanParams {
+	    style: string;
+	    lyrics: string;
+	    seed: number;
+	    cot: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.style = source["style"];
+	        this.lyrics = source["lyrics"];
+	        this.seed = source["seed"];
+	        this.cot = source["cot"];
+	    }
+	}
+	export class PlanResult {
+	    abc: string;
+	    truncated: boolean;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.abc = source["abc"];
+	        this.truncated = source["truncated"];
+	        this.seconds = source["seconds"];
+	    }
+	}
+	export class Reference {
+	    id: string;
+	    created_at: string;
+	    size: number;
+	    metrics: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Reference(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.created_at = source["created_at"];
+	        this.size = source["size"];
+	        this.metrics = source["metrics"];
+	    }
+	}
+	export class SubmitParams {
+	    title: string;
+	    style: string;
+	    lyrics: string;
+	    seed: number;
+	    cot: string;
+	    abc?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubmitParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.style = source["style"];
+	        this.lyrics = source["lyrics"];
+	        this.seed = source["seed"];
+	        this.cot = source["cot"];
+	        this.abc = source["abc"];
+	    }
+	}
+	export class TranscribeResult {
+	    id: string;
+	    abc: string;
+	    seconds: number;
+	    warnings: string[];
+	    stats: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new TranscribeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.abc = source["abc"];
+	        this.seconds = source["seconds"];
+	        this.warnings = source["warnings"];
+	        this.stats = source["stats"];
+	    }
+	}
+	export class TranslateResult {
+	    text: string;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TranslateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.seconds = source["seconds"];
+	    }
+	}
+
+}
+
