@@ -287,7 +287,7 @@ func TestProtocolToolsCall(t *testing.T) {
 			Content []struct{ Text string } `json:"content"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(lines[0]), &ok)
+	_ = json.Unmarshal([]byte(lines[0]), &ok)
 	if !strings.Contains(ok.Result.Content[0].Text, "model_loaded") {
 		t.Fatalf("status text: %s", ok.Result.Content[0].Text)
 	}

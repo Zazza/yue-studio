@@ -178,7 +178,9 @@ func (p *player) resumeLocked() {
 	if !resumeProcess(p.cmd) {
 		// Windows: процесса-плейера больше нет — чанк играем заново с его начала
 		p.pausedAt = 0
-		p.spawnLocked()
+		if err := p.spawnLocked(); err != nil {
+			p.lastErr = err.Error()
+		}
 		return
 	}
 	p.startedAt = time.Now().Add(-p.pausedAt)

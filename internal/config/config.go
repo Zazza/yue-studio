@@ -50,7 +50,7 @@ func loadSettings() Settings {
 	if err != nil {
 		return s
 	}
-	json.Unmarshal(b, &s)
+	_ = json.Unmarshal(b, &s) // битый файл настроек — дефолты
 	return s
 }
 

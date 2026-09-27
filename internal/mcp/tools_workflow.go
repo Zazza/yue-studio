@@ -288,7 +288,7 @@ func (s *Server) download(id int64, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	if err := os.MkdirAll(s.downloadDir, 0o755); err != nil {
 		return "", err
 	}

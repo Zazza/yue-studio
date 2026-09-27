@@ -71,7 +71,7 @@ func (h *audioProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	w.Header().Set("Accept-Ranges", "bytes")
 	for _, hk := range []string{"Content-Type", "Content-Range", "Content-Length"} {
 		if v := resp.Header.Get(hk); v != "" {
@@ -79,5 +79,5 @@ func (h *audioProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body) // клиент ушёл — ничего не сделать
 }

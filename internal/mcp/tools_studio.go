@@ -348,11 +348,11 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	}
 	tmpIn, err := os.CreateTemp("", fmt.Sprintf("yue-mcp-dsp-%d-in-*.flac", jobID))
 	if err != nil {
-		body.Close()
+		_ = body.Close()
 		return nil, err
 	}
 	_, cpErr := tmpIn.ReadFrom(body)
-	body.Close()
+	_ = body.Close()
 	tmpIn.Close()
 	if cpErr != nil {
 		os.Remove(tmpIn.Name())

@@ -14,7 +14,7 @@ func TestGetDecodesJSON(t *testing.T) {
 		if r.URL.Path != "/jobs" || r.Method != http.MethodGet {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		w.Write([]byte(`[{"id":7,"title":"demo","status":"done"}]`))
+		_, _ = w.Write([]byte(`[{"id":7,"title":"demo","status":"done"}]`))
 	}))
 	defer srv.Close()
 	c := New(srv.URL)
@@ -39,7 +39,7 @@ func TestPostJSONSendsBodyAndDecodesID(t *testing.T) {
 		}
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
-		w.Write([]byte(`{"id":42}`))
+		_, _ = w.Write([]byte(`{"id":42}`))
 	}))
 	defer srv.Close()
 	c := New(srv.URL)
@@ -80,7 +80,7 @@ func TestPostRawSendsFilenameHeader(t *testing.T) {
 		if len(b) != 5 {
 			t.Errorf("body len = %d", len(b))
 		}
-		w.Write([]byte(`{"id":"ref-1"}`))
+		_, _ = w.Write([]byte(`{"id":"ref-1"}`))
 	}))
 	defer srv.Close()
 	c := New(srv.URL)
@@ -98,7 +98,7 @@ func TestDeleteJob(t *testing.T) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/jobs/3" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		w.Write([]byte(`{"deleted":true}`))
+		_, _ = w.Write([]byte(`{"deleted":true}`))
 	}))
 	defer srv.Close()
 	c := New(srv.URL)
@@ -140,7 +140,7 @@ func TestSetURLSwitchesBackend(t *testing.T) {
 	var hitPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitPath = r.URL.Path
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer srv.Close()
 	c := New("http://127.0.0.1:1") // недоступный

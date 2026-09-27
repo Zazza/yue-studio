@@ -136,8 +136,10 @@ func (s *Server) write(out *bufio.Writer, resp rpcResponse) {
 	if err != nil {
 		return
 	}
-	out.Write(b)
-	out.WriteByte('\n')
+	if _, err := out.Write(b); err != nil {
+		return
+	}
+	_ = out.WriteByte('\n')
 	out.Flush()
 }
 

@@ -1,15 +1,20 @@
-# Конфиг golangci-lint. Запуск: golangci-lint run
+# Конфиг golangci-lint (v2). Запуск: golangci-lint run
+version: "2"
+
 run:
   timeout: 3m
 
 linters:
+  default: standard
   enable:
-    - govet
-    - staticcheck
-    - errcheck
-    - ineffassign
-    - unused
     - misspell
+  settings:
+    errcheck:
+      exclude-functions:
+        # рутинная очистка: игнор ошибок Close/Flush/Remove осознан
+        - (*os.File).Close
+        - (*bufio.Writer).Flush
+        - os.Remove
 
 issues:
   exclude-rules:

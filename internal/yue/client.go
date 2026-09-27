@@ -101,7 +101,7 @@ func (c *Client) call(ctx context.Context, method, path string, timeout time.Dur
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyLimit))
 		return fmt.Errorf("yue %s: %s: %s", path, resp.Status, string(b))

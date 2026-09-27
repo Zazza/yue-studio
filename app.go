@@ -80,7 +80,7 @@ func (a *App) fetchTempFile(id int64, file, pattern string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	tmp, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
@@ -262,7 +262,7 @@ func (a *App) YueSaveAudio(id int64, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	target, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		DefaultFilename: fmt.Sprintf("yue-%d-%s", id, file),
@@ -326,7 +326,7 @@ func (a *App) playFile(id int64, file string, durSec float64) error {
 		return err
 	}
 	data, err := io.ReadAll(body)
-	body.Close()
+	_ = body.Close()
 	if err != nil {
 		return err
 	}
