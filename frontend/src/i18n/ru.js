@@ -246,4 +246,7 @@ export default {
   'queue.progress.load': 'загрузка модели',
   'queue.progress.semantic': 'генерация',
   'queue.progress.tps': 'т/с',
+  'form.draft': '✦ черновик',
+  'form.draft.tip': 'Короткая версия ~15-20 с (~полминуты GPU): послушать стиль до полного рендера',
+  'queue.draft': 'черновик',
 }

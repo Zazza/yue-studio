@@ -82,6 +82,8 @@ type SubmitParams struct {
 	Seed   int64  `json:"seed"`
 	Cot    string `json:"cot"`
 	Abc    string `json:"abc,omitempty"`
+	// черновик ~40 с вместо полного трека (быстрое предпрослушивание стиля)
+	Draft bool `json:"draft,omitempty"`
 }
 
 type PlanParams struct {

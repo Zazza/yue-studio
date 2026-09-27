@@ -146,6 +146,16 @@ async function submit() {
   } finally { submitting.value = false }
 }
 
+// черновик ~40 с: быстро послушать стиль, прежде чем рендерить полный трек
+async function submitDraft() {
+  if (!canSubmit.value) return
+  submitting.value = true
+  try {
+    await api.submit({ ...payload({ draft: true }), style: await finalStyle() })
+    await refresh()
+  } finally { submitting.value = false }
+}
+
 async function submitFan(n) {
   if (!canSubmit.value) return
   submitting.value = true
@@ -562,6 +572,10 @@ function onWindowClick(e) {
                   :title="t('form.notes.tip')">
             {{ planBusy ? t('form.planning') : t('form.notes') }}
           </button>
+          <button class="ghost" :disabled="submitting || !canSubmit" @click="submitDraft"
+                  :title="t('form.draft.tip')">
+            {{ t('form.draft') }}
+          </button>
         </div>
       </section>
     </div>
@@ -803,6 +817,7 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .job .play-main { flex: none; }
 .job-actions button { font-size: 12px; padding: 4px 10px; }
 .muted { color: var(--muted); }
+.badge.draft { background: rgba(120,140,255,.15); color: #9aa5ff; font-style: italic; }
 .badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: rgba(120,140,255,.15); color: #9aa5ff; }
 .play-main {
   background: linear-gradient(180deg, #ffd27a, var(--lcd-text) 45%, #c98a1a);

@@ -246,4 +246,7 @@ export default {
   'queue.progress.load': 'loading model',
   'queue.progress.semantic': 'generating',
   'queue.progress.tps': 'tok/s',
+  'form.draft': '✦ draft',
+  'form.draft.tip': 'Short ~15-20s version: preview the style before a full render',
+  'queue.draft': 'draft',
 }

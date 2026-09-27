@@ -109,6 +109,8 @@ def _migrate():
             conn.execute("ALTER TABLE jobs ADD COLUMN overdub_of INTEGER")
         if "overdub_gain" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN overdub_gain REAL DEFAULT 0.5")
+        if "draft" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN draft INTEGER DEFAULT 0")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -185,7 +187,7 @@ def _on_token_cb(job_id: int):
     return on_token, counters
 
 
-def _progress_watcher(job_id: int, counters: dict, t0: float):
+def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
     """Раз в 2 с пишет прогресс в _progress (для /jobs)."""
     stop = threading.Event()
     last = 0
@@ -200,7 +202,7 @@ def _progress_watcher(job_id: int, counters: dict, t0: float):
             # токены / бюджет; загрузка модели и план — неопределённая длительность
             pct = None
             if counters["phase"] == "semantic":
-                pct = min(99, counters["tokens"] * 100 // max(1, MAX_SEM_TOKENS))
+                pct = min(99, counters["tokens"] * 100 // max(1, budget or MAX_SEM_TOKENS))
             with _state_lock:
                 _progress[job_id] = {
                     "stage": counters["phase"],
@@ -225,15 +227,23 @@ def _run_job(job_id: int):
     with _state_lock:
         _cancel_flags[job_id] = cancel_ev
     on_token, counters = _on_token_cb(job_id)
-    watch_stop = _progress_watcher(job_id, counters, time.time())
+    budget = 450 if row["draft"] else MAX_SEM_TOKENS   # ~18 с превью
+    watch_stop = _progress_watcher(job_id, counters, time.time(), budget)
     try:  # noqa: SIM105 - очистка состояния после любого исхода
         with _pipe_lock:
             pipe = _get_pipe()
             counters["phase"] = "plan"
             request = {"style": row["style"], "lyrics": row["lyrics"], "cot": row["cot"],
                        "on_token": on_token,
-                       "cancelled": lambda: cancel_ev.is_set(),
-                       "max_tokens": MAX_SEM_TOKENS, "cfg_scale": CFG_SCALE}
+                       "cancelled": lambda: cancel_ev.is_set()}
+            if CFG_SCALE > 0:
+                request["cfg_scale"] = CFG_SCALE
+            # бюджет длины — параметр Sampling, не запроса
+            try:
+                from yue2.protocol import Sampling
+                request["semantic_sampling"] = Sampling(max_tokens=budget)
+            except ImportError:
+                pass
             if row["seed"]:
                 request["seed"] = row["seed"]
             if row["req_abc"]:
@@ -245,11 +255,9 @@ def _run_job(job_id: int):
                 try:
                     song = pipe(**request)
                 except TypeError as te:
-                    # старые сборки yue2 не знают max_tokens/cfg_scale — без них
-                    if "max_tokens" in str(te) or "cfg_scale" in str(te):
-                        log.warning("yue2 pipeline не поддерживает max_tokens/cfg_scale (%s); "
-                                    "генерирую с дефолтами библиотеки", te)
-                        request.pop("max_tokens", None)
+                    # старые сборки yue2 могут не знать cfg_scale — без него
+                    if "cfg_scale" in str(te):
+                        log.warning("yue2 pipeline не поддерживает cfg_scale (%s); дефолт библиотеки", te)
                         request.pop("cfg_scale", None)
                         song = pipe(**request)
                     else:
@@ -338,6 +346,8 @@ class JobIn(BaseModel):
     seed: int | None = None
     cot: str = Field(default="full", pattern="^(full|melody|off)$")
     abc: str | None = None
+    # черновик ~15-20 с вместо полного трека: быстро послушать, стоит ли рендерить целиком
+    draft: bool = False
 
 
 class PlanIn(BaseModel):
@@ -473,9 +483,9 @@ def submit(req: JobIn):
         raise HTTPException(422, "abc requires cot=full or cot=melody")
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,created_at) VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,created_at) VALUES(?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
-             req.lyrics, req.seed, req.cot, time.strftime("%Y-%m-%dT%H:%M:%S")))
+             req.lyrics, req.seed, req.cot, int(req.draft), time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
             (JOBS_DIR / str(job_id)).mkdir(parents=True, exist_ok=True)
