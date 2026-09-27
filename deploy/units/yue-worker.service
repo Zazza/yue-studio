@@ -4,10 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/home/dsamotoy/yue-studio
-Environment=HF_HOME=/mnt/e/AI/hf-cache
+WorkingDirectory=%h/yue-studio
+Environment=HF_HOME=%h/yue/hf-cache
 Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-ExecStart=/home/dsamotoy/yue/.venv/bin/python -m uvicorn yue_worker:app --host 0.0.0.0 --port 8091
+EnvironmentFile=%h/yue-studio/worker.env
+ExecStart=%h/yue/.venv/bin/python -m uvicorn yue_worker:app --host 0.0.0.0 --port 8091
 Restart=on-failure
 RestartSec=5
 

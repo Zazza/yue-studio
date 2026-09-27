@@ -34,9 +34,15 @@ export function YueDeleteJob(arg1:number):Promise<boolean>;
 
 export function YueDspChains():Promise<Array<dsp.Chain>>;
 
+export function YueDspPreview(arg1:number,arg2:string,arg3:Record<string, number>):Promise<yue.DspVariant>;
+
 export function YueDspVariants(arg1:number):Promise<Array<yue.DspVariant>>;
 
+export function YueEnsureMp3(arg1:number):Promise<Record<string, any>>;
+
 export function YueGetServerURL():Promise<string>;
+
+export function YueImportTrack():Promise<Record<string, any>>;
 
 export function YueJobPreview(arg1:number,arg2:number,arg3:number):Promise<Record<string, any>>;
 
@@ -46,7 +52,11 @@ export function YueJobStems(arg1:number):Promise<Array<Record<string, any>>>;
 
 export function YueJobs():Promise<Array<yue.Job>>;
 
+export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<string, any>>;
+
 export function YueMakeStems(arg1:number):Promise<Record<string, any>>;
+
+export function YueOllamaModels(arg1:string):Promise<Record<string, any>>;
 
 export function YueOpenExternal(arg1:number,arg2:string):Promise<void>;
 
@@ -62,7 +72,13 @@ export function YueReferences():Promise<Array<yue.Reference>>;
 
 export function YueSaveAudio(arg1:number,arg2:string):Promise<string>;
 
+export function YueSeekAudio(arg1:number):Promise<void>;
+
 export function YueSetServerURL(arg1:string):Promise<void>;
+
+export function YueSetVolume(arg1:number):Promise<void>;
+
+export function YueSetWorkerConfig(arg1:Record<string, any>):Promise<void>;
 
 export function YueStatus():Promise<yue.HealthInfo>;
 
@@ -79,3 +95,5 @@ export function YueToggleAudio():Promise<void>;
 export function YueTranscribeFile():Promise<yue.TranscribeResult>;
 
 export function YueTranslate(arg1:string):Promise<yue.TranslateResult>;
+
+export function YueWorkerConfig():Promise<Record<string, any>>;

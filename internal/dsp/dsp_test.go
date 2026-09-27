@@ -40,7 +40,7 @@ func TestRunWallOnSine(t *testing.T) {
 		t.Fatalf("make test input: %v", err)
 	}
 	c := ByID("wall")
-	if err := Run(in, out, c.FilterGraph(nil)); err != nil {
+	if err := Run(in, out, c.FilterGraph(nil), nil); err != nil {
 		t.Fatalf("run wall: %v", err)
 	}
 	st, err := os.Stat(out)

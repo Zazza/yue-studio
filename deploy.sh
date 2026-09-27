@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# Yue Studio: сборка desktop-приложения (ПК) и деплой воркера на 184.
-# usage: ./deploy.sh [worker|build]
+# Yue Studio: сборка desktop-приложения (ПК) и деплой воркера на GPU-машину.
+# usage: ./deploy.sh [worker|build]; хост задаётся YUE_DEPLOY_HOST (user@host)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-HOST=dsamotoy@192.168.1.184
-REMOTE_DIR='$HOME/yue-studio'
+HOST="${YUE_DEPLOY_HOST:?задайте YUE_DEPLOY_HOST=user@gpu-host для деплоя воркера}"
 
 CMD="${1:-build}"
 
 if [[ "$CMD" == "worker" ]]; then
-  echo "== deploy worker to 184 =="
+  echo "== deploy worker to $HOST =="
   ssh "$HOST" "mkdir -p ~/yue-studio/units ~/yue-studio/data"
+  # worker.env — машинные настройки воркера (адрес Ollama и пр.); не перезаписываем
+  ssh "$HOST" 'test -f ~/yue-studio/worker.env || cat > ~/yue-studio/worker.env <<EOF
+# Настройки воркера (машина-специфичные, в репо не хранится)
+# YUE_OLLAMA_URL=http://127.0.0.1:11434/api/chat
+# YUE_OLLAMA_MODEL=qwen2.5-chat-ru:latest
+EOF'
   scp -q worker/yue_worker.py worker/dsp.py worker/sheetsage.py worker/stems.py \
-        worker/abcparse.py worker/whisper_run.py "$HOST:~/yue-studio/"
+        worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py "$HOST:~/yue-studio/"
   scp -q deploy/units/yue-worker.service "$HOST:~/yue-studio/units/"
   ssh "$HOST" '
 set -e
@@ -24,7 +29,7 @@ systemctl --user restart yue-worker
 sleep 2
 systemctl --user --no-pager status yue-worker | head -6
 '
-  echo "worker OK: http://192.168.1.184:8091/health"
+  echo "worker OK: http://$(echo "$HOST" | cut -d@ -f2):8091/health"
   exit 0
 fi
 

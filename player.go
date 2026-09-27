@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+
 	"strings"
 	"sync"
 	"time"
@@ -23,9 +23,28 @@ type player struct {
 	loadedID  int64
 	duration  time.Duration
 	lastErr   string
+	offset    time.Duration // позиция начала файла после перемотки
+	volume    float64       // 0..1, применяется при запуске плеера
 }
 
-var pl = &player{}
+// Player — интерфейс встроенного плеера (реализация — player ниже).
+type Player interface {
+	Load(id int64, data []byte, dur time.Duration) error
+	Play() error
+	Toggle()
+	Stop()
+	Seek(target time.Duration) error
+	State() (playing bool, pos, dur time.Duration, loadedID int64)
+	SetVolume(v float64)
+	LastError() string
+}
+
+// NewPlayer — плеер по умолчанию (громкость 0.8).
+func NewPlayer() Player {
+	return &player{volume: 0.8}
+}
+
+var _ Player = (*player)(nil)
 
 // pwEnv гарантирует XDG_RUNTIME_DIR: без него pw-play, запущенный из
 // desktop-сессии (где переменной может не быть), молча не видит сокет PipeWire.
@@ -39,18 +58,7 @@ func pwEnv() []string {
 	return append(env, fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", uid()))
 }
 
-// playerLog — журнал запусков pw-play для диагностики звука (~/yue-player.log).
-func playerLog(format string, args ...any) {
-	f, err := os.OpenFile(filepath.Join(os.Getenv("HOME"), "yue-player.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, time.Now().Format("15:04:05")+" "+format+"\n", args...)
-}
-
-func (p *player) load(id int64, wavBytes []byte, dur time.Duration) error {
+func (p *player) Load(id int64, wavBytes []byte, dur time.Duration) error {
 	// расширение по содержимому: pw-play (libsndfile) определяет формат по
 	// заголовку, но имя файла оставляем честным для прозрачности
 	ext := ".wav"
@@ -72,6 +80,7 @@ func (p *player) load(id int64, wavBytes []byte, dur time.Duration) error {
 	p.loadedID = id
 	p.duration = dur
 	p.pausedAt = 0
+	p.offset = 0
 	p.mu.Unlock()
 	return nil
 }
@@ -99,13 +108,11 @@ func (p *player) stopLocked() {
 }
 
 func (p *player) spawnLocked() error {
-	cmd, xdg := playerCommand(p.tmpFile)
+	cmd := playerCommand(p.tmpFile, p.volume)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	playerLog("spawn player %s (%s)", p.tmpFile, xdg)
 	if err := cmd.Start(); err != nil {
 		p.lastErr = fmt.Sprintf("player: %v", err)
-		playerLog("start failed: %v", err)
 		return err
 	}
 	p.cmd = cmd
@@ -125,12 +132,11 @@ func (p *player) spawnLocked() error {
 			}
 		}
 		p.mu.Unlock()
-		playerLog("exit err=%v stderr=%q", err, strings.TrimSpace(stderr.String()))
 	}()
 	return nil
 }
 
-func (p *player) play() error {
+func (p *player) Play() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.tmpFile == "" {
@@ -141,7 +147,7 @@ func (p *player) play() error {
 	return p.spawnLocked()
 }
 
-func (p *player) toggle() {
+func (p *player) Toggle() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.cmd == nil || p.cmd.Process == nil {
@@ -176,23 +182,102 @@ func (p *player) resumeLocked() {
 	p.playing = true
 }
 
-func (p *player) stop() {
+func (p *player) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stopLocked()
 }
 
-func (p *player) state() (playing bool, pos, dur time.Duration, loadedID int64) {
+func (p *player) State() (playing bool, pos, dur time.Duration, loadedID int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	pos = p.pausedAt
 	if p.playing {
 		pos = time.Since(p.startedAt)
 	}
+	pos += p.offset
 	return p.playing, pos, p.duration, p.loadedID
 }
 
-func (p *player) lastError() string {
+// seek — перемотка: ffmpeg -ss нарезает хвост локального файла в новый temp,
+// плеер перезапускается с него (у pw-play/WPF-обёртки нет нативного seek).
+func (p *player) Seek(target time.Duration) error {
+	p.mu.Lock()
+	src := p.tmpFile
+	if src == "" {
+		p.mu.Unlock()
+		return fmt.Errorf("nothing loaded")
+	}
+	if target < 0 {
+		target = 0
+	}
+	if p.duration > 0 && target > p.duration {
+		target = p.duration
+	}
+	// из текущего смещения можно прыгнуть только вперёд — назад перекодируем от 0
+	seekFrom := p.offset
+	if target < seekFrom {
+		seekFrom = 0
+	}
+	skip := target - seekFrom
+	remaining := p.duration - target
+	p.killLocked() // файл не трогаем: он источник для ffmpeg
+	p.playing = false
+	p.mu.Unlock()
+
+	if remaining <= 0 {
+		p.mu.Lock()
+		p.offset = p.duration
+		p.pausedAt = 0
+		p.mu.Unlock()
+		return nil
+	}
+	out, err := os.CreateTemp("", fmt.Sprintf("yue-seek-%d-*.flac", p.loadedID))
+	if err != nil {
+		return err
+	}
+	outName := out.Name()
+	out.Close()
+	cmd := exec.Command("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+		"-ss", fmt.Sprintf("%.3f", skip.Seconds()), "-i", src,
+		"-t", fmt.Sprintf("%.3f", remaining.Seconds()),
+		"-c", "copy", outName)
+	if err := cmd.Run(); err != nil {
+		os.Remove(outName)
+		return fmt.Errorf("seek: ffmpeg: %v", err)
+	}
+
+	p.mu.Lock()
+	if src != p.tmpFile && src != "" { // источник сменился, пока резали
+		os.Remove(outName)
+		p.mu.Unlock()
+		return fmt.Errorf("track changed during seek")
+	}
+	os.Remove(src)
+	p.tmpFile = outName
+	p.offset = target
+	p.duration = remaining
+	p.pausedAt = 0
+	p.lastErr = ""
+	err = p.spawnLocked()
+	p.mu.Unlock()
+	return err
+}
+
+// setVolume — 0..1; применяется при следующем запуске дорожки (pw-play/WPF).
+func (p *player) SetVolume(v float64) {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	p.mu.Lock()
+	p.volume = v
+	p.mu.Unlock()
+}
+
+func (p *player) LastError() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.lastErr

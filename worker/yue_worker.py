@@ -21,6 +21,9 @@ import sqlite3
 import threading
 import time
 import urllib.request
+
+import llm
+import media
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -145,17 +148,10 @@ def _make_formats(job_dir: Path) -> tuple[str, str]:
     if not src.exists():
         return "", ""
     try:
-        import lameenc
         import soundfile as sf
         data, sr = sf.read(str(src), always_2d=True, dtype="float32")
         sf.write(str(job_dir / "audio.wav"), data, sr, subtype="PCM_16")
-        inter = (data.T * 32767.0).astype("<i2").tobytes()
-        enc = lameenc.Encoder()
-        enc.set_bit_rate(192)
-        enc.set_in_sample_rate(sr)
-        enc.set_channels(data.shape[1])
-        enc.set_quality(2)
-        (job_dir / "audio.mp3").write_bytes(enc.encode(inter) + enc.flush())
+        media.encode_mp3(src, job_dir / "audio.mp3")
         return "audio.mp3", "audio.wav"
     except Exception:  # noqa: BLE001
         log.exception("format convert failed")
@@ -271,6 +267,54 @@ OLLAMA_URL = os.environ.get("YUE_OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
 OLLAMA_MODEL = os.environ.get("YUE_OLLAMA_MODEL", "qwen2.5-chat-ru:latest")
 
 
+class ConfigIn(BaseModel):
+    ollama_url: str | None = None
+    ollama_model: str | None = None
+
+
+@app.get("/config")
+def get_config():
+    """Текущие настройки: Ollama (копайтер/перевод), пути. Меняется через POST."""
+    return {
+        "ollama_url": OLLAMA_URL,
+        "ollama_model": OLLAMA_MODEL,
+        "data_dir": str(DATA_DIR),
+        "whisper_py": str(WHISPER_PY),
+        "whisper_available": WHISPER_PY.is_file(),
+    }
+
+
+@app.post("/config")
+def set_config(req: ConfigIn):
+    """Смена Ollama URL/модели на лету (настройки из GUI). До перезапуска:
+    env-переменные при старте имеют приоритет, это переопределяет на сессию."""
+    global OLLAMA_URL, OLLAMA_MODEL
+    if req.ollama_url is not None:
+        if not req.ollama_url.startswith(("http://", "https://")):
+            raise HTTPException(422, "ollama_url must be an http(s) URL")
+        OLLAMA_URL = req.ollama_url.rstrip("/")
+    if req.ollama_model is not None:
+        if not req.ollama_model.strip():
+            raise HTTPException(422, "ollama_model must not be empty")
+        OLLAMA_MODEL = req.ollama_model.strip()
+    log.info("config updated: ollama=%s model=%s", OLLAMA_URL, OLLAMA_MODEL)
+    return get_config()
+
+
+@app.get("/ollama_models")
+def ollama_models(url: str | None = None):
+    """Список установленных моделей Ollama (для выпадающего списка в настройках).
+    ?url= — проверить кандидат до сохранения; без параметра — текущий OLLAMA_URL."""
+    chat_url = url or OLLAMA_URL
+    base = chat_url.split("/api/")[0] if "/api/" in chat_url else chat_url.rstrip("/")
+    try:
+        r = urllib.request.urlopen(f"{base}/api/tags", timeout=10)
+        tags = json.load(r).get("models", [])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"ollama unreachable: {e}") from e
+    return {"base_url": base, "models": sorted(str(m.get("name", "")) for m in tags if m.get("name"))}
+
+
 @app.post("/copilot")
 def copilot(req: CopilotIn):
     """Копайтер стихов через Ollama. keep_alive=0: модель выгружается из VRAM
@@ -290,22 +334,12 @@ def copilot(req: CopilotIn):
         user += ("\nВот пример текста в похожей манере — подражай манере, "
                  f"но не повторяй содержание:\n{req.example.strip()}")
     user += "\nНапиши текст песни."
-    payload = json.dumps({
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "stream": False,
-        "keep_alive": 0,
-        "options": {"temperature": 0.9},
-    }).encode()
     t0 = time.time()
     try:
-        r = urllib.request.urlopen(urllib.request.Request(
-            OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}), timeout=280)
-        out = json.load(r)
+        text = llm.strip_md(llm.ollama_chat(OLLAMA_URL, OLLAMA_MODEL, system, user,
+                                            temperature=0.9, timeout=280))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"ollama failed: {e}") from e
-    text = str(out.get("message", {}).get("content", "")).strip()
-    text = re.sub(r"^```[a-z]*\s*|\s*```$", "", text).strip()
     if not text:
         raise HTTPException(502, "ollama returned empty text")
     log.info("copilot: %d chars in %.1fs", len(text), time.time() - t0)
@@ -325,20 +359,12 @@ def translate(req: TranslateIn):
         raise HTTPException(422, "text is required")
     system = (f"Translate the user's music style description to {req.to}. "
               "Keep it a single comma-separated tag line. Output ONLY the translation.")
-    payload = json.dumps({
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": req.text.strip()}],
-        "stream": False, "keep_alive": 0, "options": {"temperature": 0.2},
-    }).encode()
     t0 = time.time()
     try:
-        r = urllib.request.urlopen(urllib.request.Request(
-            OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}), timeout=120)
-        out = json.load(r).get("message", {}).get("content", "").strip()
+        out = llm.strip_md(llm.ollama_chat(OLLAMA_URL, OLLAMA_MODEL, system,
+                                           req.text.strip(), temperature=0.2))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"ollama failed: {e}") from e
-    out = re.sub(r"^```[a-z]*\s*|\s*```$", "", out).strip()
     if not out:
         raise HTTPException(502, "ollama returned empty translation")
     return {"text": out, "seconds": round(time.time() - t0, 1)}
@@ -679,6 +705,49 @@ def _mix_overdub(parent_id: int, child_id: int, gain: float = 0.5):
     log.info("overdub: %s mixed over %s (gain %.2f)", child_id, parent_id, gain)
 
 
+class ImportIn(BaseModel):
+    title: str = ""
+    transcribe: bool = True   # сразу делать транскрипцию (SheetSage2) для ролла/овердаба
+
+
+@app.post("/tracks/import")
+async def tracks_import(request: Request, transcribe: bool = True, title: str = ""):
+    """Импорт внешнего трека как джобы-статуса done: дальше работают стемы,
+    минус, эффекты, ролл (по транскрипции) и овердаб — вся студия."""
+    fname = re.sub(r"[^A-Za-z0-9_.-]", "_", request.headers.get("x-filename", "")) or "track.flac"
+    data = await request.body()
+    if not data:
+        raise HTTPException(422, "empty body")
+    with db_lock, db() as conn:
+        cur = conn.execute(
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,created_at,finished_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (title or fname.rsplit(".", 1)[0], "done", "(импорт внешнего трека)", "",
+             None, "full", time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
+        jid = cur.lastrowid
+    jdir = JOBS_DIR / str(jid)
+    jdir.mkdir(parents=True, exist_ok=True)
+    ext = "".join(Path(fname).suffixes)[-5:] or ".flac"
+    audio = jdir / ("audio" + ext)
+    audio.write_bytes(data)
+    abc_file = ""
+    transcribe_error = ""
+    if transcribe:
+        try:
+            result = ss_transcribe(audio, jdir)
+            (jdir / "score.abc").write_text(result.get("abc", ""), encoding="utf-8")
+            abc_file = "score.abc" if result.get("abc", "").strip() else ""
+        except Exception as e:  # noqa: BLE001
+            log.exception("import transcribe failed")
+            transcribe_error = str(e)
+    with db_lock, db() as conn:
+        conn.execute(
+            "UPDATE jobs SET duration_sec=?, audio_file=?, abc_file=? WHERE id=?",
+            (_audio_duration(audio), audio.name, abc_file, jid))
+    return {"id": jid, "duration_sec": _audio_duration(audio), "abc_file": abc_file,
+            "transcribe_error": transcribe_error}
+
+
 @app.post("/jobs/{job_id}/overdub")
 def submit_overdub(job_id: int, req: OverdubIn):
     """Рендер партии по score.abc джобы (механизм req_abc) с её стилем;
@@ -726,6 +795,65 @@ def job_stems(job_id: int):
         except Exception:  # noqa: BLE001
             pass
     return result
+
+
+@app.post("/jobs/{job_id}/mp3")
+def job_mp3(job_id: int):
+    """Ленивая конвертация в mp3 320 (для импортированных треков)."""
+    row = _job_row(job_id)
+    if row is None or not row["audio_file"]:
+        raise HTTPException(404, "job or audio not found")
+    job_dir = JOBS_DIR / str(job_id)
+    out = job_dir / "audio.mp3"
+    if not out.is_file():
+        try:
+            media.encode_mp3(job_dir / row["audio_file"], out)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"mp3 encode failed: {e}") from e
+        with db_lock, db() as conn:
+            conn.execute("UPDATE jobs SET mp3_file=? WHERE id=?", ("audio.mp3", job_id))
+    return {"file": "audio.mp3"}
+
+
+class MinusIn(BaseModel):
+    exclude: list[str] = Field(default_factory=list)  # drums/bass/other/vocals
+
+
+@app.post("/jobs/{job_id}/minus")
+def job_minus(job_id: int, req: MinusIn):
+    """Минус-трек: микс стемов без исключённых групп (честное смешивание, без
+    перегенерации). Стемы разделяются при необходимости. → minus.flac."""
+    row = _job_row(job_id)
+    if row is None or not row["audio_file"]:
+        raise HTTPException(404, "job or audio not found")
+    job_dir = JOBS_DIR / str(job_id)
+    stems = sorted(job_dir.glob("stem-*.flac"))
+    if not stems:
+        try:
+            demucs_separate(job_dir / row["audio_file"], job_dir)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"demucs failed: {e}") from e
+        stems = sorted(job_dir.glob("stem-*.flac"))
+        if not stems:
+            raise HTTPException(500, "no stems after demucs")
+    keep = [p for p in stems if p.stem.replace("stem-", "") not in req.exclude]
+    if not keep:
+        raise HTTPException(422, "cannot exclude every stem")
+    import numpy as np
+    import soundfile as sf
+    mix = None
+    sr = None
+    for p in keep:
+        data, sr = sf.read(str(p), always_2d=True, dtype="float32")
+        mix = data if mix is None else mix[:len(data)] + data[:len(mix)]
+    if mix is None:
+        raise HTTPException(500, "no stems to mix")
+    peak = float(np.max(np.abs(mix))) if mix.size else 0.0
+    if peak > 0.99:
+        mix = mix / peak * 0.99
+    sf.write(str(job_dir / "minus.flac"), mix, sr)
+    return {"file": "minus.flac", "excluded": req.exclude,
+            "kept": [p.stem.replace("stem-", "") for p in keep]}
 
 
 @app.get("/jobs/{job_id}/stems")
@@ -829,8 +957,8 @@ def corpus_build(cid: int):
             tracks.append(json.loads(ip.read_text()))
         except Exception:  # noqa: BLE001
             continue
-    if len(tracks) < 3:
-        raise HTTPException(422, f"need >= 3 tracks, have {len(tracks)}")
+    if not tracks:
+        raise HTTPException(422, "no analyzed tracks: add at least one")
 
     import numpy as np
     tempos = [t["metrics"]["tempo_bpm"] for t in tracks if t.get("metrics")]
@@ -886,17 +1014,10 @@ def _corpus_style(profile: dict) -> str:
               "исполнителя составь ОДНУ строку описания стиля для генератора музыки "
               "(жанр, инструментовка, характер звука, продакшн). В ответе — только "
               "эта строка, без пояснений, на английском, как тег-строка.")
-    payload = json.dumps({
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": f"Статистика корпуса:\n{facts}"}],
-        "stream": False, "keep_alive": 0, "options": {"temperature": 0.4},
-    }).encode()
     try:
-        r = urllib.request.urlopen(urllib.request.Request(
-            OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}), timeout=120)
-        text = json.load(r).get("message", {}).get("content", "").strip()
-        return re.sub(r"^```[a-z]*\s*|\s*```$", "", text).strip()
+        return llm.strip_md(llm.ollama_chat(OLLAMA_URL, OLLAMA_MODEL, system,
+                                            f"Статистика корпуса:\n{facts}",
+                                            temperature=0.4))
     except Exception as e:  # noqa: BLE001
         log.warning("corpus style via ollama failed: %s", e)
         return ""

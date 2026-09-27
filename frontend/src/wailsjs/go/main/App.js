@@ -62,12 +62,24 @@ export function YueDspChains() {
   return window['go']['main']['App']['YueDspChains']();
 }
 
+export function YueDspPreview(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueDspPreview'](arg1, arg2, arg3);
+}
+
 export function YueDspVariants(arg1) {
   return window['go']['main']['App']['YueDspVariants'](arg1);
 }
 
+export function YueEnsureMp3(arg1) {
+  return window['go']['main']['App']['YueEnsureMp3'](arg1);
+}
+
 export function YueGetServerURL() {
   return window['go']['main']['App']['YueGetServerURL']();
+}
+
+export function YueImportTrack() {
+  return window['go']['main']['App']['YueImportTrack']();
 }
 
 export function YueJobPreview(arg1, arg2, arg3) {
@@ -86,8 +98,16 @@ export function YueJobs() {
   return window['go']['main']['App']['YueJobs']();
 }
 
+export function YueMakeMinus(arg1, arg2) {
+  return window['go']['main']['App']['YueMakeMinus'](arg1, arg2);
+}
+
 export function YueMakeStems(arg1) {
   return window['go']['main']['App']['YueMakeStems'](arg1);
+}
+
+export function YueOllamaModels(arg1) {
+  return window['go']['main']['App']['YueOllamaModels'](arg1);
 }
 
 export function YueOpenExternal(arg1, arg2) {
@@ -118,8 +138,20 @@ export function YueSaveAudio(arg1, arg2) {
   return window['go']['main']['App']['YueSaveAudio'](arg1, arg2);
 }
 
+export function YueSeekAudio(arg1) {
+  return window['go']['main']['App']['YueSeekAudio'](arg1);
+}
+
 export function YueSetServerURL(arg1) {
   return window['go']['main']['App']['YueSetServerURL'](arg1);
+}
+
+export function YueSetVolume(arg1) {
+  return window['go']['main']['App']['YueSetVolume'](arg1);
+}
+
+export function YueSetWorkerConfig(arg1) {
+  return window['go']['main']['App']['YueSetWorkerConfig'](arg1);
 }
 
 export function YueStatus() {
@@ -152,4 +184,8 @@ export function YueTranscribeFile() {
 
 export function YueTranslate(arg1) {
   return window['go']['main']['App']['YueTranslate'](arg1);
+}
+
+export function YueWorkerConfig() {
+  return window['go']['main']['App']['YueWorkerConfig']();
 }

@@ -1,6 +1,4 @@
-// Package dsp — пост-обработка ffmpeg-цепочками на стороне ПК
-// (на 184 ffmpeg нет). Цепочки параметризованы; пресет «wall» откалиброван
-// по эталону марафона 03-grob-v6-wall.flac (крест 2.6, дин 5.3, верх 58%).
+// Package dsp — пост-обработка ffmpeg-цепочками на стороне ПК.
 package dsp
 
 import (
@@ -68,7 +66,7 @@ func tapeGraph(p map[string]float64) string {
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
-		Note: "Калибровка по ГрОб «Всё как у людей» (v6-wall): монолит громкости, песок верхов, нойз-полотно.",
+		Note:   "Монолит громкости, песок верхов, нойз-полотно.",
 		Params: wallParams, graph: wallGraph,
 	},
 	{
@@ -83,7 +81,7 @@ var chains = []Chain{
 	},
 	{
 		ID: "tape", Name: "Кассета",
-		Note: "Wow/флаттер, срез верхов, розовое шипение — домашняя лента.",
+		Note:   "Wow/флаттер, срез верхов, розовое шипение — домашняя лента.",
 		Params: tapeParams, graph: tapeGraph,
 	},
 }
@@ -133,10 +131,22 @@ func (c *Chain) Defaults() map[string]float64 {
 	return m
 }
 
+// Span — фрагмент файла для Run: со startSec и длиной durSec (nil = весь файл).
+// Для превью цепочки: секунды вместо всего трека.
+type Span struct {
+	StartSec float64
+	DurSec   float64
+}
+
 // Run прогоняет файл через filter_complex (ffmpeg на ПК).
-func Run(inPath, outPath, filterGraph string) error {
-	cmd := exec.Command("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-		"-i", inPath, "-filter_complex", filterGraph, "-map", "[out]", outPath)
+func Run(inPath, outPath, filterGraph string, span *Span) error {
+	args := []string{"-y", "-hide_banner", "-loglevel", "error"}
+	if span != nil {
+		args = append(args, "-ss", fmt.Sprintf("%.1f", span.StartSec),
+			"-t", fmt.Sprintf("%.1f", span.DurSec))
+	}
+	args = append(args, "-i", inPath, "-filter_complex", filterGraph, "-map", "[out]", outPath)
+	cmd := exec.Command("ffmpeg", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

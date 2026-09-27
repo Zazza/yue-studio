@@ -23,7 +23,7 @@ var assets embed.FS
 func main() {
 	cfg := config.Load()
 	client := yue.New(cfg.YueURL)
-	app := NewApp(client)
+	app := NewApp(client, NewPlayer())
 
 	if err := wails.Run(&options.App{
 		Title:     "Yue Studio",
@@ -50,7 +50,7 @@ func main() {
 }
 
 // audioProxy отдаёт артефакты джоб через встроенный ассет-сервер,
-// чтобы webview грузил их с того же origin (без прямых http-ссылок на 184).
+// чтобы webview грузил их с того же origin (без прямых http-ссылок на воркер).
 type audioProxy struct {
 	client *yue.Client
 }
@@ -66,7 +66,6 @@ func (h *audioProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	log.Printf("audioProxy: GET %s range=%q", r.URL.Path, r.Header.Get("Range"))
 	resp, err := h.client.FetchAudioReq(r.Context(), id, file, r.Header.Get("Range"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

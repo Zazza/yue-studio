@@ -1,14 +1,46 @@
+/* == Winamp-inspired design system =====================================
+   Тёмная тема — классический винамп: тёмно-серый металл с фасками,
+   зелёные LCD-дисплеи. Светлая — «светлый скин»: бежевый металл,
+   тёмно-синие LCD. Всё векторное (CSS), поэтому чётко на 2K/4K. */
+
 :root {
-  --bg: #101014;
-  --panel: #18181f;
-  --panel2: #1e1e27;
-  --border: #2a2a35;
-  --text: #e8e8ee;
-  --muted: #8b8b9a;
+  --bg: #0d0d11;
+  --panel: #1d1d25;
+  --panel2: #26262f;
+  --panel3: #2e2e39;
+  --border: #0a0a0d;
+  --bevel-hi: #3d3d4c;      /* светлая грань фаски */
+  --bevel-lo: #101015;      /* тёмная грань фаски */
+  --text: #e6e6ec;
+  --muted: #9a9aa8;
   --accent: #e05d3d;
   --ok: #4caf7d;
   --err: #e05d3d;
   --run: #d9a03d;
+  /* LCD-дисплеи */
+  --lcd-bg: #14100a;
+  --lcd-text: #ffbe3d;
+  --lcd-dim: #4a3a15;
+  --lcd-glow: rgba(255, 190, 61, .35);
+}
+[data-theme="light"] {
+  --bg: #d8d8de;
+  --panel: #f2f2f5;
+  --panel2: #e8e8ee;
+  --panel3: #dddde5;
+  --border: #b6b6c2;
+  --bevel-hi: #ffffff;
+  --bevel-lo: #c4c4d0;
+  --text: #26231c;
+  --muted: #6b6455;
+  --accent: #c94f2f;
+  --ok: #2f8f5b;
+  --err: #c4402e;
+  --run: #a8761c;
+  --lcd-bg: #1a1509;
+  --lcd-text: #d99a1e;
+  --lcd-dim: #4a3a15;
+  --lcd-glow: rgba(217, 154, 30, .4);
 }
 * { box-sizing: border-box; }
 body {
@@ -17,22 +49,138 @@ body {
   color: var(--text);
   font: 14px/1.5 'Inter', system-ui, sans-serif;
 }
+
+/* осовремененное «стекло»: лёгкая полупрозрачность + размытие фона */
+.glass {
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* фаска панели: светлая грань сверху/слева, тёмная снизу/справа */
+.wa-bevel {
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-hi);
+  border-left-color: var(--bevel-hi);
+  border-bottom-color: var(--bevel-lo);
+  border-right-color: var(--bevel-lo);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, .06);
+}
+
+/* LCD-дисплей: тёмное стекло, светящийся текст, лёгкое свечение */
+.wa-lcd {
+  background: var(--lcd-bg);
+  color: var(--lcd-text);
+  font-family: 'DejaVu Sans Mono', 'Consolas', monospace;
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-lo);
+  border-left-color: var(--bevel-lo);
+  border-bottom-color: var(--bevel-hi);
+  border-right-color: var(--bevel-hi);
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, .55);
+  text-shadow: 0 0 6px var(--lcd-glow);
+  border-radius: 2px;
+}
+
 input, textarea, select, button {
   font: inherit;
   color: var(--text);
   background: var(--panel2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 6px 10px;
 }
+/* поля ввода — «утоплены», как окошки на панели усилителя */
+input, textarea {
+  background: var(--panel2);
+  border-top-color: var(--bevel-lo);
+  border-left-color: var(--bevel-lo);
+  border-bottom-color: var(--bevel-hi);
+  border-right-color: var(--bevel-hi);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .25);
+}
 input:focus, textarea:focus { outline: 1px solid var(--accent); }
+select option { background: var(--panel); color: var(--text); }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239a9aa8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+  border-top-color: var(--bevel-hi);
+  border-left-color: var(--bevel-hi);
+  border-bottom-color: var(--bevel-lo);
+  border-right-color: var(--bevel-lo);
+}
 button {
   cursor: pointer;
-  background: var(--accent);
-  border: none;
-  color: #fff;
+  background: linear-gradient(180deg, var(--panel3), var(--panel2) 55%, var(--panel));
+  border-top-color: var(--bevel-hi);
+  border-left-color: var(--bevel-hi);
+  border-bottom-color: var(--bevel-lo);
+  border-right-color: var(--bevel-lo);
+  color: var(--text);
   font-weight: 600;
   padding: 8px 18px;
 }
+button:hover { filter: brightness(1.08); }
+button:active:not(:disabled) {
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  border-top-color: var(--bevel-lo);
+  border-left-color: var(--bevel-lo);
+  border-bottom-color: var(--bevel-hi);
+  border-right-color: var(--bevel-hi);
+  transform: translateY(1px);
+}
 button:disabled { opacity: .5; cursor: default; }
-button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 400; }
+button.ghost {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-hi);
+  color: var(--muted);
+  font-weight: 400;
+}
+button.ghost:hover { color: var(--text); filter: brightness(1.1); }
+button.toggle {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+button.toggle.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--lcd-glow);
+  font-weight: 600;
+}
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: var(--lcd-bg);
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-lo);
+  border-left-color: var(--bevel-lo);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .5);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px; height: 16px;
+  margin-top: -6px;
+  background: linear-gradient(180deg, var(--panel3), var(--panel));
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-hi);
+  border-left-color: var(--bevel-hi);
+}

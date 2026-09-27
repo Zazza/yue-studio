@@ -5,32 +5,93 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"time"
 	"path/filepath"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"yue-studio/internal/config"
 	"yue-studio/internal/dsp"
 	"yue-studio/internal/yue"
 )
 
-type App struct {
-	ctx context.Context
-	yue yue.Service
+const (
+	// maxUploadBytes — потолок загрузки своего трека на воркер.
+	maxUploadBytes = 200 << 20
+	// fanLimits — границы веера best-of-N.
+	fanMin, fanMax = 1, 10
+	// previewSpan — превью DSP-цепочки: кусок трека с 20-й секунды.
+	previewStartSec, previewDurSec = 20, 15
+)
+
+var audioFileFilter = []runtime.FileFilter{
+	{DisplayName: "Аудио (*.flac; *.mp3; *.wav; *.ogg; *.m4a)", Pattern: "*.flac;*.mp3;*.wav;*.ogg;*.m4a"},
 }
 
-func NewApp(client *yue.Client) *App {
-	return &App{yue: client}
+// App — биндинги Wails для фронтенда: тонкие обёртки над клиентом воркера
+// плюс локальные операции (диалоги, ffmpeg-DSP, встроенный плеер).
+type App struct {
+	ctx    context.Context
+	yue    yue.Service
+	player Player
+}
+
+func NewApp(client *yue.Client, player Player) *App {
+	return &App{yue: client, player: player}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// shutdown — окно закрыто: глушим pw-play, иначе он играет сиротой.
+// shutdown — окно закрыто: глушим плеер, иначе он играет сиротой.
 func (a *App) shutdown(ctx context.Context) {
-	pl.stop()
+	a.player.Stop()
+}
+
+// pickAudioFile — диалог выбора аудио-файла; "" = отмена.
+func (a *App) pickAudioFile(title string) (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   title,
+		Filters: audioFileFilter,
+	})
+}
+
+// readAudioFile — диалог + чтение выбранного файла с проверкой размера;
+// (nil, nil) = отмена диалога.
+func (a *App) readAudioFile(title string) ([]byte, string, error) {
+	src, err := a.pickAudioFile(title)
+	if err != nil || src == "" {
+		return nil, "", err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) > maxUploadBytes {
+		return nil, "", fmt.Errorf("файл слишком большой (>200 МБ)")
+	}
+	return data, filepath.Base(src), nil
+}
+
+// fetchTempFile скачивает артефакт джобы в новый temp-файл; удаление — на вызывающем (defer).
+func (a *App) fetchTempFile(id int64, file, pattern string) (string, error) {
+	body, _, err := a.yue.FetchAudio(a.ctx, id, file)
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	tmp, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	_, cpErr := io.Copy(tmp, body)
+	tmp.Close()
+	if cpErr != nil {
+		os.Remove(tmp.Name())
+		return "", cpErr
+	}
+	return tmp.Name(), nil
 }
 
 func (a *App) YueStatus() (*yue.HealthInfo, error) {
@@ -48,11 +109,11 @@ func (a *App) YueSubmit(params yue.SubmitParams) (int64, error) {
 // YueSubmitFan — веер best-of-N: n джоб подряд, сиды base+0..n-1
 // (base из поля seed или случайный).
 func (a *App) YueSubmitFan(params yue.SubmitParams, n int) ([]int64, error) {
-	if n < 1 {
-		n = 1
+	if n < fanMin {
+		n = fanMin
 	}
-	if n > 10 {
-		n = 10
+	if n > fanMax {
+		n = fanMax
 	}
 	base := params.Seed
 	if base <= 0 {
@@ -96,26 +157,10 @@ func (a *App) YueReferences() ([]yue.Reference, error) {
 
 // YueAddReference — диалог выбора аудио-файла, заливка на воркер и замер.
 func (a *App) YueAddReference() (*yue.Reference, error) {
-	src, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Референс для сравнения метрик",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Аудио (*.flac; *.mp3; *.wav; *.ogg; *.m4a)", Pattern: "*.flac;*.mp3;*.wav;*.ogg;*.m4a"},
-		},
-	})
-	if err != nil {
+	data, name, err := a.readAudioFile("Референс для сравнения метрик")
+	if err != nil || data == nil {
 		return nil, err
 	}
-	if src == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > 200<<20 {
-		return nil, fmt.Errorf("файл слишком большой (>200 МБ)")
-	}
-	name := filepath.Base(src)
 	return a.yue.AddReference(a.ctx, name, data)
 }
 
@@ -124,9 +169,9 @@ func (a *App) YueDspChains() []dsp.Chain {
 	return dsp.All()
 }
 
-// YueApplyDsp — скачать flac джобы, прогнать цепочку локальным ffmpeg,
-// залить вариант обратно на воркер (там замер) и вернуть метрики.
-func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
+// runDsp — общий конвейер DSP-варианта: скачать flac джобы, прогнать цепочку
+// локальным ffmpeg (весь трек или кусок-превью), залить обратно на воркер.
+func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, preview bool) (*yue.DspVariant, error) {
 	chain := dsp.ByID(chainID)
 	if chain == nil {
 		return nil, fmt.Errorf("unknown chain %q", chainID)
@@ -135,7 +180,7 @@ func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64
 	if err != nil {
 		return nil, err
 	}
-	var audio string
+	audio := ""
 	for _, j := range jobs {
 		if j.ID == jobID {
 			audio = j.AudioFile
@@ -145,24 +190,11 @@ func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64
 	if audio == "" {
 		return nil, fmt.Errorf("job %d has no audio", jobID)
 	}
-	body, _, err := a.yue.FetchAudio(a.ctx, jobID, audio)
+	tmpIn, err := a.fetchTempFile(jobID, audio, fmt.Sprintf("yue-dsp-%d-in-*.flac", jobID))
 	if err != nil {
 		return nil, err
 	}
-	tmpIn, err := os.CreateTemp("", fmt.Sprintf("yue-dsp-%d-in-*.flac", jobID))
-	if err != nil {
-		body.Close()
-		return nil, err
-	}
-	_, cpErr := io.Copy(tmpIn, body)
-	body.Close()
-	tmpIn.Close()
-	if cpErr != nil {
-		os.Remove(tmpIn.Name())
-		return nil, cpErr
-	}
-	defer os.Remove(tmpIn.Name())
-
+	defer os.Remove(tmpIn)
 	tmpOut, err := os.CreateTemp("", fmt.Sprintf("yue-dsp-%d-out-*.flac", jobID))
 	if err != nil {
 		return nil, err
@@ -170,7 +202,11 @@ func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64
 	tmpOut.Close()
 	defer os.Remove(tmpOut.Name())
 
-	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), chain.FilterGraph(params)); err != nil {
+	var span *dsp.Span
+	if preview {
+		span = &dsp.Span{StartSec: previewStartSec, DurSec: previewDurSec}
+	}
+	if err := dsp.Run(tmpIn, tmpOut.Name(), chain.FilterGraph(params), span); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(tmpOut.Name())
@@ -178,7 +214,21 @@ func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64
 		return nil, err
 	}
 	fname := fmt.Sprintf("dsp-%s.flac", chainID)
+	if preview {
+		fname = fmt.Sprintf("dsp-preview-%s.flac", chainID)
+	}
 	return a.yue.UploadDsp(a.ctx, jobID, fname, data)
+}
+
+// YueApplyDsp — применить цепочку к треку джобы и вернуть метрики варианта.
+func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
+	return a.runDsp(jobID, chainID, params, false)
+}
+
+// YueDspPreview — превью цепочки: кусок трека через те же эффекты.
+// Файл кладётся как вариант dsp-preview-<chain>.flac и сразу проигрывается.
+func (a *App) YueDspPreview(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
+	return a.runDsp(jobID, chainID, params, true)
 }
 
 func (a *App) YueDspVariants(jobID int64) ([]yue.DspVariant, error) {
@@ -197,22 +247,14 @@ func (a *App) YueAudioURL(id int64, file string) string {
 	return a.yue.AudioURL(id, file)
 }
 
-func (a *App) YueOpenExternal(id int64, file string) {
-	body, _, err := a.yue.FetchAudio(a.ctx, id, file)
+// YueOpenExternal — скачать артефакт во temp-файл и открыть приложением ОС.
+func (a *App) YueOpenExternal(id int64, file string) error {
+	tmp, err := a.fetchTempFile(id, file, fmt.Sprintf("yue-%d-*%s", id, filepath.Ext(file)))
 	if err != nil {
-		return
+		return err
 	}
-	defer body.Close()
-	tmp, err := os.CreateTemp("", fmt.Sprintf("yue-%d-*%s", id, filepath.Ext(file)))
-	if err != nil {
-		return
-	}
-	if _, err := io.Copy(tmp, body); err != nil {
-		tmp.Close()
-		return
-	}
-	tmp.Close()
-	exec.Command("xdg-open", tmp.Name()).Start()
+	// temp не удаляем: файл должен жить, пока пользователь его слушает
+	return openExternal(tmp)
 }
 
 func (a *App) YueSaveAudio(id int64, file string) (string, error) {
@@ -248,45 +290,37 @@ func (a *App) YuePlayAudio(id int64) error {
 		return err
 	}
 	for _, j := range jobs {
-		if j.ID == id {
-			// flac: меньше wav в ~5–7 раз → быстрее скачивается с воркера;
-			// pw-play (libsndfile) играет flac напрямую
-			f := j.AudioFile
-			if f == "" {
-				f = j.WavFile
-			}
-			if f == "" {
-				f = j.Mp3File
-			}
-			if f == "" {
-				return fmt.Errorf("no audio for job %d", id)
-			}
-			body, _, err := a.yue.FetchAudio(a.ctx, id, f)
-			if err != nil {
-				return err
-			}
-			data, err := io.ReadAll(body)
-			body.Close()
-			if err != nil {
-				return err
-			}
-			dur := time.Duration(j.DurationSec * float64(time.Second))
-			if err := pl.load(id, data, dur); err != nil {
-				return err
-			}
-			return pl.play()
+		if j.ID != id {
+			continue
 		}
+		// flac: меньше wav в ~5–7 раз → быстрее скачивается с воркера;
+		// pw-play (libsndfile) играет flac напрямую
+		f := j.AudioFile
+		if f == "" {
+			f = j.WavFile
+		}
+		if f == "" {
+			f = j.Mp3File
+		}
+		if f == "" {
+			return fmt.Errorf("no audio for job %d", id)
+		}
+		return a.playFile(id, f, j.DurationSec)
 	}
 	return fmt.Errorf("job %d not found", id)
 }
 
 // YuePlayFile — воспроизведение любого аудио-артефакта джобы (стем, превью,
-// овердаб, DSP-вариант, основной трек) через встроенный pw-play плеер.
+// овердаб, DSP-вариант, основной трек) через встроенный плеер.
 // durSec — подсказка длительности для полосы позиции (0 = неизвестно).
 func (a *App) YuePlayFile(id int64, file string, durSec float64) error {
 	if file == "" {
 		return fmt.Errorf("empty file")
 	}
+	return a.playFile(id, file, durSec)
+}
+
+func (a *App) playFile(id int64, file string, durSec float64) error {
 	body, _, err := a.yue.FetchAudio(a.ctx, id, file)
 	if err != nil {
 		return err
@@ -296,18 +330,18 @@ func (a *App) YuePlayFile(id int64, file string, durSec float64) error {
 	if err != nil {
 		return err
 	}
-	if err := pl.load(id, data, time.Duration(durSec*float64(time.Second))); err != nil {
+	if err := a.player.Load(id, data, time.Duration(durSec*float64(time.Second))); err != nil {
 		return err
 	}
-	return pl.play()
+	return a.player.Play()
 }
 
 func (a *App) YueToggleAudio() {
-	pl.toggle()
+	a.player.Toggle()
 }
 
 func (a *App) YueStopAudio() {
-	pl.stop()
+	a.player.Stop()
 }
 
 type YuePlayerState struct {
@@ -319,9 +353,19 @@ type YuePlayerState struct {
 }
 
 func (a *App) YueAudioState() YuePlayerState {
-	playing, pos, dur, id := pl.state()
+	playing, pos, dur, id := a.player.State()
 	return YuePlayerState{Playing: playing, PositionSec: pos.Seconds(), DurationSec: dur.Seconds(),
-		JobID: id, Error: pl.lastError()}
+		JobID: id, Error: a.player.LastError()}
+}
+
+// YueSeekAudio — перемотка текущего трека к позиции (секунды).
+func (a *App) YueSeekAudio(posSec float64) error {
+	return a.player.Seek(time.Duration(posSec * float64(time.Second)))
+}
+
+// YueSetVolume — громкость встроенного плеера (0..1).
+func (a *App) YueSetVolume(v float64) {
+	a.player.SetVolume(v)
 }
 
 func (a *App) YueOpenURL(url string) {
@@ -334,29 +378,42 @@ func (a *App) YueGetServerURL() string {
 
 func (a *App) YueSetServerURL(url string) {
 	a.yue.SetURL(url)
+	config.SaveSettings(config.Settings{ServerURL: url})
 }
 
-// ---------- v2/v3: транскрипция, ролл, превью, овердаб, стемы, корпус ----------
+// YueWorkerConfig — настройки воркера (Ollama и пр.) для попапа настроек.
+func (a *App) YueWorkerConfig() (map[string]any, error) {
+	return a.yue.WorkerConfig(a.ctx)
+}
+
+func (a *App) YueSetWorkerConfig(cfg map[string]any) error {
+	return a.yue.SetWorkerConfig(a.ctx, cfg)
+}
+
+// YueOllamaModels — модели Ollama для выпадающего списка (url — кандидат).
+func (a *App) YueOllamaModels(url string) (map[string]any, error) {
+	return a.yue.OllamaModels(a.ctx, url)
+}
+
+// ---------- транскрипция, ролл, превью, овердаб, стемы, корпус ----------
+
+// YueImportTrack — диалог выбора своего трека → импорт как джобы (статус done):
+// в студии работают стемы, минус, эффекты, ролл (по транскрипции), овердаб.
+func (a *App) YueImportTrack() (map[string]any, error) {
+	data, title, err := a.readAudioFile("Импорт трека в студию")
+	if err != nil || data == nil {
+		return nil, err
+	}
+	return a.yue.ImportTrack(a.ctx, title, data, true)
+}
 
 // YueTranscribeFile — диалог выбора трека → SheetSage2 → ABC (для каверов).
 func (a *App) YueTranscribeFile() (*yue.TranscribeResult, error) {
-	src, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Трек для транскрипции (кавер)",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Аудио (*.flac; *.mp3; *.wav; *.ogg; *.m4a)", Pattern: "*.flac;*.mp3;*.wav;*.ogg;*.m4a"},
-		},
-	})
-	if err != nil {
+	data, name, err := a.readAudioFile("Трек для транскрипции (кавер)")
+	if err != nil || data == nil {
 		return nil, err
 	}
-	if src == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return nil, err
-	}
-	return a.yue.Transcribe(a.ctx, filepath.Base(src), data)
+	return a.yue.Transcribe(a.ctx, name, data)
 }
 
 func (a *App) YueJobScore(id int64) (map[string]any, error) {
@@ -375,6 +432,16 @@ func (a *App) YueMakeStems(id int64) (map[string]any, error) {
 	return a.yue.MakeStems(a.ctx, id)
 }
 
+// YueEnsureMp3 — конвертировать джобу в mp3 320, если ещё нет (импортные треки).
+func (a *App) YueEnsureMp3(id int64) (map[string]any, error) {
+	return a.yue.EnsureMp3(a.ctx, id)
+}
+
+// YueMakeMinus — минус-трек: микс стемов без выбранных групп.
+func (a *App) YueMakeMinus(id int64, exclude []string) (map[string]any, error) {
+	return a.yue.MakeMinus(a.ctx, id, exclude)
+}
+
 func (a *App) YueJobStems(id int64) ([]map[string]any, error) {
 	return a.yue.JobStems(a.ctx, id)
 }
@@ -387,10 +454,8 @@ func (a *App) YueCorpusCreate(name string) (int64, error) {
 // на воркере: DSP + SheetSage2 + Whisper). Возвращает число загруженных.
 func (a *App) YueCorpusAddTracks(id int64) (int, error) {
 	srcs, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Треки корпуса (3–10 одного исполнителя/периода)",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Аудио (*.flac; *.mp3; *.wav; *.ogg; *.m4a)", Pattern: "*.flac;*.mp3;*.wav;*.ogg;*.m4a"},
-		},
+		Title:   "Треки корпуса (3–10 одного исполнителя/периода)",
+		Filters: audioFileFilter,
 	})
 	if err != nil {
 		return 0, err

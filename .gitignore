@@ -3,3 +3,6 @@ dist/
 backend/yue-studio
 data/
 build/bin/
+__pycache__/
+*.pyc
+.zcode/
