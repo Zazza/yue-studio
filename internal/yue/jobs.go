@@ -82,11 +82,13 @@ func (c *Client) JobPreview(ctx context.Context, id int64, fromSec, toSec float6
 }
 
 // SubmitOverdub — рендер партии по партитуре джобы с новым стилем + микс.
-func (c *Client) SubmitOverdub(ctx context.Context, id int64, style string, gain float64) (int64, error) {
+// lyrics — необязательный текст голосовой партии (без него модель поёт
+// импровизированный вокализ, часто несуразный).
+func (c *Client) SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64) (int64, error) {
 	var out struct {
 		ID int64 `json:"id"`
 	}
-	body := map[string]any{"style": style, "gain": gain}
+	body := map[string]any{"style": style, "lyrics": lyrics, "gain": gain}
 	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/overdub", id), body, requestTimeout, &out); err != nil {
 		return 0, err
 	}

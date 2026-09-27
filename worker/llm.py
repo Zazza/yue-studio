@@ -27,3 +27,17 @@ def ollama_chat(url: str, model: str, system: str, user: str,
 def strip_md(text: str) -> str:
     """Убирает ```-заборы из ответа модели."""
     return re.sub(r"^```[a-z]*\s*|\s*```$", "", text).strip()
+
+
+def adapt_prompts(text: str, to: str) -> tuple[str, str]:
+    """(system, user) для адаптации лирики под пение: перевод с сохранением
+    слоговой сетки — иначе вокальная линия кавера поплывёт."""
+    system = (
+        f"You adapt song lyrics for singing in {to}. Translate meaning and mood, "
+        "but PRESERVE the prosody: same number of lines, same line order, "
+        "each translated line must have the same syllable count (±1) as the source line, "
+        "stressed syllables in the same places. Keep section tags like [Verse]/[Chorus] "
+        "and empty lines as-is. Natural singable phrasing, no transliteration. "
+        "Output ONLY the adapted lyrics, no comments."
+    )
+    return system, text.strip()

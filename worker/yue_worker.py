@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import sqlite3
+import tempfile
 import threading
 import time
 import urllib.request
@@ -631,6 +632,81 @@ def list_references():
 DSP_NAME_RE = re.compile(r"^(dsp|overdub|preview|stem)-[a-z0-9.-]+\.flac$")
 
 
+# ---------- Лирика: whisper-распознавание и адаптация-перевод ----------
+
+def _whisper_lyrics(src: Path) -> tuple[str, str]:
+    """Текст трека через faster-whisper (отдельный venv, см. whisper_run.py).
+    Возвращает (текст, ошибка): при неудаче текст пустой, ошибка — пояснение."""
+    if not WHISPER_PY.is_file():
+        return "", f"whisper venv not found: {WHISPER_PY}"
+    try:
+        # ctranslate2 в whisper-venv не видит libcublas из pip-wheel'ов nvidia
+        import subprocess
+        import sys
+        env = dict(os.environ)
+        lib = Path(sys.prefix) / "lib"
+        cublas = next(iter(lib.glob("python*/site-packages/nvidia/cublas/lib")), None)
+        cudnn = next(iter(lib.glob("python*/site-packages/nvidia/cudnn/lib")), None)
+        extra = ":".join(str(p) for p in (cublas, cudnn) if p)
+        if extra:
+            env["LD_LIBRARY_PATH"] = extra + ":" + env.get("LD_LIBRARY_PATH", "")
+        r = subprocess.run([str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)],
+                           capture_output=True, text=True, timeout=600, env=env)
+        if r.returncode != 0:
+            return "", (r.stderr or "whisper failed")[-500:]
+        return json.loads(r.stdout).get("text", ""), ""
+    except Exception as e:  # noqa: BLE001
+        return "", str(e)
+
+
+def _adapt_prompts(text: str, to: str) -> tuple[str, str]:
+    """Делегирует llm.adapt_prompts (чистая функция, покрыта тестами)."""
+    return llm.adapt_prompts(text, to)
+
+
+class LyricsAdaptIn(BaseModel):
+    text: str
+    to: str = "Russian"
+
+
+@app.post("/lyrics")
+async def recognize_lyrics(request: Request):
+    """Трек (тело — байты аудио, X-Filename) → текст (faster-whisper).
+    Для каверов: текст оригинала → адаптация → поле лирики."""
+    fname = re.sub(r"[^A-Za-z0-9_.-]", "_", request.headers.get("x-filename", "")) or "input.flac"
+    data = await request.body()
+    if not data:
+        raise HTTPException(422, "empty body")
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / fname
+        src.write_bytes(data)
+        t0 = time.time()
+        text, err = _whisper_lyrics(src)
+    if err:
+        raise HTTPException(500, f"lyrics recognition failed: {err}")
+    if not text.strip():
+        raise HTTPException(422, "no speech recognized")
+    return {"text": text.strip(), "seconds": round(time.time() - t0, 1)}
+
+
+@app.post("/lyrics/adapt")
+def adapt_lyrics(req: LyricsAdaptIn):
+    """Адаптация-перевод лирики под пение (Ollama, сохранение слогов).
+    keep_alive=0: модель выгружается из VRAM сразу (см. /copilot)."""
+    if not req.text.strip():
+        raise HTTPException(422, "text is required")
+    system, user = _adapt_prompts(req.text, req.to)
+    t0 = time.time()
+    try:
+        out = llm.strip_md(llm.ollama_chat(OLLAMA_URL, OLLAMA_MODEL, system, user,
+                                           temperature=0.4, timeout=280))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"ollama failed: {e}") from e
+    if not out.strip():
+        raise HTTPException(502, "ollama returned empty adaptation")
+    return {"text": out.strip(), "seconds": round(time.time() - t0, 1)}
+
+
 # ---------- Remix: транскрипция трека (SheetSage2) ----------
 
 @app.post("/transcribe")
@@ -684,6 +760,23 @@ def transcribe_file(tid: str, fname: str):
 def _job_row(job_id: int):
     with db_lock, db() as conn:
         return conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+
+
+@app.post("/jobs/{job_id}/lyrics")
+def job_lyrics(job_id: int):
+    """Текст из готового аудио джобы (faster-whisper) — без повторной загрузки
+    файла: аудио уже у воркера. Для овердаба/кавера этой же джобы."""
+    row = _job_row(job_id)
+    if row is None or row["status"] != "done" or not row["audio_file"]:
+        raise HTTPException(404, "job not done (no audio)")
+    src = JOBS_DIR / str(job_id) / row["audio_file"]
+    t0 = time.time()
+    text, err = _whisper_lyrics(src)
+    if err:
+        raise HTTPException(500, f"lyrics recognition failed: {err}")
+    if not text.strip():
+        raise HTTPException(422, "no speech recognized")
+    return {"text": text.strip(), "seconds": round(time.time() - t0, 1)}
 
 
 @app.get("/jobs/{job_id}/score")
@@ -791,6 +884,7 @@ def job_previews(job_id: int):
 class OverdubIn(BaseModel):
     style: str
     gain: float = 0.5
+    lyrics: str = ""
 
 
 def _mix_overdub(parent_id: int, child_id: int, gain: float = 0.5):
@@ -886,7 +980,7 @@ def submit_overdub(job_id: int, req: OverdubIn):
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,req_abc,overdub_of,created_at)"
             " VALUES(?,?,?,?,?,?,?,?,?)",
-            (f"overdub of #{job_id}", "queued", req.style, "", None, "full",
+            (f"overdub of #{job_id}", "queued", req.style, req.lyrics, None, "full",
              "", job_id, time.strftime("%Y-%m-%dT%H:%M:%S")))
         child_id = cur.lastrowid
         cdir = JOBS_DIR / str(child_id)
@@ -1045,25 +1139,9 @@ async def corpus_add_track(cid: int, request: Request):
         info["stats"] = t["stats"]
     except Exception as e:  # noqa: BLE001
         info["abc_error"] = str(e)
-    if WHISPER_PY.is_file():
-        try:
-            import os
-            # ctranslate2 в whisper-venv не видит libcublas из pip-wheel'ов nvidia
-            import subprocess
-            import sys
-            env = dict(os.environ)
-            lib = Path(sys.prefix) / "lib"
-            cublas = next(iter(lib.glob("python*/site-packages/nvidia/cublas/lib")), None)
-            cudnn = next(iter(lib.glob("python*/site-packages/nvidia/cudnn/lib")), None)
-            extra = ":".join(str(p) for p in (cublas, cudnn) if p)
-            if extra:
-                env["LD_LIBRARY_PATH"] = extra + ":" + env.get("LD_LIBRARY_PATH", "")
-            r = subprocess.run([str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)],
-                               capture_output=True, text=True, timeout=600, env=env)
-            info["lyrics"] = json.loads(r.stdout)["text"] if r.returncode == 0 else ""
-            info["lyrics_error"] = "" if r.returncode == 0 else r.stderr[-500:]
-        except Exception as e:  # noqa: BLE001
-            info["lyrics_error"] = str(e)
+    lyrics_text, lyrics_err = _whisper_lyrics(src)
+    info["lyrics"] = lyrics_text
+    info["lyrics_error"] = lyrics_err
     (track_dir / "info.json").write_text(json.dumps(info, ensure_ascii=False))
     return info
 

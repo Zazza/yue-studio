@@ -186,11 +186,13 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "overdub",
-		Description: "Овердаб: партия поверх трека джобы по его партитуре с новым стилем + микс (gain 0.1–1).",
+		Name: "overdub",
+		Description: "Овердаб: партия поверх трека джобы по его партитуре с новым стилем + микс (gain 0.1–1). " +
+			"lyrics — текст голосовой партии: без него модель импровизирует вокализ (часто несуразный).",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
 			"style":  prop("строка стиля партии (англ. теги)", "string"),
+			"lyrics": prop("текст голосовой партии (пусто = вокализ; [Instrumental] = без голоса)", "string"),
 			"gain":   prop("гейн микса (0.1–1, по умолчанию 0.5)", "number"),
 		}, "job_id", "style"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -198,11 +200,67 @@ func RegisterStudioTools(s *Server) {
 			if gain == 0 {
 				gain = 0.5
 			}
-			id, err := s.client.SubmitOverdub(context.Background(), argInt(args, "job_id"), argString(args, "style"), gain)
+			id, err := s.client.SubmitOverdub(context.Background(), argInt(args, "job_id"),
+				argString(args, "style"), argString(args, "lyrics"), gain)
 			if err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("джоба-овердаб #%d в очереди", id), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "recognize_lyrics",
+		Description: "Распознать текст трека (faster-whisper): оригинал для кавера, дальше lyrics_adapt или правка руками.",
+		InputSchema: props(map[string]any{
+			"path": prop("путь к аудиофайлу (flac/mp3/wav/ogg/m4a)", "string"),
+		}, "path"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			data, err := os.ReadFile(argString(args, "path"))
+			if err != nil {
+				return "", err
+			}
+			out, err := s.client.RecognizeLyrics(context.Background(), argString(args, "path"), data)
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "job_lyrics",
+		Description: "Распознать текст из готового аудио джобы (faster-whisper): без повторной загрузки файла — для овердаба/кавера этой же джобы.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы (статус done)", "integer"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			out, err := s.client.JobLyrics(context.Background(), argInt(args, "job_id"))
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "lyrics_adapt",
+		Description: "Адаптация-перевод лирики под пение: сохранение числа строк и слогов (±1) на строку, " +
+			"секционные теги [Verse]/[Chorus] остаются. Для каверов на другом языке.",
+		InputSchema: props(map[string]any{
+			"text": prop("исходный текст (можно с [Verse]/[Chorus])", "string"),
+			"to":   prop("язык результата (Russian, English, ...; по умолчанию Russian)", "string"),
+		}, "text"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			to := argString(args, "to")
+			if to == "" {
+				to = "Russian"
+			}
+			out, err := s.client.AdaptLyrics(context.Background(), argString(args, "text"), to)
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
 		},
 	})
 

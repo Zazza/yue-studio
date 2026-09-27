@@ -16,9 +16,13 @@ GET  /audio/{id}/{f}   audio.flac/.mp3/.wav, score.abc, request.abc, dsp/overdub
 GET  /listen/{id}      страница прослушивания (?f= — вариант)
 
 POST /transcribe       трек (байты, X-Filename) → ABC (SheetSage2) — каверы
+POST /lyrics           трек (байты, X-Filename) → текст (faster-whisper) — оригинал для кавера
+POST /jobs/{id}/lyrics текст из готового аудио джобы (без повторной загрузки файла)
+POST /lyrics/adapt     {text, to} → адаптация-перевод под пение с сохранением слогов (Ollama)
 GET  /jobs/{id}/score  таймлайн: такты × голоса, аккорды, секции, RMS по секциям
 POST /jobs/{id}/preview {from_sec, to_sec} → preview-*.flac (VAE-decode куска латентов)
-POST /jobs/{id}/overdub {style, gain} → джоба-партия поверх трека (микс автоматом)
+POST /jobs/{id}/overdub {style, lyrics, gain} → джоба-партия поверх трека (микс автоматом;
+                       lyrics — текст голоса, без него модель поёт вокализ)
 POST /jobs/{id}/stems  demucs → stem-{drums,bass,other,vocals}.flac
 GET  /jobs/{id}/stems  список стемов
 

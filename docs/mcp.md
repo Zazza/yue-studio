@@ -43,9 +43,10 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 
 **Рабочий флоу**: `status` · `jobs` · `submit` (стиль/стих/сид/веер n) · `plan` (ABC до
 рендера) · `render_abc` · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
-возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент).
+возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент) ·
+`recognize_lyrics` (трек → текст) · `job_lyrics` (текст из аудио джобы) · `lyrics_adapt` (перевод под пение, слоги сохраняются).
 
-**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` · `import_track` ·
+**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики).
 
 **Профили исполнителей**: `corpus_list` / `corpus_create` / `corpus_add_tracks` /

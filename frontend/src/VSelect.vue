@@ -11,7 +11,18 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const open = ref(false)
+const up = ref(false) // раскрывать вверх, когда внизу нет места (низ экрана/панель плеера)
 const root = ref(null)
+
+const toggle = () => {
+  if (props.disabled) return
+  if (!open.value && root.value) {
+    const r = root.value.getBoundingClientRect()
+    const below = window.innerHeight - r.bottom
+    up.value = below < 260 && r.top > below
+  }
+  open.value = !open.value
+}
 
 const current = () => {
   const o = props.options.find((x) => String(x.value) === String(props.modelValue))
@@ -29,11 +40,11 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 <template>
   <div ref="root" class="vselect" :class="{ disabled }">
-    <button type="button" class="vselect-btn" :disabled="disabled" @click.stop="disabled || (open = !open)">
+    <button type="button" class="vselect-btn" :disabled="disabled" @click.stop="toggle">
       <span class="vselect-label">{{ current() }}</span>
       <span class="vselect-arrow" :class="{ open }">▾</span>
     </button>
-    <ul v-if="open && options.length" class="vselect-drop">
+    <ul v-if="open && options.length" class="vselect-drop" :class="{ up }">
       <li v-for="o in options" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
           @mousedown.prevent="pick(o)">{{ o.label }}</li>
     </ul>
@@ -52,10 +63,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .vselect-arrow { flex: none; color: var(--muted); font-size: 10px; transition: transform .15s; }
 .vselect-arrow.open { transform: rotate(180deg); }
 .vselect-drop {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 50; margin: 2px 0 0; padding: 4px 0;
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; margin: 2px 0 0; padding: 4px 0;
   list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.4);
 }
+/* внизу экрана нет места — раскрываем вверх (низ страницы, панель плеера) */
+.vselect-drop.up { top: auto; bottom: 100%; margin: 0 0 2px; box-shadow: 0 -8px 24px rgba(0,0,0,.4); }
 .vselect-drop li { padding: 5px 10px; font-size: 13px; cursor: pointer; }
 .vselect-drop li:hover { background: var(--panel2); }
 .vselect-drop li.sel { color: var(--accent); font-weight: 600; }

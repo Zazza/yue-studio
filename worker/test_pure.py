@@ -1,12 +1,68 @@
-"""Тесты чистых функций воркера: llm.strip_md, abcparse.parse_abc.
+"""Тесты чистых функций воркера: llm, abcparse, media.encode_mp3.
 
 Запуск: python3 -m unittest worker.test_pure (из корня репозитория)
 или: cd worker && python3 -m unittest test_pure
 """
 import unittest
+from pathlib import Path
 
 import abcparse
 import llm
+
+
+class TestAdaptPrompts(unittest.TestCase):
+    """Спецификация llm.adapt_prompts: системный промпт фиксирует язык и
+    требование сохранения просодии, user — исходный текст без изменений."""
+
+    def test_system_mentions_language_and_prosody(self):
+        system, user = llm.adapt_prompts("la la", "Russian")
+        self.assertIn("Russian", system)
+        self.assertIn("syllable", system)
+        self.assertIn("[Verse]", system)  # секционные теги не переводить
+
+    def test_user_is_source_text_trimmed(self):
+        system, user = llm.adapt_prompts("  hello \n world \n", "Russian")
+        self.assertEqual(user, "hello \n world")
+        self.assertNotIn("hello", system)
+
+
+# CI-джоба worker ставит только ruff: аудио-зависимости (numpy/soundfile/
+# lameenc) есть на GPU-машине — там тест и работает, в CI пропускается.
+try:
+    import lameenc  # noqa: F401
+    import numpy  # noqa: F401
+    import soundfile  # noqa: F401
+    _HAS_MP3_DEPS = True
+except ImportError:
+    _HAS_MP3_DEPS = False
+
+
+@unittest.skipUnless(_HAS_MP3_DEPS, "нужны numpy/soundfile/lameenc (GPU-окружение)")
+class TestEncodeMp3(unittest.TestCase):
+    """Спецификация media.encode_mp3: каналы идут interleaved — левый сигнал
+    остаётся слева, правый справа (planar-буфер давал 2x-ускорение каналов)."""
+
+    def test_channels_interleaved(self):
+        import numpy as np
+        import soundfile as sf
+        from media import encode_mp3
+        import tempfile
+
+        sr = 24000
+        t = np.arange(sr) / sr
+        # левый — тон, правый — тишина
+        data = np.stack([np.sin(2 * np.pi * 440 * t), np.zeros_like(t)], axis=1).astype("float32")
+        with tempfile.TemporaryDirectory() as td:
+            wav = Path(td) / "in.wav"
+            mp3 = Path(td) / "out.mp3"
+            sf.write(str(wav), data, sr)
+            encode_mp3(wav, mp3)
+            out, _ = sf.read(str(mp3), dtype="float32")
+        self.assertEqual(out.shape[1], 2)
+        rms_l = float(np.sqrt((out[:, 0] ** 2).mean()))
+        rms_r = float(np.sqrt((out[:, 1] ** 2).mean()))
+        self.assertGreater(rms_l, 0.2)   # тон в левом
+        self.assertLess(rms_r, 0.02)     # справа тишина
 
 
 class TestStripMd(unittest.TestCase):

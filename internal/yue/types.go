@@ -15,6 +15,9 @@ type Service interface {
 	Plan(ctx context.Context, p PlanParams) (*PlanResult, error)
 	Copilot(ctx context.Context, p CopilotParams) (*CopilotResult, error)
 	Translate(ctx context.Context, text string) (*TranslateResult, error)
+	RecognizeLyrics(ctx context.Context, name string, data []byte) (*LyricsResult, error)
+	JobLyrics(ctx context.Context, id int64) (*LyricsResult, error)
+	AdaptLyrics(ctx context.Context, text, to string) (*LyricsResult, error)
 	AnalyzeJob(ctx context.Context, id int64) (map[string]any, error)
 	References(ctx context.Context) ([]Reference, error)
 	AddReference(ctx context.Context, name string, data []byte) (*Reference, error)
@@ -23,7 +26,7 @@ type Service interface {
 	Transcribe(ctx context.Context, name string, data []byte) (*TranscribeResult, error)
 	JobScore(ctx context.Context, id int64) (map[string]any, error)
 	JobPreview(ctx context.Context, id int64, fromSec, toSec float64) (map[string]any, error)
-	SubmitOverdub(ctx context.Context, id int64, style string, gain float64) (int64, error)
+	SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64) (int64, error)
 	MakeStems(ctx context.Context, id int64) (map[string]any, error)
 	MakeMinus(ctx context.Context, id int64, exclude []string) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
@@ -113,6 +116,12 @@ type CopilotResult struct {
 }
 
 type TranslateResult struct {
+	Text    string  `json:"text"`
+	Seconds float64 `json:"seconds"`
+}
+
+// LyricsResult — текст лирики: whisper-распознавание или адаптация-перевод.
+type LyricsResult struct {
 	Text    string  `json:"text"`
 	Seconds float64 `json:"seconds"`
 }

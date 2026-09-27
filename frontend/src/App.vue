@@ -418,6 +418,36 @@ async function transcribeFromTrack() {
 const copOpen = ref(false)
 function onCopInsert(text) { lyrics.value = text }
 
+// ---------- Лирика: whisper-распознавание и адаптация-перевод ----------
+
+const lyrBusy = ref(false) // 'rec' | 'adapt' | ''
+const lyrErr = ref('')
+async function recognizeLyrics() {
+  lyrErr.value = ''
+  lyrBusy.value = 'rec'
+  try {
+    const r = await api.recognizeLyrics()
+    if (r && r.text) lyrics.value = r.text
+  } catch (e) {
+    lyrErr.value = String(e)
+  } finally {
+    lyrBusy.value = ''
+  }
+}
+async function adaptLyrics() {
+  if (!lyrics.value.trim()) return
+  lyrErr.value = ''
+  lyrBusy.value = 'adapt'
+  try {
+    const r = await api.adaptLyrics(lyrics.value)
+    if (r && r.text) lyrics.value = r.text
+  } catch (e) {
+    lyrErr.value = String(e)
+  } finally {
+    lyrBusy.value = ''
+  }
+}
+
 // ---------- Метрики ----------
 
 const metricsModal = ref(null)
@@ -543,6 +573,13 @@ function onWindowClick(e) {
               <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ t('dur.' + o.id) }}</option>
             </select>
             <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">{{ t('form.copilot') }}</button>
+            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy"
+                    :title="t('lyrics.rec.tip')" @click="recognizeLyrics">
+              {{ lyrBusy === 'rec' ? '…' : t('lyrics.rec') }}</button>
+            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy || !lyrics.trim()"
+                    :title="t('lyrics.adapt.tip')" @click="adaptLyrics">
+              {{ lyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
+            <span v-if="lyrErr" class="error">{{ lyrErr }}</span>
           </span>
         </div>
         <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>

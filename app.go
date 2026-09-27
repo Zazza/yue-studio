@@ -424,8 +424,29 @@ func (a *App) YueJobPreview(id int64, fromSec, toSec float64) (map[string]any, e
 	return a.yue.JobPreview(a.ctx, id, fromSec, toSec)
 }
 
-func (a *App) YueSubmitOverdub(id int64, style string, gain float64) (int64, error) {
-	return a.yue.SubmitOverdub(a.ctx, id, style, gain)
+// YueRecognizeLyricsFile — диалог выбора трека → faster-whisper → текст
+// (оригинал для кавера: дальше адаптация-перевод или правка руками).
+func (a *App) YueRecognizeLyricsFile() (*yue.LyricsResult, error) {
+	data, name, err := a.readAudioFile("Трек для распознавания текста")
+	if err != nil || data == nil {
+		return nil, err
+	}
+	return a.yue.RecognizeLyrics(a.ctx, name, data)
+}
+
+// YueJobLyrics — текст из готового аудио джобы (whisper на воркере,
+// без повторной загрузки файла).
+func (a *App) YueJobLyrics(id int64) (*yue.LyricsResult, error) {
+	return a.yue.JobLyrics(a.ctx, id)
+}
+
+// YueAdaptLyrics — адаптация-перевод лирики под пение (сохранение слогов).
+func (a *App) YueAdaptLyrics(text, to string) (*yue.LyricsResult, error) {
+	return a.yue.AdaptLyrics(a.ctx, text, to)
+}
+
+func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64) (int64, error) {
+	return a.yue.SubmitOverdub(a.ctx, id, style, lyrics, gain)
 }
 
 func (a *App) YueMakeStems(id int64) (map[string]any, error) {

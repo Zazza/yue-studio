@@ -101,6 +101,7 @@ func (p *player) stopLocked() {
 	p.killLocked()
 	if p.tmpFile != "" {
 		os.Remove(p.tmpFile)
+		os.Remove(p.tmpFile + ".vol") // файл живой громкости (Windows-плеер)
 		p.tmpFile = ""
 		p.loadedID = 0
 		p.duration = 0

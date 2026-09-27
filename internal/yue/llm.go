@@ -2,6 +2,7 @@ package yue
 
 import (
 	"context"
+	"fmt"
 	neturl "net/url"
 )
 
@@ -28,6 +29,36 @@ func (c *Client) Translate(ctx context.Context, text string) (*TranslateResult, 
 	var out TranslateResult
 	body := map[string]string{"text": text, "to": "English"}
 	if err := c.postJSON(ctx, "/translate", body, copilotTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RecognizeLyrics — текст трека через faster-whisper (для каверов: оригинал
+// → адаптация → поле лирики). Минуты на длинных треках.
+func (c *Client) RecognizeLyrics(ctx context.Context, name string, data []byte) (*LyricsResult, error) {
+	var out LyricsResult
+	if err := c.postRaw(ctx, "/lyrics", name, data, headerTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// JobLyrics — текст из готового аудио джобы (whisper на стороне воркера,
+// без повторной загрузки файла).
+func (c *Client) JobLyrics(ctx context.Context, id int64) (*LyricsResult, error) {
+	var out LyricsResult
+	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/lyrics", id), headerTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AdaptLyrics — адаптация-перевод лирики под пение (сохранение слогов).
+func (c *Client) AdaptLyrics(ctx context.Context, text, to string) (*LyricsResult, error) {
+	var out LyricsResult
+	body := map[string]string{"text": text, "to": to}
+	if err := c.postJSON(ctx, "/lyrics/adapt", body, copilotTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

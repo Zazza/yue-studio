@@ -226,6 +226,20 @@ export namespace yue {
 	        this.elapsed_s = source["elapsed_s"];
 	    }
 	}
+	export class LyricsResult {
+	    text: string;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LyricsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.seconds = source["seconds"];
+	    }
+	}
 	export class PlanParams {
 	    style: string;
 	    lyrics: string;

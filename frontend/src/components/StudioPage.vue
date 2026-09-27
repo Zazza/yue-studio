@@ -26,6 +26,7 @@ let rollDrag = false
 // овердаб: чипы партий + ручной ввод
 const odChips = ref(new Set())
 const odStyle = ref('')
+const odLyrics = ref('')
 const odGain = ref(0.5)
 const odBusy = ref(false)
 
@@ -67,6 +68,7 @@ onMounted(async () => {
     const st = JSON.parse(localStorage.getItem('yue_studio_state') || '{}')
     const per = st.jobs && st.jobs[props.job.id] || {}
     if (per.odStyle !== undefined) odStyle.value = per.odStyle
+    if (per.odLyrics !== undefined) odLyrics.value = per.odLyrics
     if (per.odGain !== undefined) odGain.value = per.odGain
     if (per.stemMute) stemMute.value = per.stemMute
     if (per.rollVoices) rollVoices.value = per.rollVoices
@@ -84,7 +86,7 @@ function saveStudioState() {
     const st = JSON.parse(localStorage.getItem(key) || '{}')
     st.jobs = st.jobs || {}
     st.jobs[props.job.id] = {
-      odStyle: odStyle.value, odGain: odGain.value, odChips: [...odChips.value],
+      odStyle: odStyle.value, odLyrics: odLyrics.value, odGain: odGain.value, odChips: [...odChips.value],
       stemMute: stemMute.value, rollVoices: rollVoices.value,
       dspSel: dspSel.value, dspParams: dspParams.value,
     }
@@ -241,12 +243,42 @@ async function odFinalStyle() {
   return s
 }
 
+// лирика овердаба: распознавание из трека и адаптация-перевод
+const odLyrBusy = ref('')
+const odLyrErr = ref('')
+async function odRecognizeLyrics() {
+  odLyrErr.value = ''
+  odLyrBusy.value = 'rec'
+  try {
+    // текст из аудио самой джобы — без повторной загрузки файла
+    const r = await api.jobLyrics(props.job.id)
+    if (r && r.text) odLyrics.value = r.text
+  } catch (e) {
+    odLyrErr.value = String(e)
+  } finally {
+    odLyrBusy.value = ''
+  }
+}
+async function odAdaptLyrics() {
+  if (!odLyrics.value.trim()) return
+  odLyrErr.value = ''
+  odLyrBusy.value = 'adapt'
+  try {
+    const r = await api.adaptLyrics(odLyrics.value)
+    if (r && r.text) odLyrics.value = r.text
+  } catch (e) {
+    odLyrErr.value = String(e)
+  } finally {
+    odLyrBusy.value = ''
+  }
+}
+
 async function submitOverdub() {
   const style = await odFinalStyle()
   if (!style) return
   odBusy.value = true
   try {
-    await api.submitOverdub(props.job.id, style, odGain.value)
+    await api.submitOverdub(props.job.id, style, odLyrics.value.trim(), odGain.value)
     emit('close')
   } catch (e) {
     rollErr.value = String(e)
@@ -413,7 +445,20 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="od-row">
               <input v-model="odStyle" :placeholder="t('studio.overdub.style.ph')" class="od-style" />
               <label class="od-gain">{{ t('studio.overdub.gain') }} <input type="range" min="0.1" max="1" step="0.05" v-model.number="odGain" /> {{ odGain }}</label>
-              <button class="primary small" :disabled="odBusy || !odStyle || !odStyle.trim()" @click="submitOverdub">
+            </div>
+            <div class="od-row">
+              <textarea v-model="odLyrics" rows="4" class="od-lyrics"
+                        :placeholder="t('studio.overdub.lyrics.ph')"></textarea>
+            </div>
+            <div class="od-row">
+              <button class="ghost small-btn" :disabled="!!odLyrBusy" :title="t('lyrics.job.tip')" @click="odRecognizeLyrics">
+                {{ odLyrBusy === 'rec' ? '…' : t('lyrics.job') }}</button>
+              <button class="ghost small-btn" :disabled="!!odLyrBusy || !odLyrics.trim()" :title="t('lyrics.adapt.tip')" @click="odAdaptLyrics">
+                {{ odLyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
+              <span v-if="odLyrErr" class="error">{{ odLyrErr }}</span>
+            </div>
+            <div class="od-row">
+              <button class="primary small" :disabled="odBusy || (!odStyle.trim() && odChips.size === 0)" @click="submitOverdub">
                 {{ odBusy ? '…' : t('studio.overdub.generate') }}
               </button>
             </div>

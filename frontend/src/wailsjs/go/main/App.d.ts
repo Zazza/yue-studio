@@ -4,6 +4,8 @@ import {yue} from '../models';
 import {main} from '../models';
 import {dsp} from '../models';
 
+export function YueAdaptLyrics(arg1:string,arg2:string):Promise<yue.LyricsResult>;
+
 export function YueAddReference():Promise<yue.Reference>;
 
 export function YueAnalyzeJob(arg1:number):Promise<Record<string, any>>;
@@ -44,6 +46,8 @@ export function YueGetServerURL():Promise<string>;
 
 export function YueImportTrack():Promise<Record<string, any>>;
 
+export function YueJobLyrics(arg1:number):Promise<yue.LyricsResult>;
+
 export function YueJobPreview(arg1:number,arg2:number,arg3:number):Promise<Record<string, any>>;
 
 export function YueJobScore(arg1:number):Promise<Record<string, any>>;
@@ -68,6 +72,8 @@ export function YuePlayAudio(arg1:number):Promise<void>;
 
 export function YuePlayFile(arg1:number,arg2:string,arg3:number):Promise<void>;
 
+export function YueRecognizeLyricsFile():Promise<yue.LyricsResult>;
+
 export function YueReferences():Promise<Array<yue.Reference>>;
 
 export function YueSaveAudio(arg1:number,arg2:string):Promise<string>;
@@ -88,7 +94,7 @@ export function YueSubmit(arg1:yue.SubmitParams):Promise<number>;
 
 export function YueSubmitFan(arg1:yue.SubmitParams,arg2:number):Promise<Array<number>>;
 
-export function YueSubmitOverdub(arg1:number,arg2:string,arg3:number):Promise<number>;
+export function YueSubmitOverdub(arg1:number,arg2:string,arg3:string,arg4:number):Promise<number>;
 
 export function YueToggleAudio():Promise<void>;
 

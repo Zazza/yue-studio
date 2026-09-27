@@ -2,6 +2,8 @@
 
 package main
 
-// setVolumeLive — на Windows WPF-обёртка не даёт менять громкость на лету:
-// значение применится при следующем запуске дорожки (playerCommand volume).
-func setVolumeLive(file string, v float64) {}
+// setVolumeLive — живая громкость на Windows: ползунок пишет <file>.vol,
+// цикл плейера (player_windows.go) перечитывает его каждые 400 мс.
+func setVolumeLive(file string, v float64) {
+	writeVolumeFile(file, v)
+}
