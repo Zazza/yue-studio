@@ -123,12 +123,14 @@ func (p *player) spawnLocked() error {
 		p.mu.Lock()
 		if p.cmd == cmd {
 			p.playing = false
-			p.pausedAt = 0
 			if err != nil {
 				p.lastErr = strings.TrimSpace(stderr.String())
 				if p.lastErr == "" {
 					p.lastErr = err.Error()
 				}
+			} else if p.duration > p.offset {
+				// чанк дошёл до конца: абсолютная позиция = общая длительность
+				p.pausedAt = p.duration - p.offset
 			}
 		}
 		p.mu.Unlock()
@@ -174,7 +176,8 @@ func (p *player) playLocked() {
 
 func (p *player) resumeLocked() {
 	if !resumeProcess(p.cmd) {
-		// Windows: процесса-плейера больше нет — играем заново с начала
+		// Windows: процесса-плейера больше нет — чанк играем заново с его начала
+		p.pausedAt = 0
 		p.spawnLocked()
 		return
 	}
@@ -228,7 +231,7 @@ func (p *player) Seek(target time.Duration) error {
 	if remaining <= 0 {
 		p.mu.Lock()
 		p.offset = p.duration
-		p.pausedAt = 0
+		p.stopLocked()
 		p.mu.Unlock()
 		return nil
 	}
@@ -256,7 +259,6 @@ func (p *player) Seek(target time.Duration) error {
 	os.Remove(src)
 	p.tmpFile = outName
 	p.offset = target
-	p.duration = remaining
 	p.pausedAt = 0
 	p.lastErr = ""
 	err = p.spawnLocked()
