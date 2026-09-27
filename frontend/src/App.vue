@@ -302,7 +302,6 @@ const planOpen = ref(false)
 const planBusy = ref(false)
 const planErr = ref('')
 const planInfo = ref(null)   // {seed, seconds, truncated} — как план получен
-const planModal = ref(null)
 const planAbc = ref('')
 
 function setPlanAbc(abc, info) {

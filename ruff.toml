@@ -1,0 +1,12 @@
+# Линтер воркера (worker/*.py). Запуск: ruff check worker
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "B", "UP"]
+# BLE001 (blind except) — осознанный паттерн best-effort в API обёртках,
+# помечен noqa в коде там, где важно
+ignore = []
+
+[lint.per-file-ignores]
+"worker/test_pure.py" = ["E501"]

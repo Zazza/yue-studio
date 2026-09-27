@@ -1,0 +1,16 @@
+# Окружение воркера (Ubuntu + CUDA; torch — с CUDA-индексом, см. docs/deployment.md):
+#   uv pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu128 \
+#     --extra-index-url https://pypi.org/simple
+fastapi
+uvicorn
+soundfile
+lameenc
+librosa
+transformers>=4.57
+einops
+torchaudio==2.10.0
+pretty_midi
+mido
+mir_eval
+demucs
+numpy

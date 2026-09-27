@@ -1,0 +1,19 @@
+# Конфиг golangci-lint. Запуск: golangci-lint run
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - misspell
+
+issues:
+  exclude-rules:
+    # Wails-биндинги вызываются из шаблона по имени — «неиспользуемое» тут норма
+    - path: app\.go
+      linters:
+        - unused

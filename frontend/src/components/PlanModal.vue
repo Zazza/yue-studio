@@ -1,6 +1,6 @@
 <script setup>
 // Редактор плана: ABC-партитура до рендера (план, из джобы, из трека, из профиля).
-const props = defineProps({
+defineProps({
   open: Boolean,
   busy: Boolean,
   err: String,

@@ -73,7 +73,7 @@ class TestParseAbc(unittest.TestCase):
     def test_timeline_monotonic_and_consistent(self):
         # spec: такты идут подряд без дыр, end[i] == start[i+1]
         bars = self.r["bars"]
-        for a, b in zip(bars, bars[1:]):
+        for a, b in zip(bars, bars[1:], strict=False):
             self.assertEqual(a["end_sec"], b["start_sec"])
         self.assertEqual(self.r["duration_sec"], bars[-1]["end_sec"])
 

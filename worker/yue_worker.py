@@ -192,7 +192,7 @@ def _run_job(job_id: int):
                          float(row["overdub_gain"] or 0.5))
         with db_lock, db() as conn:
             conn.execute(
-                "UPDATE jobs SET status='done', duration_sec=?, audio_file=?, mp3_file=?, wav_file=?, abc_file=?, finished_at=? WHERE id=?",
+                "UPDATE jobs SET status='done', duration_sec=?, audio_file=?, mp3_file=?, wav_file=?, abc_file=?, finished_at=? WHERE id=?",  # noqa: E501
                 (_audio_duration(audio),
                  "audio.flac" if audio.exists() else "",
                  mp3,
@@ -925,7 +925,6 @@ async def corpus_add_track(cid: int, request: Request):
     if WHISPER_PY.is_file():
         try:
             import os
-            import subprocess
             # ctranslate2 в whisper-venv не видит libcublas из pip-wheel'ов nvidia
             import subprocess
             import sys
@@ -1066,7 +1065,7 @@ def corpus_tracks(cid: int):
             "created_at": info.get("created_at"),
             "tempo_bpm": m.get("tempo_bpm"),
             "key": next(iter(st.get("keys") or {}), None),
-            "top_chords": list((st.get("top_chords") or {}))[:6],
+            "top_chords": list(st.get("top_chords") or {})[:6],
             "structure": st.get("structure") or [],
             "lyrics_head": (info.get("lyrics") or "")[:200],
             "abc_error": info.get("abc_error"),
@@ -1142,7 +1141,8 @@ def listen(job_id: int, f: str | None = None):
     return HTMLResponse(f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{title} — Yue Studio</title>
 <style>
-body {{ background:#101014;color:#e8e8ee;font:15px system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0 }}
+body {{ background:#101014;color:#e8e8ee;font:15px system-ui,sans-serif;
+       display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0 }}
 .card {{ background:#18181f;border:1px solid #2a2a35;border-radius:12px;padding:28px 32px;max-width:640px;width:92% }}
 h1 {{ font-size:18px;margin:0 0 4px;font-weight:600 }}
 small {{ color:#8b8b9a }}

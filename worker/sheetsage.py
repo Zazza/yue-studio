@@ -3,7 +3,6 @@
 Модель ленивая и маленькая — держим загруженной после первого вызова;
 с YuE2 не пересекается по VRAM (сотни МБ).
 """
-import json
 import logging
 import threading
 import time
@@ -84,7 +83,7 @@ def summarize(out_dir: Path) -> dict:
     structure = [r[2].strip() for r in _read_lab(out_dir / "structure.lab")]
     # прогрессии: пары соседних аккордов
     pairs: dict[str, int] = {}
-    for a, b in zip(chord_seq, chord_seq[1:]):
+    for a, b in zip(chord_seq, chord_seq[1:], strict=False):
         if a != b:
             pairs[f"{a}->{b}"] = pairs.get(f"{a}->{b}", 0) + 1
     return {

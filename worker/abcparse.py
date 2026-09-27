@@ -81,8 +81,8 @@ def parse_abc(text: str) -> dict:
         if (m := _header_field(s, "M:")):
             meter = m
             continue
-        if (l := _header_field(s, "L:")):
-            mm = re.match(r"1/(\d+)", l)
+        if (lf := _header_field(s, "L:")):
+            mm = re.match(r"1/(\d+)", lf)
             if mm:
                 unit = 1.0 / float(mm.group(1))
             continue

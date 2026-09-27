@@ -1,6 +1,6 @@
 // Тесты инструментальной стойки: компиляция выбора в текст стиля.
 import { describe, it, expect } from 'vitest'
-import { rackCompile, rackGroups, rackEffects, allRackItems } from './rack.js'
+import { rackCompile, rackEffects, allRackItems } from './rack.js'
 
 describe('rackCompile', () => {
   it('пустой выбор → пустая строка (стойка не влияет на стиль)', () => {
