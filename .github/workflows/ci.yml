@@ -15,6 +15,13 @@ jobs:
           go-version-file: go.mod
       - name: Install GTK/WebKit deps (Wails)
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend (go:embed needs frontend/dist)
+        run: cd frontend && npm ci && npm run build
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: go vet
@@ -46,6 +53,7 @@ jobs:
       - name: build
         run: npm run build
       - name: mcp data parity (embedded JSON == frontend sources)
+        working-directory: .
         run: |
           ./tools/mcp-gendata.sh
           git diff --exit-code -- internal/mcp/ || (echo 'internal/mcp/*.json рассинхронизированы с frontend/src — запусти make mcp-data и закоммить'; exit 1)
