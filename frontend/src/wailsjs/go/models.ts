@@ -93,6 +93,7 @@ export namespace yue {
 	    style: string;
 	    example: string;
 	    lang: string;
+	    instruction?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CopilotParams(source);
@@ -104,6 +105,7 @@ export namespace yue {
 	        this.style = source["style"];
 	        this.example = source["example"];
 	        this.lang = source["lang"];
+	        this.instruction = source["instruction"];
 	    }
 	}
 	export class CopilotResult {
@@ -191,6 +193,10 @@ export namespace yue {
 	    abc_file: string;
 	    created_at: string;
 	    finished_at: string;
+	    stage?: string;
+	    tokens?: number;
+	    tok_per_s?: number;
+	    elapsed_s?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Job(source);
@@ -214,6 +220,10 @@ export namespace yue {
 	        this.abc_file = source["abc_file"];
 	        this.created_at = source["created_at"];
 	        this.finished_at = source["finished_at"];
+	        this.stage = source["stage"];
+	        this.tokens = source["tokens"];
+	        this.tok_per_s = source["tok_per_s"];
+	        this.elapsed_s = source["elapsed_s"];
 	    }
 	}
 	export class PlanParams {

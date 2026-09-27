@@ -1,6 +1,8 @@
 <script setup>
 // Страница настроек: воркер + Ollama + пути воркера.
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from '../i18n/index.js'
+const { t } = useI18n()
 import { api } from '../api.js'
 import VSelect from '../VSelect.vue'
 
@@ -82,31 +84,31 @@ async function save() {
 </script>
 
 <template>
-  <main class="settings-page">
+  <main class="settings-page settings-wide">
     <section class="panel">
-      <h2>Настройки</h2>
+      <h2>{{ t('settings.title') }}</h2>
 
-      <h3 class="set-h">Подключение к воркеру</h3>
+      <h3 class="set-h">{{ t('settings.worker') }}</h3>
       <div class="set-row">
-        <span class="set-label">Адрес воркера</span>
+        <span class="set-label">{{ t('settings.worker.url') }}</span>
         <input v-model="serverURL" placeholder="http://localhost:8091" @keyup.enter="save" />
       </div>
       <div class="set-hint muted">{{ workerProbe }}</div>
 
-      <h3 class="set-h">Ollama <span class="muted">(копайтер стихов, перевод стиля)</span></h3>
+      <h3 class="set-h">{{ t('settings.ollama') }} <span class="muted">{{ t('settings.ollama.sub') }}</span></h3>
       <div class="set-row">
-        <span class="set-label">Сервер</span>
+        <span class="set-label">{{ t('settings.server') }}</span>
         <input v-model="ollamaURL" placeholder="http://127.0.0.1:11434/api/chat" @change="checkOllama" @keyup.enter="save" />
-        <button class="ghost" @click="checkOllama">Проверить</button>
+        <button class="ghost" @click="checkOllama">{{ t('common.check') }}</button>
       </div>
       <div class="set-row">
-        <span class="set-label">Модель</span>
-        <VSelect v-model="ollamaModel" :options="modelOptions" placeholder="— список недоступен —" />
-        <button class="ghost" @click="checkOllama" title="Перечитать список моделей из Ollama">Обновить</button>
+        <span class="set-label">{{ t('settings.model') }}</span>
+        <VSelect v-model="ollamaModel" :options="modelOptions" :placeholder="t('settings.model.ph')" />
+        <button class="ghost" @click="checkOllama" :title="t('common.refresh')">{{ t('common.refresh') }}</button>
       </div>
       <div class="set-hint muted">{{ ollamaProbe }}</div>
 
-      <h3 class="set-h">Воркер <span class="muted">(только для информации)</span></h3>
+      <h3 class="set-h">{{ t('settings.info') }} <span class="muted">{{ t('settings.info.readonly') }}</span></h3>
       <div v-if="info" class="set-info muted">
         папка данных: {{ info.data_dir }}<br />
         whisper: {{ info.whisper_available ? info.whisper_py : 'не найден (тексты треков недоступны)' }}
@@ -116,8 +118,8 @@ async function save() {
       <div v-if="err" class="error">{{ err }}</div>
       <div v-if="saved" class="ok">сохранено</div>
       <div class="set-actions">
-        <button @click="save">Сохранить</button>
-        <button class="ghost" @click="emit('close')">Вернуться</button>
+        <button @click="save">{{ t('common.save') }}</button>
+        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
   </main>

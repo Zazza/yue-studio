@@ -49,6 +49,14 @@ for d in (JOBS_DIR, REFS_DIR, TRANSCRIBES_DIR, CORPUS_DIR):
 
 WHISPER_PY = Path(os.environ.get("YUE_WHISPER_PY", Path.home() / "whisper-venv" / "bin" / "python"))
 
+# Бюджет семантических токенов на песню (дефолт протокола 9000 ≈ 4.5–6 мин;
+# контекст модели 24576 общий: стиль+лирика+план+песня). 16000 ≈ до ~10 мин,
+# пик VRAM растёт с длиной — для 16 ГБ больше не поднимать.
+MAX_SEM_TOKENS = int(os.environ.get("YUE2_MAX_TOKENS", "16000"))
+# cfg_scale (classifier-free guidance): выше — точнее следует стилю, но суше;
+# 1.5 — сбалансированное среднее. 0/отсутствие — дефолт библиотеки.
+CFG_SCALE = float(os.environ.get("YUE2_CFG_SCALE", "1.5"))
+
 app = FastAPI(title="yue-worker")
 
 _pipe = None
@@ -158,48 +166,130 @@ def _make_formats(job_dir: Path) -> tuple[str, str]:
         return "", ""
 
 
+# отмена бегущих джоб и их живой прогресс (in-memory: живёт пока воркер)
+_cancel_flags: dict[int, threading.Event] = {}
+_progress: dict[int, dict] = {}
+_state_lock = threading.Lock()
+
+
+def _on_token_cb(job_id: int):
+    """Счётчик токенов/фазы из колбэка пайплайна (plan/generate_semantic)."""
+    counters = {"phase": "load", "tokens": 0}
+
+    def on_token(*args):
+        for a in args:
+            if isinstance(a, str):
+                counters["phase"] = "plan" if "abc" in a.lower() else "semantic"
+        counters["tokens"] += 1
+
+    return on_token, counters
+
+
+def _progress_watcher(job_id: int, counters: dict, t0: float):
+    """Раз в 2 с пишет прогресс в _progress (для /jobs)."""
+    stop = threading.Event()
+    last = 0
+
+    def watch():
+        nonlocal last   # иначе первый тик: referenced before assignment
+        while not stop.is_set():
+            elapsed = time.time() - t0
+            tps = (counters["tokens"] - last) / 2 if elapsed > 2 else None
+            last = counters["tokens"]
+            # честный процент есть только у семантики (самая длинная фаза):
+            # токены / бюджет; загрузка модели и план — неопределённая длительность
+            pct = None
+            if counters["phase"] == "semantic":
+                pct = min(99, counters["tokens"] * 100 // max(1, MAX_SEM_TOKENS))
+            with _state_lock:
+                _progress[job_id] = {
+                    "stage": counters["phase"],
+                    "tokens": counters["tokens"],
+                    "tok_per_s": round(tps, 1) if tps else None,
+                    "elapsed_s": round(elapsed, 1),
+                    "progress_pct": pct,
+                }
+            stop.wait(2)
+
+    t = threading.Thread(target=watch, daemon=True, name=f"watch-{job_id}")
+    t.start()
+    return stop
+
+
 def _run_job(job_id: int):
     with db_lock, db() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
     job_dir = JOBS_DIR / str(job_id)
     job_dir.mkdir(parents=True, exist_ok=True)
-    with _pipe_lock:
-        pipe = _get_pipe()
-        request = {"style": row["style"], "lyrics": row["lyrics"], "cot": row["cot"]}
-        if row["seed"]:
-            request["seed"] = row["seed"]
-        if row["req_abc"]:
-            abc_path = job_dir / row["req_abc"]
-            if abc_path.is_file():
-                request["abc"] = abc_path.read_text()
-        t0 = time.time()
-        try:
-            song = pipe(**request)
-            song.save_artifacts(job_dir)
-        except Exception as e:  # noqa: BLE001
-            log.exception("job %s failed", job_id)
+    cancel_ev = threading.Event()
+    with _state_lock:
+        _cancel_flags[job_id] = cancel_ev
+    on_token, counters = _on_token_cb(job_id)
+    watch_stop = _progress_watcher(job_id, counters, time.time())
+    try:  # noqa: SIM105 - очистка состояния после любого исхода
+        with _pipe_lock:
+            pipe = _get_pipe()
+            counters["phase"] = "plan"
+            request = {"style": row["style"], "lyrics": row["lyrics"], "cot": row["cot"],
+                       "on_token": on_token,
+                       "cancelled": lambda: cancel_ev.is_set(),
+                       "max_tokens": MAX_SEM_TOKENS, "cfg_scale": CFG_SCALE}
+            if row["seed"]:
+                request["seed"] = row["seed"]
+            if row["req_abc"]:
+                abc_path = job_dir / row["req_abc"]
+                if abc_path.is_file():
+                    request["abc"] = abc_path.read_text()
+            t0 = time.time()
+            try:
+                try:
+                    song = pipe(**request)
+                except TypeError as te:
+                    # старые сборки yue2 не знают max_tokens/cfg_scale — без них
+                    if "max_tokens" in str(te) or "cfg_scale" in str(te):
+                        log.warning("yue2 pipeline не поддерживает max_tokens/cfg_scale (%s); "
+                                    "генерирую с дефолтами библиотеки", te)
+                        request.pop("max_tokens", None)
+                        request.pop("cfg_scale", None)
+                        song = pipe(**request)
+                    else:
+                        raise
+                song.save_artifacts(job_dir)
+            except (InterruptedError, KeyboardInterrupt):
+                log.info("job %s canceled by user", job_id)
+                with db_lock, db() as conn:
+                    conn.execute("UPDATE jobs SET status='canceled', finished_at=? WHERE id=?",
+                                 (time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+                return
+            except Exception as e:  # noqa: BLE001
+                log.exception("job %s failed", job_id)
+                with db_lock, db() as conn:
+                    conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
+                                 (str(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+                return
+            truncated = song.truncated
+            if isinstance(truncated, dict):
+                truncated = any(truncated.values())
+            audio = job_dir / "audio.flac"
+            mp3, wav = _make_formats(job_dir)
+            if row["overdub_of"]:
+                _mix_overdub(int(row["overdub_of"]), job_id,
+                             float(row["overdub_gain"] or 0.5))
             with db_lock, db() as conn:
-                conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
-                             (str(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
-            return
-        truncated = song.truncated
-        if isinstance(truncated, dict):
-            truncated = any(truncated.values())
-        audio = job_dir / "audio.flac"
-        mp3, wav = _make_formats(job_dir)
-        if row["overdub_of"]:
-            _mix_overdub(int(row["overdub_of"]), job_id,
-                         float(row["overdub_gain"] or 0.5))
-        with db_lock, db() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='done', duration_sec=?, audio_file=?, mp3_file=?, wav_file=?, abc_file=?, finished_at=? WHERE id=?",  # noqa: E501
-                (_audio_duration(audio),
-                 "audio.flac" if audio.exists() else "",
-                 mp3,
-                 wav,
-                 "score.abc" if (job_dir / "score.abc").exists() else "",
-                 time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
-    log.info("job %s done in %.1fs (truncated=%s)", job_id, time.time() - t0, truncated)
+                conn.execute(
+                    "UPDATE jobs SET status='done', duration_sec=?, audio_file=?, mp3_file=?, wav_file=?, abc_file=?, finished_at=? WHERE id=?",  # noqa: E501
+                    (_audio_duration(audio),
+                     "audio.flac" if audio.exists() else "",
+                     mp3,
+                     wav,
+                     "score.abc" if (job_dir / "score.abc").exists() else "",
+                     time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+        log.info("job %s done in %.1fs (truncated=%s)", job_id, time.time() - t0, truncated)
+    finally:
+        watch_stop.set()
+        with _state_lock:
+            _cancel_flags.pop(job_id, None)
+            _progress.pop(job_id, None)
 
 
 def queue_loop():
@@ -220,6 +310,12 @@ def queue_loop():
 
 @app.on_event("startup")
 def _startup():
+    # джобы, «повисшие» в running с прошлого запуска: генератор мёртв — честная ошибка
+    with db_lock, db() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='error', error='воркер перезапущен во время генерации', finished_at=? "
+            "WHERE status='running'",
+            (time.strftime("%Y-%m-%dT%H:%M:%S"),))
     threading.Thread(target=queue_loop, daemon=True).start()
 
 
@@ -256,6 +352,7 @@ class CopilotIn(BaseModel):
     style: str = ""
     example: str = ""
     lang: str = "Russian"
+    instruction: str = ""  # свой системный промпт (заготовка из жанра/голоса формы)
 
 
 class TranslateIn(BaseModel):
@@ -321,7 +418,7 @@ def copilot(req: CopilotIn):
     сразу после ответа — 9 ГБ рядом с YuE (7.7 ГБ) иначе роняют генерацию OOM."""
     if not req.theme.strip():
         raise HTTPException(422, "theme is required")
-    system = (
+    system = req.instruction.strip() or (
         "Ты — поэт-песенник. Пишешь тексты песен с секционной разметкой "
         "[Verse], [Chorus] (можно [Bridge], [Outro]). В ответе — только текст "
         "песни: без пояснений, без markdown-разметки, без названия. Строки "
@@ -408,7 +505,11 @@ def plan(req: PlanIn):
 
 
 def _job_dict(row) -> dict:
-    return {k: row[k] for k in row.keys()}
+    d = {k: row[k] for k in row.keys()}
+    if d.get("status") == "running":
+        with _state_lock:
+            d.update(_progress.get(row["id"], {}))
+    return d
 
 
 @app.get("/jobs")
@@ -429,11 +530,23 @@ def get_job(job_id: int):
 
 @app.post("/jobs/{job_id}/cancel")
 def cancel(job_id: int):
+    """Отмена: queued — снять из очереди; running — остановить генерацию
+    (пайплайн проверяет флаг по колбэку, завершится штатно на ближайшем шаге)."""
     with db_lock, db() as conn:
         cur = conn.execute(
             "UPDATE jobs SET status='canceled', finished_at=? WHERE id=? AND status='queued'",
             (time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
-        return {"canceled": cur.rowcount > 0}
+    if cur.rowcount > 0:
+        return {"canceled": True}
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if row and row["status"] == "running":
+        with _state_lock:
+            ev = _cancel_flags.get(job_id)
+        if ev:
+            ev.set()
+            return {"canceled": True, "running": True}
+    return {"canceled": False}
 
 
 @app.delete("/jobs/{job_id}")

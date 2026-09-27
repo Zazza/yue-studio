@@ -1,6 +1,8 @@
 <script setup>
 // Студия трека: пиано-ролл партитуры, минус по стемам, овердаб, DSP-цепочки.
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from '../i18n/index.js'
+const { t } = useI18n()
 import { api } from '../api.js'
 import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { odPartyChips } from '../slotOptions.js'
@@ -334,12 +336,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
 <template>
   <main class="settings-page studio-page">
     <section class="panel">
-      <div class="page-head">
-        <h2>Студия трека <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
-        <button class="ghost" @click="emit('close')">Вернуться</button>
-      </div>
+      <h2>{{ t('studio.title') }} <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
-        <p v-if="rollBusy" class="muted">Разбираю партитуру…</p>
+        <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
         <p v-if="rollErr" class="error">{{ rollErr }}</p>
         <template v-if="rollData">
           <p class="muted roll-meta">
@@ -348,13 +347,13 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <template v-if="selRange"> · выделено {{ selRange.from.toFixed(0) }}–{{ selRange.to.toFixed(0) }} с</template>
           </p>
           <div class="roll-voices">
-            <span class="muted">голоса партитуры:</span>
+            <span class="muted">{{ t('studio.voices') }}</span>
             <div v-for="(v, vi) in rollVoices" :key="vi" class="roll-voice-edit">
-              <button class="toggle" :class="{ on: v.on }" :title="v.on ? 'Голос участвует в плане' : 'Голос выключен — будет убран из партитуры'" @click="v.on = !v.on; rollVoices = [...rollVoices]">{{ v.on ? 'вкл' : 'выкл' }}</button>
-              <input v-model="v.name" :placeholder="v.orig ? v.orig : 'новый инструмент'" :disabled="!v.on" class="lib-name-input" title="Имя инструмента в плане (V: строка ABC); переименование — подсказка модели" />
-              <button class="ghost small-btn" v-if="v.orig" title="Убрать голос из партитуры" @click="rollVoices = rollVoices.filter((_, i) => i !== vi)">✕</button>
+              <button class="toggle" :class="{ on: v.on }" :title="v.on ? t('studio.voice.on.tip') : t('studio.voice.off.tip')" @click="v.on = !v.on; rollVoices = [...rollVoices]">{{ v.on ? t('studio.voice.on') : t('studio.voice.off') }}</button>
+              <input v-model="v.name" :placeholder="v.orig ? v.orig : t('studio.voice.ph')" :disabled="!v.on" class="lib-name-input" :title="t('studio.voice.name.tip')" />
+              <button class="ghost small-btn" v-if="v.orig" :title="t('studio.voice.del')" @click="rollVoices = rollVoices.filter((_, i) => i !== vi)">✕</button>
             </div>
-            <button class="ghost small-btn" @click="addRollVoice">+ голос</button>
+            <button class="ghost small-btn" @click="addRollVoice">{{ t('studio.voice.add') }}</button>
             <button class="primary small" title="Партитура с правками голосов → редактор нот → рендер по ним. Модель следует плану приблизительно" @click="voicesToPlan">в план (правки голосов)</button>
           </div>
 
@@ -369,19 +368,19 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                    :title="`${b.section} · такт ${b.idx + 1} · ${b.start_sec.toFixed(1)}–${b.end_sec.toFixed(1)}s${b.start_sec >= job.duration_sec ? ' · за пределами звука' : ''}`"
                    @mousedown.prevent="barSelStart(b.idx)" @mouseover="barSelOver(b.idx)"></div>
             </template>
-            <div class="roll-voice">аккорды</div>
+            <div class="roll-voice">{{ t('studio.chords') }}</div>
             <div v-for="b in chunk" :key="'c' + b.idx" class="roll-chord">{{ (b.chords[0] || '') }}</div>
           </div>
           <div class="roll-actions">
             <button class="primary small" :disabled="!selRange || previewBusy" @click="makePreview">
-              {{ previewBusy ? 'декодирую…' : '▶ превью фрагмента' }}
+              {{ previewBusy ? t('studio.preview.busy') : t('studio.preview') }}
             </button>
-            <span class="muted">выдели такты мышью; превью — VAE-decode куска латентов (секунды), без AR-генерации</span>
+            <span class="muted">{{ t('studio.preview.hint') }}</span>
           </div>
 
           <div class="roll-stems">
             <div class="stems-inline">
-              <span class="muted">стемы в миксе:</span>
+              <span class="muted">{{ t('studio.stems') }}</span>
               <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
                 <button class="toggle" :class="{ on: !stemMute[nm] }"
                        :title="stemMute[nm] ? 'Выключено из минуса' : 'Присутствует в минусе'"
@@ -390,10 +389,10 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 </button>
               </label>
               <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
-                      title="Собрать минус-трек: demucs-стемы без выключенных групп смешиваются в новый файл" @click="makeMinus">
-                {{ rollBusy ? '…' : 'минус-трек' }}
+                      :title="t('studio.minus.tip')" @click="makeMinus">
+                {{ rollBusy ? '…' : t('studio.minus') }}
               </button>
-              <span class="muted">честное смешивание стемов (drums/bass/other/vocals), без перегенерации</span>
+              <span class="muted">{{ t('studio.minus.hint') }}</span>
             </div>
             <div v-for="st in stemsList" :key="st.file" class="stem-row">
               <button class="ghost play-mini" :class="{ stop: isPlaying('s' + job.id + ':' + st.file) }"
@@ -405,35 +404,35 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </div>
 
           <details class="studio-sec">
-            <summary>Овердаб <span class="muted">— партия поверх трека по его партитуре</span></summary>
-            <p class="muted">Партия поверх трека: рендер по партитуре джобы с новым стилем, затем микс с оригиналом. Это не настоящий овердаб — YuE2 не даёт стемов.</p>
+            <summary>{{ t('studio.overdub') }} <span class="muted">{{ t('studio.overdub.sub') }}</span></summary>
+            <p class="muted">{{ t('studio.overdub.desc') }}</p>
             <div class="od-chips">
               <button v-for="(c, ci) in odPartyChips" :key="ci" class="toggle"
                       :class="{ on: odChips.has(ci) }" @click="odToggleChip(ci)">{{ c.ru }}</button>
             </div>
             <div class="od-row">
-              <input v-model="odStyle" placeholder="и/или своими словами: редкая воздушная флейта" class="od-style" />
-              <label class="od-gain">гейн <input type="range" min="0.1" max="1" step="0.05" v-model.number="odGain" /> {{ odGain }}</label>
+              <input v-model="odStyle" :placeholder="t('studio.overdub.style.ph')" class="od-style" />
+              <label class="od-gain">{{ t('studio.overdub.gain') }} <input type="range" min="0.1" max="1" step="0.05" v-model.number="odGain" /> {{ odGain }}</label>
               <button class="primary small" :disabled="odBusy || !odStyle || !odStyle.trim()" @click="submitOverdub">
-                {{ odBusy ? '…' : 'сгенерировать' }}
+                {{ odBusy ? '…' : t('studio.overdub.generate') }}
               </button>
             </div>
           </details>
 
           <details class="studio-sec">
-            <summary>Эффекты звука <span class="muted">— «стена» или «кассета» поверх готового трека, с быстрым превью 15с</span></summary>
+            <summary>{{ t('studio.dsp') }} <span class="muted">{{ t('studio.dsp.sub') }}</span></summary>
             <div class="dsp-row">
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
-                       placeholder="цепочка эффектов…" style="max-width: 220px"
+                       :placeholder="t('studio.dsp.chain')" style="max-width: 220px"
                        @update:model-value="(v) => selChain(v)" />
               <button class="primary small" :disabled="!dspSel || dspBusy" @click="applyDsp">
-                {{ dspBusy ? 'гоню…' : 'применить' }}
+                {{ dspBusy ? t('studio.dsp.applying') : t('studio.dsp.apply') }}
               </button>
               <button class="ghost small-btn" :disabled="!dspSel || dspBusy"
-                      title="Кусок трека 15 секунд через выбранную цепочку — быстро послушать, что получится" @click="previewDsp">
-                {{ dspBusy ? '…' : 'превью 15с' }}
+                      :title="t('studio.dsp.preview.tip')" @click="previewDsp">
+                {{ dspBusy ? '…' : t('studio.dsp.preview') }}
               </button>
-              <button class="ghost" @click="emit('open-metrics', job, null)">метрики трека</button>
+              <button class="ghost" @click="emit('open-metrics', job, null)">{{ t('studio.dsp.metrics') }}</button>
             </div>
             <p v-if="curChain" class="muted dsp-note">{{ curChain.note }}</p>
             <div v-if="curChain" class="dsp-params">
@@ -459,6 +458,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </div>
           </details>
         </template>
+      </div>
+      <div class="set-actions">
+        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
   </main>

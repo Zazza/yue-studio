@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics, instrumentalLyrics, SLOT_ORDER,
 } from './styleLogic.js'
-import { slotOptions, slotMeta } from './slotOptions.js'
+import { slotOptions, slotKeys } from './slotOptions.js'
 
 describe('buildStyleLine', () => {
   it('склеивает непустые слоты в порядке формы, BPM последним', () => {
@@ -86,7 +86,7 @@ describe('instrumentalLyrics / effectiveLyrics', () => {
 
 describe('целостность данных слотов', () => {
   it('slotMeta покрывает ровно те поля, что идут в строку стиля (без bpm)', () => {
-    const metaKeys = slotMeta.map(([k]) => k).sort()
+    const metaKeys = [...slotKeys].sort()
     expect(metaKeys).toEqual([...SLOT_ORDER].sort())
   })
 

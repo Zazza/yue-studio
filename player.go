@@ -264,7 +264,8 @@ func (p *player) Seek(target time.Duration) error {
 	return err
 }
 
-// setVolume — 0..1; применяется при следующем запуске дорожки (pw-play/WPF).
+// SetVolume — 0..1. Запоминается для будущих запусков и, если можно,
+// применяется к уже играющему процессу (платформозависимый setVolumeLive).
 func (p *player) SetVolume(v float64) {
 	if v < 0 {
 		v = 0
@@ -274,7 +275,11 @@ func (p *player) SetVolume(v float64) {
 	}
 	p.mu.Lock()
 	p.volume = v
+	file, playing := p.tmpFile, p.playing
 	p.mu.Unlock()
+	if playing && file != "" {
+		setVolumeLive(file, v)
+	}
 }
 
 func (p *player) LastError() string {

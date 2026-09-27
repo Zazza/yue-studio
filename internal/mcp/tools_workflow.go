@@ -149,7 +149,7 @@ func RegisterWorkflowTools(s *Server) {
 
 	s.Register(Tool{
 		Name:        "cancel",
-		Description: "Отменить джобу в очереди. Деструктивное: требует confirm=true (спроси пользователя).",
+		Description: "Отменить джобу: в очереди — снять, идущую — остановить генерацию. Деструктивное: требует confirm=true (спроси пользователя).",
 		InputSchema: props(map[string]any{
 			"job_id":  prop("ID джобы", "integer"),
 			"confirm": prop("явное подтверждение пользователя", "boolean"),

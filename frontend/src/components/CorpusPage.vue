@@ -1,6 +1,8 @@
 <script setup>
 // Страница «Свои треки»: импорт трека в студию + профили исполнителей из корпусов.
 import { ref, onMounted } from 'vue'
+import { useI18n } from '../i18n/index.js'
+const { t } = useI18n()
 import { api } from '../api.js'
 
 const emit = defineEmits(['close', 'imported', 'apply-style', 'apply-abc', 'style-to-library'])
@@ -84,34 +86,33 @@ function applyAbc(p) {
 </script>
 
 <template>
-  <main class="settings-page">
+  <main class="settings-page corpus-page-wide">
     <section class="panel lib">
-      <h2>Свой трек → студия</h2>
+      <h2>{{ t('corpus.import.title') }}</h2>
       <p class="muted">
-        Загрузите готовый трек (flac/mp3/wav/ogg/m4a) — в его студии будут работать стемы и минус-трек,
-        эффекты звука, ролл по транскрипции и овердаб. Изменение инструментов — минусом по стемам или кавером, не правкой оригинала.
+        {{ t('corpus.import.desc') }}
       </p>
       <div class="corpus-actions">
         <button class="primary" :disabled="importBusy" @click="importTrack">
-          {{ importBusy ? 'импортирую…' : '＋ импортировать трек в студию' }}
+          {{ importBusy ? t('corpus.import.busy') : t('corpus.import.btn') }}
         </button>
       </div>
 
-      <h2 style="margin-top:18px">Профили из корпуса <span class="muted">(треки исполнителя: один — разбор, несколько — усреднение)</span></h2>
+      <h2 style="margin-top:18px">{{ t('corpus.profiles') }} <span class="muted">{{ t('corpus.profiles.sub') }}</span></h2>
       <div class="corpus-new">
-        <input v-model="corpusName" placeholder="Имя профиля (напр. «блюз 60-х»)" @keyup.enter="create" />
-        <button class="ghost" :disabled="corpusBusy || !corpusName.trim()" @click="create">создать</button>
+        <input v-model="corpusName" :placeholder="t('corpus.profile.name')" @keyup.enter="create" />
+        <button class="ghost" :disabled="corpusBusy || !corpusName.trim()" @click="create">{{ t('corpus.profile.create') }}</button>
       </div>
       <p v-if="corpusErr" class="error">{{ corpusErr }}</p>
       <div v-for="c in corpora" :key="c.id" class="corpus-item">
         <strong>{{ c.name }}</strong>
         <span class="muted">{{ c.tracks }} трек(ов)</span>
         <span class="spacer"></span>
-        <button class="ghost small-btn" :disabled="corpusBusy" @click="addTracks(c)">＋ треки…</button>
+        <button class="ghost small-btn" :disabled="corpusBusy" @click="addTracks(c)">{{ t('corpus.tracks.add') }}</button>
         <button class="ghost small-btn" :disabled="corpusBusy || !c.tracks" @click="build(c)">
-          {{ corpusBusy ? '…' : 'собрать профиль' }}
+          {{ corpusBusy ? '…' : t('corpus.profile.build') }}
         </button>
-        <button v-if="c.has_profile" class="ghost small-btn" @click="show(c)">профиль</button>
+        <button v-if="c.has_profile" class="ghost small-btn" @click="show(c)">{{ t('corpus.profile.show') }}</button>
         <div class="corpus-tracks">
           <div v-for="t in corpusTracks[c.id] || []" :key="t.filename" class="corpus-track">
             <strong>{{ t.filename }}</strong>
@@ -132,15 +133,15 @@ function applyAbc(p) {
           </p>
           <p class="muted style">{{ corpusProfile[c.id].style }}</p>
           <div class="corpus-actions">
-            <button class="primary small" @click="applyStyle(corpusProfile[c.id])">стиль → в форму</button>
-            <button class="ghost small-btn" @click="emit('style-to-library', { corpus: c, profile: corpusProfile[c.id] })">стиль → в библиотеку</button>
+            <button class="primary small" @click="applyStyle(corpusProfile[c.id])">{{ t('corpus.profile.style') }}</button>
+            <button class="ghost small-btn" @click="emit('style-to-library', { corpus: c, profile: corpusProfile[c.id] })">{{ t('corpus.style.toLib') }}</button>
             <button class="ghost small-btn" title="Нотный шаблон профиля — в редактор плана (для продвинутых)" @click="applyAbc(corpusProfile[c.id])">ноты → в план</button>
           </div>
         </div>
       </div>
-      <p v-if="!corpora.length" class="muted">Профиль: тональности/прогрессии/темп/структура (SheetSage2), DSP-паспорт, тексты (Whisper), строка стиля (Ollama). Стены характера нет: тембр/голос не переносится.</p>
+      <p v-if="!corpora.length" class="muted">{{ t('corpus.desc') }}</p>
       <div class="set-actions">
-        <button class="ghost" @click="emit('close')">Вернуться</button>
+        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
   </main>

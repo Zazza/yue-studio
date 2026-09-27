@@ -5,7 +5,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from './api.js'
 import { rackGroups, rackEffects, rackCompile } from './rack.js'
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './groups.js'
-import { slotMeta, slotHints, durOptions } from './slotOptions.js'
+import { slotKeys, slotHints, durOptions } from './slotOptions.js'
+import { useI18n } from './i18n/index.js'
 import { SLOT_ORDER, buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics } from './styleLogic.js'
 import { usePlayer, fmtDur } from './composables/usePlayer.js'
 import { useConfirm } from './composables/useConfirm.js'
@@ -32,6 +33,14 @@ function toggleTheme() {
 }
 
 const { playerState, playBusy, isPlaying, playBtn, toggleArtifact, onVolume, onRefresh } = usePlayer()
+const { locale, t, setLocale } = useI18n()
+const healthTitle = computed(() => health.value
+  ? t('app.health.up') + (health.value.model_loaded ? t('app.health.model') : '')
+  : t('app.health.down'))
+const statusLabelC = computed(() => ({
+  queued: t('queue.status.queued'), running: t('queue.status.running'), done: t('queue.status.done'),
+  error: t('queue.status.error'), canceled: t('queue.status.canceled'),
+}))
 const { askConfirm } = useConfirm()
 
 // ---------- Форма новой композиции ----------
@@ -157,12 +166,34 @@ function applyPreset(p, mode) {
     language: '', genre: '', rhythm: '', guitars: '', keys: '',
     vocals: '', mood: '', production: '', bpm: p.bpm || null,
   }
-  if (mode === 'line') {
-    styleOverride.value = p.style   // точная строка калибровки, 1:1
+  if (mode === 'line' || !p.slots) {
+    // точная строка (1:1) или свой стиль библиотеки — у него нет слотов
+    styleOverride.value = p.style
   } else {
     styleOverride.value = ''
-    for (const k of Object.keys(p.slots || {})) slots.value[k] = p.slots[k]
+    for (const k of Object.keys(p.slots)) slots.value[k] = p.slots[k]
   }
+}
+
+// текущая форма → своя группа библиотеки: строка (или слоты+BPM) как есть
+function saveStyleToLibrary() {
+  const gid = 'c-from-form'
+  if (!customGroups.value.find((g) => g.id === gid)) {
+    customGroups.value = [...customGroups.value, { id: gid, name: 'Из формы', items: [] }]
+  }
+  const g = customGroups.value.find((x) => x.id === gid)
+  const name = (title.value || '').trim() || 'стиль ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  const item = {
+    id: 'c-' + Date.now().toString(36),
+    name,
+    style: styleOverride.value.trim() || compiledStyle.value,
+  }
+  if (!styleOverride.value.trim()) item.slots = { ...slots.value }   // раскладка по слотам сохранится
+  const dup = g.items.find((i) => i.name === name)
+  g.items = dup ? g.items.map((i) => (i.name === name ? item : i)) : [...g.items, item]
+  saveCustomGroups(customGroups.value)
+  libGroup.value = gid
+  libStyle.value = item.id
 }
 
 // библиотека стилей на главной: группы → стили (двухуровневый комбобокс)
@@ -185,7 +216,6 @@ const jobs = ref([])
 const health = ref(null)
 let timer = null
 
-const statusLabel = { queued: 'в очереди', running: 'генерируется', done: 'готово', error: 'ошибка', canceled: 'отменено' }
 
 async function refresh() {
   try {
@@ -394,6 +424,14 @@ onMounted(async () => {
 })
 onUnmounted(() => { clearInterval(timer); window.removeEventListener('click', onWindowClick) })
 
+function progressTip(j) {
+  const parts = [t('queue.progress.' + (j.stage || 'plan'))]
+  if (j.tokens) parts.push(j.tokens + ' tok')
+  if (j.tok_per_s) parts.push(j.tok_per_s + ' т/с')
+  if (j.elapsed_sec) parts.push(fmtDur(j.elapsed_sec))
+  return parts.join(' · ')
+}
+
 function onWindowClick(e) {
   if (!e.target.closest('.slot-box')) openSlot.value = ''
 }
@@ -401,15 +439,15 @@ function onWindowClick(e) {
 
 <template>
   <header>
-    <h1>Yue Studio</h1>
-    <span class="health" :class="health ? 'up' : 'down'">
-      {{ health ? 'сервер: готов' + (health.model_loaded ? ' (модель в памяти)' : '') : 'сервер недоступен' }}
-    </span>
-    <PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" />
+    <h1>{{ t('app.title') }}</h1>
+    <span class="health-dot" :class="health ? 'up' : 'down'" :title="healthTitle"></span>
+    <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? t('app.theme.light') : t('app.theme.dark')">{{ theme === 'dark' ? '☀' : '☾' }}</button>
+    <button class="icon-btn" @click="setLocale(locale === 'ru' ? 'en' : 'ru')"
+            :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
+    <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <span class="spacer"></span>
-    <button class="ghost" @click="corpusPage = !corpusPage; libraryPage = false; settingsPage = false" title="Свои треки: импорт в студию (стемы, минус, эффекты, овердаб) и профили исполнителей из корпусов треков">свои треки</button>
-    <button class="ghost" @click="toggleTheme" :title="theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'">{{ theme === 'dark' ? '☀' : '☾' }}</button>
-    <button class="ghost" @click="settingsPage = true; libraryPage = false; corpusPage = false" title="Страница настроек">⚙ настройки</button>
+    <button class="ghost" @click="corpusPage = !corpusPage; libraryPage = false; settingsPage = false" :title="t('nav.tracks.tip')">{{ t('nav.tracks') }}</button>
+    <button class="ghost" @click="settingsPage = true; libraryPage = false; corpusPage = false" :title="t('nav.settings.tip')">{{ t('nav.settings') }}</button>
   </header>
 
   <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
@@ -428,27 +466,21 @@ function onWindowClick(e) {
 
   <main v-else>
     <div class="left-col">
-      <section class="panel lib">
-        <h2>Библиотека стилей</h2>
-        <VSelect v-model="libGroup" :options="libGroupOptions" placeholder="— группа —" @update:model-value="onLibGroupChange()" />
-        <div style="margin-top:8px"></div>
-        <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" placeholder="— стиль —" @update:model-value="onLibStyleChange()" />
-        <div v-if="currentItem" class="lib-actions">
-          <button class="ghost" title="Применить точной строкой калибровки (1:1)" @click="onLibExact">строкой 1:1</button>
-        </div>
-        <p class="muted" style="margin:8px 0 0">
-          <a @click="libraryPage = true" style="cursor:pointer">свои группы →</a>
-        </p>
-      </section>
-
       <section class="panel form">
-        <h2>Новая композиция</h2>
-        <input v-model="title" placeholder="Название" />
+        <h2>{{ t('form.title') }}</h2>
+        <div class="lib-row" :title="t('form.lib.tip')">
+          <VSelect v-model="libGroup" :options="libGroupOptions" :placeholder="t('form.lib.group')" @update:model-value="onLibGroupChange()" />
+          <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
+          <button v-if="currentItem" class="ghost small-btn" :title="t('form.lib.exact.tip')" @click="onLibExact">{{ t('form.lib.exact') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.save.tip')" @click="saveStyleToLibrary">{{ t('form.lib.save') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="libraryPage = true">{{ t('form.lib.manage') }}</button>
+        </div>
+        <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
 
         <div class="slots">
-          <div v-for="[key, label, hint, tip] in slotMeta" :key="key" class="slot-box" :title="tip">
-            <span>{{ label }}</span>
-            <input v-model="slots[key]" :placeholder="hint"
+          <div v-for="key in slotKeys" :key="key" class="slot-box" :title="t('slot.' + key + '.tip')">
+            <span>{{ t('slot.' + key + '.label') }}</span>
+            <input v-model="slots[key]" :placeholder="t('slot.' + key + '.hint')"
                    @focus="openSlot = key" @click.stop @input="openSlot = key" />
             <ul v-if="openSlot === key && slotFiltered(key).length" class="slot-drop">
               <li v-for="[ru] in slotFiltered(key)" :key="ru"
@@ -463,18 +495,18 @@ function onWindowClick(e) {
 
         <details>
           <summary>
-            Стиль одной строкой
-            <span v-if="styleOverride" class="muted">· переопределено вручную</span>
-            <span v-else class="muted">· показывает выбранное выше</span>
+            {{ t('form.styleline') }}
+            <span v-if="styleOverride" class="muted">{{ t('form.styleline.manual') }}</span>
+            <span v-else class="muted">{{ t('form.styleline.auto') }}</span>
           </summary>
-          <textarea v-model="styleLine" rows="3" placeholder="заполни слоты выше — строка соберётся сама; или впиши свою (тогда она главнее)"></textarea>
+          <textarea v-model="styleLine" rows="3" :placeholder="t('form.styleline.ph')"></textarea>
           <button v-if="styleOverride" class="ghost small-btn" style="margin-top:6px"
-                  title="Стереть ручную версию и снова собирать строку из слотов и стойки"
-                  @click="styleOverride = ''">следовать за слотами</button>
+                  :title="t('form.styleline.follow.tip')"
+                  @click="styleOverride = ''">{{ t('form.styleline.follow') }}</button>
         </details>
 
         <details>
-          <summary>Инструментальная стойка <span class="muted">({{ rackSel.length }})</span></summary>
+          <summary>{{ t('form.rack') }} <span class="muted">({{ rackSel.length }})</span></summary>
           <div class="rack">
             <div v-for="g in rackGroups" :key="g.id" class="rack-group">
               <div class="rack-gname">{{ g.name }}</div>
@@ -494,20 +526,20 @@ function onWindowClick(e) {
         </details>
 
         <div class="lyrics-head">
-          <label class="lyrics-label">Стих (с тегами [Verse] / [Chorus] / [Outro]; строки с # — пометки, не поются)</label>
+          <label class="lyrics-label">{{ t('form.lyrics') }}</label>
           <span class="lyrics-tools">
-            <button class="toggle" :class="{ on: noLyrics }" title="Инструментал: стих не нужен, вместо него на воркер уйдёт техническая заглушка [Instrumental]" @click="noLyrics = !noLyrics">без слов</button>
+            <button class="toggle" :class="{ on: noLyrics }" :title="t('form.nowords.tip')" @click="noLyrics = !noLyrics">{{ t('form.nowords') }}</button>
             <select v-if="noLyrics" v-model="durMode" class="dur-select" title="Длина инструментала задаётся числом секций [Instrumental]">
-              <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+              <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ t('dur.' + o.id) }}</option>
             </select>
-            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">✎ копайтер…</button>
+            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">{{ t('form.copilot') }}</button>
           </span>
         </div>
-        <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? 'не нужно: выбран инструментал' : ''"></textarea>
+        <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
 
         <div class="row">
-          <label class="seed">seed <input v-model.number="seed" type="number" placeholder="случайный" /></label>
-          <div class="cot-radios" title="Как модель «думает» перед генерацией: полный разбор (структура лучше, дольше), только мелодия, или без размышлений (быстрее, структура проще). Для плана/ABC нужен полный или мелодия.">
+          <label class="seed">seed <input v-model.number="seed" type="number" :placeholder="t('form.name')" /></label>
+          <div class="cot-radios" :title="t('form.cot.tip')">
             <span class="cot-title">генерация:</span>
             <label><input type="radio" value="full" v-model="cot" /> полная</label>
             <label><input type="radio" value="melody" v-model="cot" /> мелодия</label>
@@ -516,55 +548,64 @@ function onWindowClick(e) {
           <label class="autotr" title="Слоты можно писать по-русски: перед отправкой строка стиля переводится в английский через Ollama (qwen2.5). Модель обучена на английских тегах.">
             <input type="checkbox" v-model="autoTranslate" /> рус → eng
           </label>
-          <span class="compiled" :title="compiledStyle">→ {{ translateBusy ? 'перевожу…' : (compiledStyle || 'заполни слоты или строку стиля') }}</span>
+          <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
         </div>
 
         <div class="actions">
           <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
-            {{ submitting ? '...' : 'В очередь' }}
+            {{ submitting ? t('form.submitting') : t('form.submit') }}
           </button>
-          <button class="primary alt" :disabled="submitting || !canSubmit" @click="submitFan(5)" title="5 джоб с сидами base+0..4 (best-of-N)">
-            ×5 сидов
+          <button class="primary alt" :disabled="submitting || !canSubmit" @click="submitFan(5)" :title="t('form.fan.tip')">
+            {{ t('form.fan') }}
           </button>
           <button class="ghost" :disabled="planBusy || !canSubmit" @click="makePlan"
-                  title="Показать план трека в нотной записи до рендера: можно поправить ноты и сгенерировать по ним">
-            {{ planBusy ? 'план…' : 'ноты →' }}
+                  :title="t('form.notes.tip')">
+            {{ planBusy ? t('form.planning') : t('form.notes') }}
           </button>
         </div>
       </section>
     </div>
 
     <section class="panel list">
-      <h2>Очередь и результаты</h2>
-      <p v-if="!jobs.length" class="muted">Пока пусто. Можно сгенерировать трек или загрузить свой — кнопка «свои треки» в шапке.</p>
+      <h2>{{ t('queue.title') }}</h2>
+      <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}</p>
       <article v-for="j in jobs" :key="j.id" class="job" :class="j.status">
         <div class="job-head">
           <strong>#{{ j.id }} {{ j.title }}</strong>
-          <span class="status" :class="j.status">{{ statusLabel[j.status] || j.status }}</span>
+          <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
           <span v-if="j.cot && j.cot !== 'full'" class="muted">cot {{ j.cot }}</span>
-          <span v-if="j.req_abc" class="badge" title="Рендер по своему ABC">свой ABC</span>
-          <button v-if="j.status === 'queued'" class="ghost" @click="cancel(j.id)">отменить</button>
+          <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
+          <span v-if="j.status === 'running'" class="progress-wrap" role="progressbar"
+                :aria-valuenow="j.progress_pct ?? undefined" :title="progressTip(j)">
+            <span class="progress-track" :class="{ indet: j.progress_pct == null }">
+              <span v-if="j.progress_pct != null" class="progress-fill" :style="{ width: j.progress_pct + '%' }"></span>
+            </span>
+            <span class="progress-label muted">
+              {{ t('queue.progress.' + (j.stage || 'plan')) }}<template v-if="j.progress_pct != null"> {{ j.progress_pct }}%</template><template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+            </span>
+          </span>
+          <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
           <span class="spacer"></span>
-          <button v-if="j.status !== 'running'" class="ghost icon del" title="Удалить результат" @click="deleteJob(j)">✕</button>
-          <button class="ghost icon" title="Повторить с этими параметрами" @click="reuseJob(j)">↺</button>
+          <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
+          <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
         </div>
         <p class="muted style">{{ j.style }}</p>
         <p v-if="j.error" class="error">{{ j.error }}</p>
         <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
           <button class="play-main" :disabled="playBusy['m' + j.id]" @click="togglePlay(j)">
-            {{ playBtn('m' + j.id) === '…' ? 'загрузка…' : (isPlaying('m' + j.id) ? '■ стоп' : '▶ играть') }}
+            {{ playBtn('m' + j.id) === '…' ? t('queue.loading') : (isPlaying('m' + j.id) ? t('queue.stop') : t('queue.play')) }}
           </button>
-          <button class="ghost stopbtn" title="Остановить воспроизведение" @click="stopAll()">■</button>
+          <button class="ghost stopbtn" :title="t('player.stop')" @click="stopAll()">■</button>
           <button v-if="isPlaying('m' + j.id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
-          <button class="ghost" @click="openListen(j)" title="Страница прослушивания в браузере">в браузере</button>
+          <button class="ghost" @click="openListen(j)" :title="t('queue.browser.tip')">{{ t('queue.browser') }}</button>
           <button v-if="j.status === 'done'" class="ghost" @click="studioJob = j">студия →</button>
-          <button class="ghost icon" title="Сохранить без потерь (flac)" @click="saveAudio(j)">⤓ flac</button>
-          <button class="ghost icon" :disabled="playBusy['mp3' + j.id]" title="Сохранить mp3 320 kbps (для импортированных — конвертируется при первом сохранении)" @click="saveMp3(j)">⤓ mp3</button>
+          <button class="ghost icon" :title="t('queue.save.flac.tip')" @click="saveAudio(j)">{{ t('queue.save.flac') }}</button>
+          <button class="ghost icon" :disabled="playBusy['mp3' + j.id]" :title="t('queue.save.mp3.tip')" @click="saveMp3(j)">{{ t('queue.save.mp3') }}</button>
           <button v-if="j.abc_file" class="ghost" @click="loadJobAbc(j)"
-                  title="Нотная запись трека (ABC) — для продвинутых. Обычный путь: стили и студия, сюда можно не заходить">ноты (ABC)</button>
-          <button v-if="j.abc_file" class="ghost icon" title="Сохранить партитуру (score.abc) в файл" @click="saveAudio(j, j.abc_file)">⤓ abc</button>
+                  :title="t('queue.notes.tip')">{{ t('queue.notes') }}</button>
+          <button v-if="j.abc_file" class="ghost icon" :title="t('queue.notes.save.tip')" @click="saveAudio(j, j.abc_file)">⤓ abc</button>
         </div>
       </article>
     </section>
@@ -573,7 +614,7 @@ function onWindowClick(e) {
   <PlanModal v-model:abc="planAbc" :open="planOpen" :busy="planBusy" :err="planErr"
              :submitting="submitting" :info="planInfo"
              @close="planOpen = false" @render="renderFromAbc" @new-plan="makePlan" @from-track="transcribeFromTrack" />
-  <CopilotModal :open="copOpen" :style="compiledStyle" :example="lyrics" :lang="slots.language"
+  <CopilotModal :open="copOpen" :style="compiledStyle" :example="lyrics" :lang="slots.language" :slots="slots"
                 @close="copOpen = false" @insert="onCopInsert" />
   <MetricsModal ref="metricsModal" :jobs="jobs" />
   <ConfirmModal />
@@ -583,6 +624,7 @@ function onWindowClick(e) {
 /* Стили приложения — глобальные: экранные компоненты (components/) рендерятся
    внутри этого корня и пользуются теми же классами. */
 header {
+  position: relative; flex-wrap: wrap;
   display: flex; align-items: center; gap: 14px; padding: 10px 16px;
   background: color-mix(in srgb, var(--panel2) 78%, transparent);
   backdrop-filter: blur(14px) saturate(1.15);
@@ -602,11 +644,20 @@ h2 {
   text-shadow: 1px 1px 0 rgba(0,0,0,.4);
 }
 .page-head h2 { margin: 0; border-bottom: none; background: none; text-shadow: none; padding: 0; }
-.health { font-size: 12px; color: var(--muted); }
-.health.up { color: var(--ok); text-shadow: 0 0 8px var(--lcd-glow); }
-.health.down { color: var(--err); }
+.icon-btn {
+  background: none; border: none; box-shadow: none; cursor: pointer;
+  color: var(--muted); font-size: 15px; padding: 2px 4px; font-weight: 400;
+}
+.icon-btn:hover { color: var(--text); filter: none; transform: none; }
+.health-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  border: 1px solid var(--bevel-lo); cursor: help;
+}
+.health-dot.up { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.health-dot.down { background: var(--err); box-shadow: 0 0 8px var(--err); }
 .settings-page { display: flex; justify-content: center; align-items: flex-start; }
-.settings-page .panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.panel.lib { position: relative; z-index: 3; } /* выпадашки VSelect выше соседних панелей (стекинг-контексты из backdrop-filter) */
+.panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
 .set-h { margin: 14px 0 2px; font-size: 13px; }
 .set-row { display: flex; align-items: center; gap: 10px; }
 .set-row input, .set-row select { flex: 1; min-width: 0; width: 100%; }
@@ -620,6 +671,10 @@ h2 {
 .slot-drop li { padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .slot-drop li:hover { background: var(--panel2); }
 .lib-actions { margin-top: 8px; display: flex; gap: 8px; }
+.lib-row { display: flex; gap: 6px; align-items: center; }
+.lib-row > :first-child { flex: 1.1; min-width: 0; }
+.lib-row > :nth-child(2) { flex: 1.6; min-width: 0; }
+.lib-row .small-btn { flex: none; padding: 4px 8px; }
 .lib .select, .lib select { width: 100%; }
 .lib-group { margin-bottom: 10px; }
 .lib-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -632,24 +687,49 @@ h2 {
 .set-info { font-size: 11px; line-height: 1.6; word-break: break-all; }
 .set-actions { display: flex; gap: 8px; margin-top: 8px; }
 .settings-page .ok { color: var(--ok); font-size: 12px; }
+.player-center {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  max-width: min(56vw, 720px); min-width: 0; z-index: 2;
+}
+@media (max-width: 1150px) {
+  .player-center {
+    position: static; transform: none; order: 9; flex-basis: 100%;
+    justify-content: flex-start; z-index: auto;
+  }
+}
 .playerbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .playerbar .seek { width: 180px; }
 .playerbar .vol { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .playerbar .vol input { width: 80px; }
 .playerbar .now { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playerbar .pos {
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums; white-space: nowrap; flex: none;
   background: var(--lcd-bg); color: var(--lcd-text);
   font-family: 'DejaVu Sans Mono', 'Consolas', monospace;
   padding: 2px 8px; border-radius: 2px; border: 1px solid var(--border);
   box-shadow: inset 0 0 6px rgba(0,0,0,.55); text-shadow: 0 0 6px var(--lcd-glow);
 }
-.playerbar .ghost { padding: 2px 8px; }
+.playerbar .ghost {
+  min-width: 30px; width: auto; height: 24px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--panel3), var(--panel2));
+  border: 1px solid var(--border);
+  border-top-color: var(--bevel-hi);
+  border-left-color: var(--bevel-hi);
+  font-size: 12px; line-height: 1;
+}
+.playerbar .ghost:hover { color: var(--lcd-text); border-color: var(--lcd-text); }
 .spacer { flex: 1; }
 
-main { display: grid; grid-template-columns: 440px 1fr; gap: 20px; padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
-@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
-.left-col { display: flex; flex-direction: column; gap: 20px; }
+main {
+  display: grid;
+  grid-template-columns: clamp(360px, 34vw, 560px) minmax(340px, 1fr);
+  gap: 20px; padding: 20px 24px; max-width: 1800px; margin: 0 auto;
+}
+@media (max-width: 780px) { main { grid-template-columns: minmax(0, 1fr); } }
+.left-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.left-col input, .left-col textarea { min-width: 0; max-width: 100%; }
 .panel {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   backdrop-filter: blur(14px) saturate(1.12);
@@ -666,7 +746,7 @@ main { display: grid; grid-template-columns: 440px 1fr; gap: 20px; padding: 20px
 .primary.danger { background: var(--err); }
 .confirm-modal { width: min(480px, 92vw); }
 
-.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 12px 0; }
+.slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 12px; margin: 12px 0; }
 .slots label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .slots input { font-size: 13px; }
 
@@ -682,7 +762,7 @@ textarea { width: 100%; resize: vertical; font-family: inherit; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 button.toggle { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 400; font-size: 12px; padding: 3px 10px; }
 button.toggle.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.seed input { width: 110px; }
+.seed input { width: 110px; min-width: 0; }
 .cot-radios { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .cot-radios label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .cot-title { font-weight: 600; }
@@ -691,8 +771,24 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 
 .actions { display: flex; gap: 8px; }
 .actions .primary { flex: 0 0 auto; }
-.primary { background: var(--ok); padding: 6px 16px; }
-.primary.alt { background: var(--panel2); border: 1px solid var(--ok); color: var(--ok); }
+.primary {
+  background: linear-gradient(180deg, #ffd27a, var(--lcd-text) 45%, #c98a1a);
+  color: #1a1408; padding: 6px 16px; text-shadow: none;
+}
+.primary.alt {
+  background: linear-gradient(180deg, var(--panel3), var(--panel2));
+  border: 1px solid var(--lcd-text); color: var(--lcd-text);
+}
+
+.progress-wrap { display: inline-flex; align-items: center; gap: 8px; min-width: 180px; }
+.progress-track { display: inline-block; width: 110px; height: 8px; border-radius: 4px;
+  background: var(--panel2); border: 1px solid var(--border); overflow: hidden; position: relative; }
+.progress-fill { display: block; height: 100%;
+  background: linear-gradient(90deg, var(--run), var(--ok)); transition: width 1s linear; }
+.progress-track.indet::after { content: ''; position: absolute; inset: 0 auto 0 -30%; width: 30%;
+  background: var(--run); border-radius: 4px; animation: progress-slide 1.2s ease-in-out infinite; }
+@keyframes progress-slide { to { left: 100%; } }
+.progress-label { font-size: 11px; white-space: nowrap; }
 
 .job { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel2); }
 .job-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -702,7 +798,9 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .status.error { background: rgba(224,93,61,.2); color: var(--err); }
 .style { font-size: 12px; margin: 6px 0; }
 .error { color: var(--err); font-size: 13px; }
-.job-actions { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+.job-actions { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; align-items: center; }
+.job-actions button { min-width: 0; }
+.job .play-main { flex: none; }
 .job-actions button { font-size: 12px; padding: 4px 10px; }
 .muted { color: var(--muted); }
 .badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: rgba(120,140,255,.15); color: #9aa5ff; }
@@ -750,6 +848,9 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .lyrics-head { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
 .lyrics-head .lyrics-label { margin: 0; flex: 1; }
 .small-btn { font-size: 12px; padding: 3px 10px; }
+.cop-instruction { margin: 10px 0; font-size: 12px; }
+.cop-instruction summary { cursor: pointer; color: var(--muted); margin-bottom: 4px; }
+.cop-instruction textarea { width: 100%; }
 .cop-modal { width: min(620px, 92vw); }
 .cop-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .cop-form input[type="text"], .cop-form input:not([type]) { flex: 1; min-width: 220px; }
@@ -776,7 +877,10 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 /* пиано-ролл */
 .roll-block { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; overflow-x: auto; }
 .roll-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 12px; }
-.studio-page .roll-block { border: none; padding: 0; overflow: visible; }
+.studio-page .roll-block { border: none; padding: 0; overflow-x: auto; }
+.studio-page, .corpus-page-wide, .settings-wide { justify-content: stretch; }
+.studio-page .panel, .corpus-page-wide .panel, .settings-wide .panel { width: auto; max-width: none; flex: 1; margin: 0 16px; }
+.corpus-list { max-width: none; }
 .studio-sec { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--border); }
 .studio-sec summary { cursor: pointer; font-size: 13px; margin-bottom: 6px; }
 .abc-help { margin-bottom: 8px; font-size: 12px; }

@@ -7,7 +7,7 @@ import {
   YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobPreview, YueSubmitOverdub,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueTranslate, YueDeleteJob,
+  YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
 export const api = {
@@ -57,5 +57,6 @@ export const api = {
   stopAudio: () => YueStopAudio(),
   toggleAudio: () => YueToggleAudio(),
   seekAudio: (sec) => YueSeekAudio(sec),
+  audioState: () => YueAudioState(),
   setVolume: (v) => YueSetVolume(v),
 }

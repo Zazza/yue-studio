@@ -24,23 +24,23 @@
   --lcd-glow: rgba(255, 190, 61, .35);
 }
 [data-theme="light"] {
-  --bg: #d8d8de;
-  --panel: #f2f2f5;
-  --panel2: #e8e8ee;
-  --panel3: #dddde5;
-  --border: #b6b6c2;
+  --bg: #e7e3da;
+  --panel: #fbfaf6;
+  --panel2: #f2efe7;
+  --panel3: #e8e4d8;
+  --border: #c7c1b2;
   --bevel-hi: #ffffff;
-  --bevel-lo: #c4c4d0;
+  --bevel-lo: #d0cabd;
   --text: #26231c;
   --muted: #6b6455;
   --accent: #c94f2f;
   --ok: #2f8f5b;
   --err: #c4402e;
   --run: #a8761c;
-  --lcd-bg: #1a1509;
-  --lcd-text: #d99a1e;
-  --lcd-dim: #4a3a15;
-  --lcd-glow: rgba(217, 154, 30, .4);
+  --lcd-bg: #f7efdc;
+  --lcd-text: #7a4e00;
+  --lcd-dim: #d9c9a3;
+  --lcd-glow: rgba(122, 78, 0, .25);
 }
 * { box-sizing: border-box; }
 body {
@@ -183,4 +183,44 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1px solid var(--border);
   border-top-color: var(--bevel-hi);
   border-left-color: var(--bevel-hi);
+}
+
+/* Светлая тема: стеклянные контролы — полу-прозрачный белый + blur (2026, а не 1997).
+   Фаски остаются: характер винампа читается через грани и рельсы. */
+[data-theme="light"] button {
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.38) 60%, rgba(240,236,226,.5));
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(90,80,60,.18);
+  border-top-color: rgba(255,255,255,.95);
+  border-left-color: rgba(255,255,255,.95);
+}
+[data-theme="light"] button:hover { filter: brightness(1.05) saturate(1.05); }
+[data-theme="light"] button:active:not(:disabled) {
+  background: linear-gradient(180deg, rgba(240,236,226,.75), rgba(255,255,255,.45));
+  box-shadow: inset 0 1px 2px rgba(90,80,60,.2);
+}
+[data-theme="light"] button.icon-btn {
+  background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: none;
+}
+[data-theme="light"] button.ghost,
+[data-theme="light"] button.toggle {
+  background: linear-gradient(180deg, rgba(255,255,255,.5), rgba(255,255,255,.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+}
+[data-theme="light"] input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+[data-theme="light"] textarea {
+  background: rgba(255,255,255,.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: inset 1px 1px 3px rgba(90,80,60,.15), 0 1px 0 rgba(255,255,255,.8);
+}
+[data-theme="light"] .vselect-btn {
+  background: linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,.3));
+}
+[data-theme="light"] .vselect-drop,
+[data-theme="light"] .slot-drop {
+  background: rgba(251,250,246,.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }

@@ -1,6 +1,8 @@
 <script setup>
 // Метрики трека с дельтой до референса/другой джобы.
 import { ref, computed } from 'vue'
+import { useI18n } from '../i18n/index.js'
+const { t } = useI18n()
 import { api } from '../api.js'
 import VSelect from '../VSelect.vue'
 
@@ -136,7 +138,7 @@ defineExpose({ openFor })
         <span class="spacer"></span>
         <button class="ghost" @click="open = false">✕</button>
       </div>
-      <p v-if="busy" class="muted">Замер (librosa)…</p>
+      <p v-if="busy" class="muted">{{ t('metrics.librosa') }}</p>
       <p v-if="err" class="error">{{ err }}</p>
       <template v-if="metrics">
         <div class="cmp-row">
@@ -148,7 +150,7 @@ defineExpose({ openFor })
                    @update:model-value="onCmpChange()" />
           <button class="ghost" :disabled="addingRef" @click="addReference">＋ файл-референс…</button>
         </div>
-        <p v-if="cmpBusy" class="muted">Считаю…</p>
+        <p v-if="cmpBusy" class="muted">{{ t('metrics.busy') }}</p>
         <div class="metrics-table">
           <div class="mrow head"><span>метрика</span><span>трек</span><span>сравнение</span><span>Δ</span></div>
           <div v-for="[key, label, unit, dec] in rows" :key="key" class="mrow">

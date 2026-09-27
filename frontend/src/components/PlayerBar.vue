@@ -1,5 +1,7 @@
 <script setup>
 import { api } from '../api.js'
+import { useI18n } from '../i18n/index.js'
+const { t } = useI18n()
 import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 
 defineProps({ jobs: { type: Array, default: () => [] } })
@@ -24,17 +26,19 @@ function playNeighbor(list, delta) {
 </script>
 
 <template>
-  <div v-if="playerState.playing || playerState.job_id" class="playerbar">
-    <button class="ghost" title="Предыдущий готовый трек" @click="playNeighbor(jobs, -1)">⏮</button>
-    <button class="ghost" @click="api.toggleAudio()" title="Пауза/продолжить">{{ playerState.playing ? '⏸' : '▶' }}</button>
-    <button class="ghost" @click="stopPlaying" title="Стоп">■</button>
-    <button class="ghost" title="Следующий готовый трек" @click="playNeighbor(jobs, 1)">⏭</button>
-    <span class="now" :title="playerState.error">{{ nowPlaying || ('#' + playerState.job_id) }}</span>
+  <div class="playerbar">
+    <button class="ghost" :disabled="!playerState.job_id" :title="t('player.prev')" style="letter-spacing:-2px" @click="playNeighbor(jobs, -1)"><svg width="12" height="10" viewBox="0 0 12 10"><path d="M2 0h1.6v10H2zM11 0v10L4.4 5z" fill="currentColor"/></svg></button>
+    <button class="ghost" :disabled="!playerState.job_id" @click="api.toggleAudio()" :title="t('player.pause')"><svg v-if="playerState.playing" width="10" height="10" viewBox="0 0 10 10"><path d="M1 0h2.8v10H1zM6.2 0H9v10H6.2z" fill="currentColor"/></svg><svg v-else width="10" height="10" viewBox="0 0 10 10"><path d="M1 0l8 5-8 5z" fill="currentColor"/></svg></button>
+    <button class="ghost" :disabled="!playerState.job_id" @click="stopPlaying" :title="t('player.stop')"><svg width="9" height="9" viewBox="0 0 9 9"><rect width="9" height="9" fill="currentColor"/></svg></button>
+    <button class="ghost" :disabled="!playerState.job_id" :title="t('player.next')" style="letter-spacing:-2px" @click="playNeighbor(jobs, 1)"><svg width="12" height="10" viewBox="0 0 12 10"><path d="M1 0v10l6.6-5zM8.4 0H10v10H8.4z" fill="currentColor"/></svg></button>
+    <span class="now" :title="playerState.error">{{ nowPlaying || (playerState.job_id ? '#' + playerState.job_id : '') }}</span>
     <input class="seek" type="range" min="0" :max="Math.max(1, playerState.duration_sec || 1)"
            step="1" v-model.number="seekPos" :disabled="!playerState.duration_sec"
-           @input="onSeekInput" @change="onSeekChange" title="Перемотка" />
-    <span class="pos muted">{{ fmtDur(playerState.position_sec) }}<template v-if="playerState.duration_sec"> / {{ fmtDur(playerState.duration_sec) }}</template></span>
-    <label class="vol" title="Громкость">🔊<input type="range" min="0" max="1" step="0.05" v-model.number="volume" @input="onVolume" /></label>
+           @input="onSeekInput" @change="onSeekChange" :title="t('player.seek')" />
+    <span class="pos muted">{{ playerState.duration_sec
+      ? fmtDur(playerState.position_sec) + ' / ' + fmtDur(playerState.duration_sec)
+      : '-:-- / -:--' }}</span>
+    <label class="vol" :title="t('player.volume')">🔊<input type="range" min="0" max="1" step="0.05" v-model.number="volume" @input="onVolume" /></label>
     <span v-if="playerState.error" class="error" :title="playerState.error">звук: ошибка</span>
   </div>
 </template>

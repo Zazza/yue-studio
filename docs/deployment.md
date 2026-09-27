@@ -42,6 +42,8 @@ systemd-юнита `yue-worker`. Хост задаётся `YUE_DEPLOY_HOST=user
 | `YUE_OLLAMA_MODEL` | `qwen2.5-chat-ru:latest` | модель Ollama |
 | `YUE_WHISPER_PY` | `~/whisper-venv/bin/python` | интерпретатор whisper-venv |
 | `HF_HOME` | — | кеш весов Hugging Face |
+| `YUE2_MAX_TOKENS` | `16000` | бюджет семантических токенов на песню ≈ макс. длина (дефолт протокола 9000 ≈ 4.5–6 мин; 16000 ≈ до ~10 мин; пик VRAM растёт с длиной) |
+| `YUE2_CFG_SCALE` | `1.5` | следование стилю (classifier-free guidance): выше — точнее, но суше |
 
 Настройки Ollama также меняются на лету из приложения (⚙ в шапке → `/config` воркера).
 

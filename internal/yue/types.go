@@ -61,6 +61,12 @@ type Job struct {
 	AbcFile     string  `json:"abc_file"`
 	CreatedAt   string  `json:"created_at"`
 	FinishedAt  string  `json:"finished_at"`
+
+	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
+	Stage      string   `json:"stage,omitempty"`
+	Tokens     int      `json:"tokens,omitempty"`
+	TokPerSec  *float64 `json:"tok_per_s,omitempty"`
+	ElapsedSec float64  `json:"elapsed_s,omitempty"`
 }
 
 type HealthInfo struct {
@@ -92,10 +98,11 @@ type PlanResult struct {
 }
 
 type CopilotParams struct {
-	Theme   string `json:"theme"`
-	Style   string `json:"style"`
-	Example string `json:"example"`
-	Lang    string `json:"lang"`
+	Theme       string `json:"theme"`
+	Style       string `json:"style"`
+	Example     string `json:"example"`
+	Lang        string `json:"lang"`
+	Instruction string `json:"instruction,omitempty"`
 }
 
 type CopilotResult struct {

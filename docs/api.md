@@ -9,7 +9,9 @@ GET  /health           статус, модель в памяти?
 POST /jobs             {title, style, lyrics, seed, cot, abc?}  — abc: рендер по своему плану
 POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
-POST /jobs/{id}/cancel отмена (queued)
+POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации
+                       (пайплайн завершится на ближайшем шаге). В running-джобах
+                       /jobs отдаёт живой прогресс: stage, tokens, tok_per_s, elapsed_s
 GET  /audio/{id}/{f}   audio.flac/.mp3/.wav, score.abc, request.abc, dsp/overdub/preview/stem-*.flac
 GET  /listen/{id}      страница прослушивания (?f= — вариант)
 
