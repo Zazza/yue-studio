@@ -61,6 +61,14 @@ POST /corpus/{id}/build  агрегация → profile.json (стиль чер�
 GET  /corpus[/{id}]    список / профиль
 ```
 
+## Тесты
+
+```bash
+go test ./...              # Go: клиент воркера (httptest), App (моки интерфейсов), DSP
+cd frontend && npm test    # чистая логика стиля/стиха, стойка, библиотека (vitest)
+cd worker && python3 -m unittest test_pure   # парсер ABC, Ollama-обёртка
+```
+
 ## Разработка
 
 ```bash

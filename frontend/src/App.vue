@@ -5,7 +5,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from './api.js'
 import { rackGroups, rackEffects, rackCompile } from './rack.js'
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './groups.js'
-import { slotMeta, slotDict, slotHints, durOptions } from './slotOptions.js'
+import { slotMeta, slotHints, durOptions } from './slotOptions.js'
+import { SLOT_ORDER, buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics } from './styleLogic.js'
 import { usePlayer, fmtDur } from './composables/usePlayer.js'
 import { useConfirm } from './composables/useConfirm.js'
 import VSelect from './VSelect.vue'
@@ -76,20 +77,8 @@ function slotFiltered(key) {
   return list.slice(0, 30)
 }
 
-// сборка строки стиля из слотов и стойки (для показа; override главнее)
-function buildStyleLine() {
-  const parts = [
-    slots.value.language, slots.value.genre, slots.value.rhythm,
-    slots.value.guitars, slots.value.keys, slots.value.vocals,
-    slots.value.mood, slots.value.production,
-  ].map(s => (s || '').trim()).filter(Boolean)
-  const rack = rackCompile(rackSel.value)
-  if (rack) parts.push(rack)
-  if (slots.value.bpm) parts.push(slots.value.bpm + ' BPM')
-  return parts.join(', ')
-}
-
-const compiledStyle = computed(() => styleOverride.value.trim() || buildStyleLine())
+const compiledStyle = computed(() =>
+  styleOverride.value.trim() || buildStyleLine(slots.value, rackCompile(rackSel.value)))
 
 // поле «Стиль одной строкой»: пока не трогали — показывает то, что собрано
 // из слотов и стойки; первая правка фиксирует ручную версию (переопределяет форму)
@@ -101,21 +90,14 @@ const styleLine = computed({
 // финальная строка стиля к отправке: русские значения из списков подставляются
 // словарём, самописная кириллица переводится через Ollama; английское — как есть
 const CYR = /[а-яё]/i
-function dictStyle(s) {
-  const t = s.trim()
-  return slotDict[t.toLowerCase()] || t
-}
 
 async function finalStyle() {
   let s
   if (styleOverride.value.trim()) {
     s = styleOverride.value.trim()
   } else {
-    const parts = [
-      slots.value.language, slots.value.genre, slots.value.rhythm,
-      slots.value.guitars, slots.value.keys, slots.value.vocals,
-      slots.value.mood, slots.value.production,
-    ].map(v => (v || '').trim()).filter(Boolean).map(dictStyle)
+    const parts = SLOT_ORDER.map(k => (slots.value[k] || '').trim())
+      .filter(Boolean).map(dictStyle)
     const rack = rackCompile(rackSel.value)
     if (rack) parts.push(rack)
     if (slots.value.bpm) parts.push(slots.value.bpm + ' BPM')
@@ -132,22 +114,10 @@ async function finalStyle() {
   } finally { translateBusy.value = false }
 }
 
-// стих к отправке: строки-пометки (начинаются с #) вырезаются — это заметки
-// для себя (ударения, произношение), модель их не поёт
-function cleanLyrics(text) {
-  return text.split('\n').filter(l => !l.trim().startsWith('#')).join('\n')
-}
-
-function effectiveLyrics() {
-  if (!noLyrics.value) return cleanLyrics(lyrics.value)
-  const n = (durOptions.find((o) => o.id === durMode.value) || durOptions[0]).n
-  return Array(Math.max(1, n)).fill('[Instrumental]').join('\n\n')
-}
-
 function payload(extra = {}) {
   return {
     title: title.value,
-    lyrics: effectiveLyrics(),
+    lyrics: effectiveLyrics(lyrics.value, noLyrics.value, durMode.value),
     seed: seed.value ? Number(seed.value) : 0,
     cot: cot.value,
     ...extra,

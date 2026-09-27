@@ -37,11 +37,13 @@ def parse_abc(text: str) -> dict:
         if not buf.strip():
             buf = ""
             return
-        notes = len(NOTE_RE.findall(buf))
-        rests = sum(int(m or 1) for m in REST_RE.findall(buf))
+        # аккорды в "кавычках" — аннотации: не считаются ни нотами, ни длительностью
+        body = CHORD_RE.sub(" ", buf)
+        notes = len(NOTE_RE.findall(body))
+        rests = sum(int(m or 1) for m in REST_RE.findall(body))
         # длительность: каждая нота/пауза без цифры = 1 unit, с цифрой = dur
         dur = 0
-        for m in re.finditer(r"(?:[=_^]?[A-Ga-g][,']*|z)(\d+)?", buf):
+        for m in re.finditer(r"(?:[=_^]?[A-Ga-g][,']*|z)(\d+)?", body):
             d = m.group(1)
             dur += int(d) if d else 1
         raw_bars.append({
