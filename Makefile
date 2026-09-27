@@ -2,7 +2,7 @@
 WAILS ?= $(HOME)/go/bin/wails
 DEPLOY_HOST ?=
 
-.PHONY: help test test-go test-front test-worker lint lint-go lint-front lint-worker fmt build worker clean
+.PHONY: help test test-go test-front test-worker lint lint-go lint-front lint-worker fmt build worker mcp mcp-data clean
 
 help: ## показать список задач
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2}'
@@ -42,6 +42,13 @@ build: ## сборка desktop-приложения (wails build)
 
 worker: ## деплой воркера на GPU-машину (YUE_DEPLOY_HOST=user@gpu-host)
 	./deploy.sh worker
+
+mcp: ## собрать MCP-сервер (build/bin/yue-mcp)
+	go build -o build/bin/yue-mcp ./cmd/yue-mcp
+	@echo "mcp-сервер: $(CURDIR)/build/bin/yue-mcp (конфигурация клиентов: docs/mcp.md)"
+
+mcp-data: ## перегенерировать данные библиотеки MCP из фронтенда (go:embed)
+	./tools/mcp-gendata.sh
 
 clean: ## почистить артефакты сборки фронта
 	cd frontend && rm -rf dist

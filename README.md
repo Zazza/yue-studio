@@ -13,6 +13,8 @@ FastAPI-воркер с GPU — отдельно, по сети.
   **минус-треки**, **овердаб**, DSP-цепочки эффектов (ffmpeg на ПК) с метриками и дельтами
 - **Профили исполнителей** из корпусов треков (тональности/прогрессии/темп/структура + строка стиля)
 - Копайтер стихов (Ollama), история, отмена, прослушивание в браузере
+- **MCP-сервер** (`make mcp`): весь рабочий флоу — через AI-агента (Claude/Codex),
+  включая установку и настройки — [docs/mcp.md](docs/mcp.md)
 
 > Скриншот: TODO до первого релиза.
 
@@ -42,6 +44,7 @@ Ollama (`qwen2.5`) не обязателен: без него работают �
 - [docs/deployment.md](docs/deployment.md) — развёртывание воркера (включая WSL2/dual-boot), деплой, сборка по ОС
 - [docs/architecture.md](docs/architecture.md) — архитектура: стороны ПК/GPU, конвейер YuE2, VRAM
 - [docs/api.md](docs/api.md) — HTTP API воркера
+- [docs/mcp.md](docs/mcp.md) — MCP-сервер для управления через AI-агента
 - [docs/ui-guide.md](docs/ui-guide.md) — гайд по интерфейсу
 - [docs/lyrics-melody.md](docs/lyrics-melody.md) — работа со стихом и мелодией
 - [docs/limitations.md](docs/limitations.md) — честные ограничения (правка середины, звук в webview и пр.)

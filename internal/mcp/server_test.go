@@ -1,0 +1,308 @@
+package mcp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"strings"
+	"testing"
+
+	"yue-studio/internal/yue"
+)
+
+// fakeService — мок yue.Service для инструментного слоя MCP.
+type fakeService struct {
+	yue.Service
+	url       string
+	health    *yue.HealthInfo
+	jobs      []yue.Job
+	submitted []yue.SubmitParams
+	canceled  []int64
+	deleted   []int64
+	fetch     map[string]string // file -> content
+}
+
+func (f *fakeService) Health(ctx context.Context) (*yue.HealthInfo, error) { return f.health, nil }
+func (f *fakeService) Jobs(ctx context.Context) ([]yue.Job, error)         { return f.jobs, nil }
+
+func (f *fakeService) Submit(ctx context.Context, p yue.SubmitParams) (int64, error) {
+	f.submitted = append(f.submitted, p)
+	return int64(len(f.submitted)), nil
+}
+
+func (f *fakeService) Cancel(ctx context.Context, id int64) (bool, error) {
+	f.canceled = append(f.canceled, id)
+	return true, nil
+}
+
+func (f *fakeService) DeleteJob(ctx context.Context, id int64) (bool, error) {
+	f.deleted = append(f.deleted, id)
+	return true, nil
+}
+
+func (f *fakeService) FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error) {
+	if c, ok := f.fetch[file]; ok {
+		return io.NopCloser(strings.NewReader(c)), "application/octet-stream", nil
+	}
+	return nil, "", errNotFound
+}
+
+func (f *fakeService) GetURL() string  { return f.url }
+func (f *fakeService) SetURL(u string) { f.url = u }
+
+var errNotFound = &notFoundErr{}
+
+type notFoundErr struct{}
+
+func (*notFoundErr) Error() string { return "not found" }
+
+func newTestServer(t *testing.T) (*Server, *fakeService) {
+	t.Helper()
+	fake := &fakeService{url: "http://w:8091"}
+	s := NewServer(fake, t.TempDir())
+	RegisterWorkflowTools(s)
+	RegisterStudioTools(s)
+	RegisterLibraryTools(s)
+	RegisterInstallTools(s)
+	return s, fake
+}
+
+// call имитирует tools/call через диспетчер (без stdio).
+func call(t *testing.T, s *Server, name string, args map[string]any) (string, bool) {
+	t.Helper()
+	var tools Tool
+	s.mu.RLock()
+	tools = s.tools[name]
+	s.mu.RUnlock()
+	if tools.Name == "" {
+		t.Fatalf("tool %q not registered", name)
+	}
+	out, err := tools.Handler(s, args)
+	if err != nil {
+		return err.Error(), false
+	}
+	return out, true
+}
+
+func TestSubmitBuildsParams(t *testing.T) {
+	s, fake := newTestServer(t)
+	out, ok := call(t, s, "submit", map[string]any{
+		"style": "doom metal, slow", "lyrics": "[Instrumental]", "title": "тёмное", "seed": 7,
+	})
+	if !ok {
+		t.Fatalf("submit failed: %s", out)
+	}
+	if len(fake.submitted) != 1 {
+		t.Fatalf("submitted %d", len(fake.submitted))
+	}
+	p := fake.submitted[0]
+	if p.Style != "doom metal, slow" || p.Lyrics != "[Instrumental]" || p.Seed != 7 || p.Title != "тёмное" {
+		t.Fatalf("params: %+v", p)
+	}
+	// cot по умолчанию full
+	if p.Cot != "full" {
+		t.Fatalf("cot = %q", p.Cot)
+	}
+}
+
+func TestSubmitFanSeedsAndTitles(t *testing.T) {
+	s, fake := newTestServer(t)
+	out, ok := call(t, s, "submit", map[string]any{
+		"style": "punk", "lyrics": "[Instrumental]", "seed": 10, "n": 3, "title": "x",
+	})
+	if !ok {
+		t.Fatalf("submit failed: %s", out)
+	}
+	if len(fake.submitted) != 3 {
+		t.Fatalf("submitted %d", len(fake.submitted))
+	}
+	for i, p := range fake.submitted {
+		if p.Seed != 10+int64(i) {
+			t.Fatalf("seed[%d] = %d", i, p.Seed)
+		}
+		if want := "x [1/3]"[:0] + strings.Replace("x [i/3]", "i", string(rune('1'+i)), 1); p.Title != want {
+			t.Fatalf("title[%d] = %q, want %q", i, p.Title, want)
+		}
+	}
+}
+
+func TestDeleteRequiresConfirm(t *testing.T) {
+	s, fake := newTestServer(t)
+	out, ok := call(t, s, "delete_job", map[string]any{"job_id": 5})
+	if ok {
+		t.Fatal("delete without confirm should fail")
+	}
+	if !strings.Contains(out, "подтверждение") {
+		t.Fatalf("message: %s", out)
+	}
+	if len(fake.deleted) != 0 {
+		t.Fatal("no delete expected")
+	}
+	out, ok = call(t, s, "delete_job", map[string]any{"job_id": 5, "confirm": true})
+	if !ok {
+		t.Fatalf("delete failed: %s", out)
+	}
+	if len(fake.deleted) != 1 || fake.deleted[0] != 5 {
+		t.Fatalf("deleted: %v", fake.deleted)
+	}
+}
+
+func TestCancelRequiresConfirm(t *testing.T) {
+	s, fake := newTestServer(t)
+	if _, ok := call(t, s, "cancel", map[string]any{"job_id": 1}); ok {
+		t.Fatal("cancel without confirm should fail")
+	}
+	if _, ok := call(t, s, "cancel", map[string]any{"job_id": 1, "confirm": true}); !ok {
+		t.Fatal("cancel with confirm should succeed")
+	}
+	if len(fake.canceled) != 1 {
+		t.Fatalf("canceled: %v", fake.canceled)
+	}
+}
+
+func TestArtifactsPicksBestFile(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.jobs = []yue.Job{{ID: 9, AudioFile: "audio.flac", Mp3File: "audio.mp3"}}
+	fake.fetch = map[string]string{"audio.mp3": "mp3-bytes"}
+	out, ok := call(t, s, "artifacts", map[string]any{"job_id": 9})
+	if !ok {
+		t.Fatalf("artifacts failed: %s", out)
+	}
+	if !strings.Contains(out, "yue-9-audio.mp3") {
+		t.Fatalf("out: %s", out)
+	}
+}
+
+func TestRenderAbcForcesMelodyCot(t *testing.T) {
+	s, fake := newTestServer(t)
+	_, ok := call(t, s, "render_abc", map[string]any{
+		"abc": "X:1", "style": "blues", "cot": "off",
+	})
+	if !ok {
+		t.Fatal("render_abc failed")
+	}
+	if fake.submitted[0].Cot != "melody" || fake.submitted[0].Abc != "X:1" {
+		t.Fatalf("params: %+v", fake.submitted[0])
+	}
+}
+
+func TestLibraryDataEmbedded(t *testing.T) {
+	// spec: данные библиотеки вшиты в бинарник и непусты
+	if groups := loadStyleGroups(); len(groups) < 20 {
+		t.Fatalf("style groups = %d (ожидались встроенные + пресеты)", len(groups))
+	}
+	opts := loadSlotOptions()
+	for _, slot := range []string{"genre", "vocals", "production"} {
+		if len(opts[slot]) == 0 {
+			t.Fatalf("slot %s пуст", slot)
+		}
+	}
+}
+
+// ---------- протокол (stdio JSON-RPC) ----------
+
+func rpcRoundTrip(t *testing.T, s *Server, reqs []string) []string {
+	t.Helper()
+	var in bytes.Buffer
+	for _, r := range reqs {
+		in.WriteString(r + "\n")
+	}
+	var out bytes.Buffer
+	if err := s.Serve(&in, &out); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+func TestProtocolHandshakeAndToolsList(t *testing.T) {
+	s, _ := newTestServer(t)
+	lines := rpcRoundTrip(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+	})
+	if len(lines) != 2 {
+		t.Fatalf("responses: %d", len(lines))
+	}
+	var init struct {
+		Result struct {
+			ProtocolVersion string                `json:"protocolVersion"`
+			ServerInfo      struct{ Name string } `json:"serverInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &init); err != nil {
+		t.Fatal(err)
+	}
+	if init.Result.ProtocolVersion == "" || init.Result.ServerInfo.Name != "yue-studio" {
+		t.Fatalf("init: %+v", init)
+	}
+	var list struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &list); err != nil {
+		t.Fatal(err)
+	}
+	// spec: полный рабочий набор — флоу, студия, библиотека, установка
+	var have = map[string]bool{}
+	for _, tl := range list.Result.Tools {
+		have[tl.Name] = true
+	}
+	for _, want := range []string{
+		"status", "jobs", "submit", "plan", "render_abc", "cancel", "delete_job", "artifacts",
+		"transcribe", "job_score", "job_preview",
+		"config_get", "config_set", "dsp_chains", "dsp_apply", "dsp_preview", "dsp_variants",
+		"analyze_job", "make_stems", "make_minus", "overdub", "import_track",
+		"corpus_list", "corpus_create", "corpus_add_tracks", "corpus_build", "corpus_get",
+		"styles", "slot_options", "doctor", "install_worker", "install_app",
+	} {
+		if !have[want] {
+			t.Fatalf("tool %q не зарегистрирован", want)
+		}
+	}
+}
+
+func TestProtocolToolsCall(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.health = &yue.HealthInfo{Status: "ok", ModelLoaded: true}
+	lines := rpcRoundTrip(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"no-such-tool","arguments":{}}}`,
+	})
+	if len(lines) != 2 {
+		t.Fatalf("responses: %d", len(lines))
+	}
+	var ok struct {
+		Result struct {
+			Content []struct{ Text string } `json:"content"`
+		} `json:"result"`
+	}
+	json.Unmarshal([]byte(lines[0]), &ok)
+	if !strings.Contains(ok.Result.Content[0].Text, "model_loaded") {
+		t.Fatalf("status text: %s", ok.Result.Content[0].Text)
+	}
+	if !strings.Contains(lines[1], "unknown tool") {
+		t.Fatalf("unknown tool response: %s", lines[1])
+	}
+}
+
+func TestProtocolPingAndNotifications(t *testing.T) {
+	s, _ := newTestServer(t)
+	lines := rpcRoundTrip(t, s, []string{
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":9,"method":"ping"}`,
+	})
+	if len(lines) != 1 || !strings.Contains(lines[0], `"id":9`) {
+		t.Fatalf("ping responses: %v", lines)
+	}
+}
