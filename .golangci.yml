@@ -15,10 +15,9 @@ linters:
         - (*os.File).Close
         - (*bufio.Writer).Flush
         - os.Remove
-
-issues:
-  exclude-rules:
-    # Wails-биндинги вызываются из шаблона по имени — «неиспользуемое» тут норма
-    - path: app\.go
-      linters:
-        - unused
+  exclusions:
+    rules:
+      # Wails-биндинги вызываются из шаблона по имени — «неиспользуемое» тут норма
+      - path: app\.go
+        linters:
+          - unused
