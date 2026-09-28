@@ -381,6 +381,22 @@ async function runTrick(kind, extra = {}) {
 // (overdub-inst-<id>.flac). Два неудачных пути закрыты вашими экспериментами:
 // стилевая приписка расползается на весь трек, «молчащий» план модель
 // пере-спланировывает; короткий кусок она исполняет честно.
+// мини-рендер куска под вклейку: план окна + стиль «только инструмент»
+async function submitInsertJob(inst, from, to) {
+  const plan = sliceAbc(baseAbc.value, from, to, 1)
+  if (!plan.includes('|')) return null
+  const draft = (to - from) < 15   // короткий кусок — драфта (18 с) хватает
+  return api.submit({
+    title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
+    style: `solo ${inst.en}, sparse quiet ${inst.en} line, no drums, no vocals`,
+    lyrics: '[Instrumental]',
+    seed: Math.floor(Math.random() * 1e9),
+    cot: 'melody',
+    abc: plan,
+    draft,
+  })
+}
+
 async function addInstrument(instId) {
   const p = selPos.value
   const r = selTimeRange()
@@ -392,26 +408,17 @@ async function addInstrument(instId) {
   instJob.value = { id: null, status: 'starting' }
   try {
     await ensureBaseAbc()
-    const plan = sliceAbc(baseAbc.value, r.from, r.to, 1)
-    if (!plan.includes('|')) {
+    const childId = await submitInsertJob(inst, r.from, r.to)
+    if (!childId) {
       rollErr.value = t('studio.trick.fragment.empty')
       instJob.value = null
       return
     }
-    const draft = (r.to - r.from) < 15   // короткий кусок — драфта (18 с) хватает
-    const childId = await api.submit({
-      title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
-      style: `solo ${inst.en}, sparse quiet ${inst.en} line, no drums, no vocals`,
-      lyrics: '[Instrumental]',
-      seed: Math.floor(Math.random() * 1e9),
-      cot: 'melody',
-      abc: plan,
-      draft,
-    })
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
     instMix = { from: r.from }
-    instSpecs.value = [...instSpecs.value, { childId, from: r.from, gain: 0.5 }]
+    instSpecs.value = [...instSpecs.value,
+      { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.5 }]
     saveStudioState()
     instJob.value = { id: childId, status: 'queued' }
     startJobPoll()
@@ -578,12 +585,40 @@ const pollFragment = watchJob(fragJob, 'f', 'кусок')
 const pollBuild = watchJob(buildJob, 'b', 'новая версия', null, async (j) => {
   for (const ins of instSpecs.value) {
     try {
-      await api.mixInstrument(j.id, ins.childId, ins.from, ins.gain)
+      await mixInsertInto(j.id, ins)
     } catch (e) {
       rollErr.value = String(e)
     }
   }
 })
+
+// вклейка в джобу newId: мини-рендеры недолговечны (пользователь мог удалить
+// их из очереди) — тогда пересоздаём кусок по сохранённому описанию и ждём
+async function mixInsertInto(newId, ins) {
+  try {
+    return await api.mixInstrument(newId, ins.childId, ins.from, ins.gain)
+  } catch {
+    const inst = TRICK_INSTRUMENTS.find((i) => i.id === ins.instId)
+    if (!inst) return null          // старый формат журнала без instId — не восстановить
+    await ensureBaseAbc()
+    if (!baseAbc.value) return null
+    const childId = await submitInsertJob(inst, ins.from, ins.to ?? ins.from + 15)
+    for (let i = 0; i < 150; i++) {          // до ~5 минут ожидания куска
+      await new Promise((res) => setTimeout(res, 2000))
+      const jobs = await api.jobs()
+      const cj = (jobs || []).find((x) => x.id === childId)
+      if (!cj) break
+      if (cj.status === 'done') {
+        ins.childId = childId
+        instSpecs.value = [...instSpecs.value]
+        saveStudioState()
+        return api.mixInstrument(newId, childId, ins.from, ins.gain)
+      }
+      if (cj.status === 'error' || cj.status === 'canceled') break
+    }
+    return null
+  }
+}
 const instJob = ref(null)
 
 // партия инструмента: по готовности дитя вклеиваем его в оригинал (ffmpeg на
