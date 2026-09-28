@@ -357,8 +357,11 @@ const instOptions = computed(() => TRICK_INSTRUMENTS.map((i) => ({ value: i.id, 
 async function runTrick(kind, extra = {}) {
   const p = selPos.value
   if (!p) return
-  if (kind === 'instrument') {   // овердаб-партия — отдельный поток ниже
-    return addInstrument(extra.inst || '')
+  if (kind === 'instrument') {
+    // мелодические партии — овердабом (цельный ре-рендер того же плана,
+    // ритм всегда в сетке), подклады — вклейкой куском (механизм ниже)
+    const inst = TRICK_INSTRUMENTS.find((i) => i.id === (extra.inst || ''))
+    return inst && inst.mode === 'insert' ? addInstrument(extra.inst) : addInstrumentOverdub(extra.inst)
   }
   const r = pickTargets(voiceBarList.value, p.lo, p.hi, kind)
   if (!r || !r.targets.length) return
@@ -397,6 +400,41 @@ async function submitInsertJob(inst, from, to) {
     abc: plan,
     draft,
   })
+}
+
+// «+ инструмент» овердабом: цельный ре-рендер того же плана (ритм/гармония
+// совпадают всегда — проверено на этнике), инструмент локализуется фразой
+// в стиле по позиции выделения, сид родителя = та же интерпретация.
+async function addInstrumentOverdub(instId) {
+  const inst = TRICK_INSTRUMENTS.find((i) => i.id === instId)
+  const r = selTimeRange()
+  if (!inst || !r) return
+  trickBusy.value = true
+  rollErr.value = ''
+  trickMsg.value = ''
+  instJob.value = { id: null, status: 'starting' }
+  try {
+    const dur = Number(props.job.duration_sec) || 1
+    const mid = (r.from + r.to) / 2 / dur
+    const pos = mid < 0.2 ? 'the intro'
+      : mid < 0.45 ? 'the first half'
+      : mid < 0.7 ? 'the second half' : 'the final section'
+    const style = (props.job.style || '').trim().replace(/,$/, '')
+      + `, prominent ${inst.en} in ${pos}`
+    const id = await api.submitOverdub(props.job.id, style,
+      props.job.lyrics || '[Instrumental]', 0.5, '', props.job.seed || 0)
+    sentMarks.value = [...sentMarks.value,
+      { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
+    saveStudioState()
+    instJob.value = { id, status: 'queued', overdub: true }
+    startJobPoll()
+    pollInst()
+  } catch (e) {
+    instJob.value = null
+    rollErr.value = String(e)
+  } finally {
+    trickBusy.value = false
+  }
 }
 
 async function addInstrument(instId) {
@@ -605,6 +643,11 @@ const durOf = (ins) => (ins.to && ins.from != null && ins.to > ins.from ? ins.to
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
 // успела/не дошла) — вклеить прямо сейчас; кнопка ▶ тем же путём самолечится
 async function playInstrument(j) {
+  if (j.overdub) {
+    // овердаб-партия микшируется воркером в родителя: overdub-<id>.flac
+    await api.playFile(props.job.id, `overdub-${j.id}.flac`, props.job.duration_sec)
+    return
+  }
   try {
     await api.playFile(props.job.id, `overdub-inst-${j.id}.flac`, props.job.duration_sec)
   } catch {

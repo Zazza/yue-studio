@@ -85,11 +85,14 @@ func (c *Client) JobPreview(ctx context.Context, id int64, fromSec, toSec float6
 // lyrics — необязательный текст голосовой партии (без него модель поёт
 // импровизированный вокализ, часто несуразный). abc — свой план партии
 // (пусто = партитура джобы): так «+ инструмент» локализует звук куском плана.
-func (c *Client) SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64, abc string) (int64, error) {
+func (c *Client) SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64, abc string, seed int64) (int64, error) {
 	var out struct {
 		ID int64 `json:"id"`
 	}
 	body := map[string]any{"style": style, "lyrics": lyrics, "gain": gain}
+	if seed != 0 {
+		body["seed"] = seed // сид родителя = «та же интерпретация»
+	}
 	if abc != "" {
 		body["abc"] = abc
 	}

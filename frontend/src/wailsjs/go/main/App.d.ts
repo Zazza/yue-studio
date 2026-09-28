@@ -100,7 +100,7 @@ export function YueSubmit(arg1:yue.SubmitParams):Promise<number>;
 
 export function YueSubmitFan(arg1:yue.SubmitParams,arg2:number):Promise<Array<number>>;
 
-export function YueSubmitOverdub(arg1:number,arg2:string,arg3:string,arg4:number,arg5:string):Promise<number>;
+export function YueSubmitOverdub(arg1:number,arg2:string,arg3:string,arg4:number,arg5:string,arg6:number):Promise<number>;
 
 export function YueToggleAudio():Promise<void>;
 

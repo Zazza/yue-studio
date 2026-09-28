@@ -215,7 +215,7 @@ export default {
   'studio.trick.oct.down': 'vocal ↓ oct.',
   'studio.trick.inst.label': '+ instrument:',
   'studio.trick.inst.add': 'add',
-  'studio.trick.inst.tip': 'The instrument is mixed into the selection as a separate party: it sounds only there. Inserts accumulate — the final track with all instruments is the last row in “Sound effects”',
+  'studio.trick.inst.tip': 'Melodic instruments (flute, organ, sax…) go via overdub — a coherent re-render of the same plan, rhythm always locks; pads (strings, bells) are inserted into the selection. Position comes from the selection',
   'studio.trick.inst.variant': 'instrument insert #{id}',
   'studio.trick.inst.mixing': 'mixing the party under the original…',
   'studio.trick.inst.starting': 'starting the instrument party…',

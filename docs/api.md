@@ -24,7 +24,7 @@ POST /jobs/{id}/lyrics текст из готового аудио джобы (�
 POST /lyrics/adapt     {text, to} → адаптация-перевод под пение с сохранением слогов (Ollama)
 GET  /jobs/{id}/score  таймлайн: такты × голоса, аккорды, секции, RMS по секциям
 POST /jobs/{id}/preview {from_sec, to_sec} → preview-*.flac (VAE-decode куска латентов)
-POST /jobs/{id}/overdub {style, lyrics, gain, abc?} → джоба-партия поверх трека (микс автоматом; abc — свой план партии, так «+ инструмент» локализуется выделением;
+POST /jobs/{id}/overdub {style, lyrics, seed?, gain, abc?} → джоба-партия поверх трека (микс автоматом; abc — свой план партии, так «+ инструмент» локализуется выделением; seed родителя = та же интерпретация;
                        lyrics — текст голоса, без него модель поёт вокализ)
 POST /jobs/{id}/stems  demucs → stem-{drums,bass,other,vocals}.flac
 GET  /jobs/{id}/stems  список стемов

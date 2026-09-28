@@ -956,6 +956,8 @@ class OverdubIn(BaseModel):
     style: str
     gain: float = 0.5
     lyrics: str = ""
+    # сид родителя = «та же интерпретация» (ближе к оригиналу); None — новая
+    seed: int | None = None
     # свой план партии (иначе — score.abc исходника); так «+ инструмент»
     # рендерит план, где партия молчит вне нужного куска — локализация звука
     abc: str | None = None
@@ -1097,7 +1099,7 @@ def submit_overdub(job_id: int, req: OverdubIn):
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,req_abc,overdub_of,created_at)"
             " VALUES(?,?,?,?,?,?,?,?,?)",
-            (f"overdub of #{job_id}", "queued", req.style, req.lyrics, None, "full",
+            (f"overdub of #{job_id}", "queued", req.style, req.lyrics, req.seed, "full",
              "", job_id, time.strftime("%Y-%m-%dT%H:%M:%S")))
         child_id = cur.lastrowid
         cdir = JOBS_DIR / str(child_id)

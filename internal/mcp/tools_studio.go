@@ -234,6 +234,7 @@ func RegisterStudioTools(s *Server) {
 			"lyrics": prop("текст голосовой партии (пусто = вокализ; [Instrumental] = без голоса)", "string"),
 			"gain":   prop("гейн микса (0.1–1, по умолчанию 0.5)", "number"),
 			"abc":    prop("свой план партии (пусто = партитура джобы); инструмент-только-в-куске строит soloInstrumentPlan", "string"),
+			"seed":   prop("сид родителя = «та же интерпретация», ближе к оригиналу (0 = новая)", "integer"),
 		}, "job_id", "style"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			gain := argFloat(args, "gain")
@@ -241,7 +242,8 @@ func RegisterStudioTools(s *Server) {
 				gain = 0.5
 			}
 			id, err := s.client.SubmitOverdub(context.Background(), argInt(args, "job_id"),
-				argString(args, "style"), argString(args, "lyrics"), gain, argString(args, "abc"))
+				argString(args, "style"), argString(args, "lyrics"), gain, argString(args, "abc"),
+				argInt(args, "seed"))
 			if err != nil {
 				return "", err
 			}

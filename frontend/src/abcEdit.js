@@ -165,16 +165,18 @@ export function sliceAbc(abc, from, to, padBars = 1) {
   }
   return assemble(out)
 }
-// инструменты для приёма «+ инструмент»: подпись в i18n, en-тег уходит в стиль
+// инструменты «+ инструмент»: mode overdub = цельный ре-рендер того же плана
+// (ритм совпадает всегда, локализация — фразой в стиле); insert = подклад
+// куском поверх (струнные/колокольчики: сетка им не нужна)
 export const TRICK_INSTRUMENTS = [
-  { id: 'flute', en: 'flute melody' },
-  { id: 'strings', en: 'string ensemble' },
-  { id: 'organ', en: 'hammond organ' },
-  { id: 'sax', en: 'saxophone' },
-  { id: 'eguitar', en: 'distorted electric guitar' },
-  { id: 'synth', en: 'analog synth lead' },
-  { id: 'bells', en: 'glockenspiel' },
-  { id: 'piano', en: 'grand piano' },
+  { id: 'flute', en: 'flute melody', mode: 'overdub' },
+  { id: 'strings', en: 'string ensemble', mode: 'insert' },
+  { id: 'organ', en: 'hammond organ', mode: 'overdub' },
+  { id: 'sax', en: 'saxophone', mode: 'overdub' },
+  { id: 'eguitar', en: 'distorted electric guitar', mode: 'overdub' },
+  { id: 'synth', en: 'analog synth lead', mode: 'overdub' },
+  { id: 'bells', en: 'glockenspiel', mode: 'insert' },
+  { id: 'piano', en: 'grand piano', mode: 'overdub' },
 ]
 
 // стилевые приписки от приёмов: октава и «+ инструмент» в секцию.

@@ -504,8 +504,8 @@ func (a *App) YueAdaptLyrics(text, to string) (*yue.LyricsResult, error) {
 	return a.yue.AdaptLyrics(a.ctx, text, to)
 }
 
-func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64, abc string) (int64, error) {
-	return a.yue.SubmitOverdub(a.ctx, id, style, lyrics, gain, abc)
+func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64, abc string, seed int64) (int64, error) {
+	return a.yue.SubmitOverdub(a.ctx, id, style, lyrics, gain, abc, seed)
 }
 
 func (a *App) YueMakeStems(id int64) (map[string]any, error) {
