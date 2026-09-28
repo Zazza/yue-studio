@@ -61,8 +61,13 @@ const onDocClick = (e) => {
     open.value = false
   }
 }
-// скролл/ресайз уводят fixed-список от кнопки — закрываем, это честнее сдвига
-const onReflow = () => { if (open.value) open.value = false }
+// скролл/ресайз уводят fixed-список от кнопки — закрываем, это честнее сдвига.
+// Но прокрутка САМОГО списка (длинные группы стилей) — не закрывает
+const onReflow = (e) => {
+  if (!open.value) return
+  if (drop.value && e && e.target && drop.value.contains(e.target)) return
+  open.value = false
+}
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   window.addEventListener('scroll', onReflow, true)
