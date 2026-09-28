@@ -6,6 +6,7 @@ const { t } = useI18n()
 import { api } from '../api.js'
 import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
+import { useInserts } from '../composables/useInserts.js'
 import { odPartyChips } from '../slotOptions.js'
 import { applyTrick, pickTargets, sliceAbc, TRICK_INSTRUMENTS, trickStyleSuffix } from '../abcEdit.js'
 import VSelect from '../VSelect.vue'
@@ -15,6 +16,7 @@ const emit = defineEmits(['close', 'open-metrics'])
 
 const { isPlaying, playBusy, playBtn, toggleArtifact } = usePlayer()
 const { askConfirm } = useConfirm()
+const inserts = useInserts()
 
 const rollData = ref(null)     // parsed score
 const rollBusy = ref(false)
@@ -420,6 +422,9 @@ async function addInstrument(instId) {
     instSpecs.value = [...instSpecs.value,
       { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.5 }]
     saveStudioState()
+    // микс — на вечном сервисе: студию можно закрыть сразу
+    inserts.register([{ parent: props.job.id, childId, instId: inst.id,
+      from: r.from, to: r.to, gain: 0.5, srcJob: props.job.id }])
     instJob.value = { id: childId, status: 'queued' }
     startJobPoll()
     pollInst()
@@ -579,46 +584,13 @@ function maybeStopPoll() {
   if (!active) stopFragPoll()
 }
 const pollFragment = watchJob(fragJob, 'f', 'кусок')
-// новая версия трека: по готовности накатываем на неё все вклейки
-// инструментов (мини-рендерам все равно, чей базовый трек) — иначе пересборка
-// выходила «голой»: струнные/орган оставались на старой джобе
+// новая версия трека: по готовности отдаём все вклейки вечному сервису
+// (useInserts) — он микширует независимо от того, закрыта ли студия
 const pollBuild = watchJob(buildJob, 'b', 'новая версия', null, async (j) => {
-  for (const ins of instSpecs.value) {
-    try {
-      await mixInsertInto(j.id, ins)
-    } catch (e) {
-      rollErr.value = String(e)
-    }
-  }
+  inserts.register(instSpecs.value.map((s) => ({
+    ...s, parent: j.id, srcJob: props.job.id,
+  })))
 })
-
-// вклейка в джобу newId: мини-рендеры недолговечны (пользователь мог удалить
-// их из очереди) — тогда пересоздаём кусок по сохранённому описанию и ждём
-async function mixInsertInto(newId, ins) {
-  try {
-    return await api.mixInstrument(newId, ins.childId, ins.from, durOf(ins), ins.gain)
-  } catch {
-    const inst = TRICK_INSTRUMENTS.find((i) => i.id === ins.instId)
-    if (!inst) return null          // старый формат журнала без instId — не восстановить
-    await ensureBaseAbc()
-    if (!baseAbc.value) return null
-    const childId = await submitInsertJob(inst, ins.from, ins.to ?? ins.from + 15)
-    for (let i = 0; i < 150; i++) {          // до ~5 минут ожидания куска
-      await new Promise((res) => setTimeout(res, 2000))
-      const jobs = await api.jobs()
-      const cj = (jobs || []).find((x) => x.id === childId)
-      if (!cj) break
-      if (cj.status === 'done') {
-        ins.childId = childId
-        instSpecs.value = [...instSpecs.value]
-        saveStudioState()
-        return api.mixInstrument(newId, childId, ins.from, durOf(ins), ins.gain)
-      }
-      if (cj.status === 'error' || cj.status === 'canceled') break
-    }
-    return null
-  }
-}
 const instJob = ref(null)
 
 // партия инструмента: по готовности дитя вклеиваем его в оригинал (ffmpeg на
@@ -639,7 +611,7 @@ async function playInstrument(j) {
     j = { ...j, mixing: true }
     instJob.value = j
     try {
-      const v = await api.mixInstrument(props.job.id, j.id, instMix.from, instMix.to ? instMix.to - instMix.from : 0, 0.5)
+      const v = await api.mixInstrument(props.job.id, j.id, instMix.from, durOf(instMix), 0.5)
       await api.playFile(props.job.id, v.file, props.job.duration_sec)
     } finally {
       instJob.value = { ...j, mixing: false }
