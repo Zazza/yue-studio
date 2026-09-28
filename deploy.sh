@@ -17,7 +17,7 @@ if [[ "$CMD" == "worker" ]]; then
 # YUE_OLLAMA_URL=http://127.0.0.1:11434/api/chat
 # YUE_OLLAMA_MODEL=qwen2.5-chat-ru:latest
 EOF'
-  scp -q worker/yue_worker.py worker/dsp.py worker/sheetsage.py worker/stems.py \
+  scp -q worker/yue_worker.py worker/arc.py worker/dsp.py worker/sheetsage.py worker/stems.py \
         worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py "$HOST:~/yue-studio/"
   scp -q deploy/units/yue-worker.service "$HOST:~/yue-studio/units/"
   ssh "$HOST" '
