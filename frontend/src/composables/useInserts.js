@@ -53,6 +53,18 @@ async function tick() {
     const jobs = await api.jobs()
     const find = (id) => (jobs || []).find((x) => x.id === id)
     for (const spec of pending.value) {
+      if (spec.mode === 'vocal-restyle') {
+        // вокальная перелепка: инструментальный ререндер готов → родной
+        // вокал (stem-vocals родителя) поверх нового аккомпанемента
+        const child = find(spec.childId)
+        if (child && child.status === 'done') {
+          try {
+            await api.mixVocalsOver(spec.childId, spec.parent)
+            spec.done = true
+          } catch { /* повторим на следующем тике */ }
+        }
+        continue
+      }
       let child = find(spec.childId)
       if (!child && spec.instId) {
         const childId = await recreateChild(spec)

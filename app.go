@@ -263,6 +263,37 @@ func (a *App) YueMixInstrument(parentID, childID int64, fromSec, durSec, gain fl
 	return a.yue.UploadDsp(a.ctx, parentID, fname, data)
 }
 
+// YueMixVocalsOver — родной вокал джобы (stem-vocals) поверх нового
+// инструментального рендера (backingID): перелепка аранжировки вокального
+// трека без удвоения голоса и без микса двух исполнений. Результат —
+// dsp-with-vocal.flac у нового рендера.
+func (a *App) YueMixVocalsOver(backingID, vocalJobID int64) (*yue.DspVariant, error) {
+	backing, err := a.fetchTempFile(backingID, "audio.flac", fmt.Sprintf("yue-voc-%d-back-*.flac", backingID))
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(backing)
+	vocals, err := a.fetchTempFile(vocalJobID, "stem-vocals.flac", fmt.Sprintf("yue-voc-%d-stem-*.flac", vocalJobID))
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(vocals)
+	out, err := os.CreateTemp("", fmt.Sprintf("yue-voc-%d-out-*.flac", backingID))
+	if err != nil {
+		return nil, err
+	}
+	out.Close()
+	defer os.Remove(out.Name())
+	if err := dsp.RunTwoInputs(backing, vocals, out.Name(), dsp.VocalsOverGraph()); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(out.Name())
+	if err != nil {
+		return nil, err
+	}
+	return a.yue.UploadDsp(a.ctx, backingID, "dsp-with-vocal.flac", data)
+}
+
 // YueApplyDsp — применить цепочку к треку джобы и вернуть метрики варианта.
 func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
 	return a.runDsp(jobID, chainID, params, false)

@@ -66,6 +66,8 @@ export function YueMakeStems(arg1:number):Promise<Record<string, any>>;
 
 export function YueMixInstrument(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<yue.DspVariant>;
 
+export function YueMixVocalsOver(arg1:number,arg2:number):Promise<yue.DspVariant>;
+
 export function YueOllamaModels(arg1:string):Promise<Record<string, any>>;
 
 export function YueOpenExternal(arg1:number,arg2:string):Promise<void>;

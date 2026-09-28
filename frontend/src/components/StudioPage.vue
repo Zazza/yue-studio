@@ -402,9 +402,13 @@ async function submitInsertJob(inst, from, to) {
   })
 }
 
-// «+ инструмент» овердабом: цельный ре-рендер того же плана (ритм/гармония
-// совпадают всегда — проверено на этнике), инструмент локализуется фразой
-// в стиле по позиции выделения, сид родителя = та же интерпретация.
+// «+ инструмент» на мелодическую партию. Три пути по природе трека
+// (проверено на живых треках: микс двух исполнений расходится на быстром
+// груве и удваивает голос на вокальных):
+// - инструментальный трек: НОВАЯ ВЕРСИЯ целиком (ререндер, тот же план+сид,
+//   без микса с оригиналом) — одно исполнение, ритм идеален;
+// - вокальный: стемы — родной вокал поверх инструментального ререндера
+//   (голос один, аккомпанемент один), финишный микс — сервис useInserts.
 async function addInstrumentOverdub(instId) {
   const inst = TRICK_INSTRUMENTS.find((i) => i.id === instId)
   const r = selTimeRange()
@@ -421,12 +425,40 @@ async function addInstrumentOverdub(instId) {
       : mid < 0.7 ? 'the second half' : 'the final section'
     const style = (props.job.style || '').trim().replace(/,$/, '')
       + `, prominent ${inst.en} in ${pos}`
-    const id = await api.submitOverdub(props.job.id, style,
-      props.job.lyrics || '[Instrumental]', 0.5, '', props.job.seed || 0)
+    const vocal = /\[Verse\]|\[Chorus\]|\[Bridge\]/i.test(props.job.lyrics || '')
+    if (!vocal) {
+      // инструментальный: отдельная новая версия по партитуре родителя
+      const abc = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
+      const id = await api.submit({
+        title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
+        style, lyrics: '[Instrumental]',
+        seed: props.job.seed || Math.floor(Math.random() * 1e9),
+        cot: props.job.cot === 'off' ? 'melody' : props.job.cot, abc,
+      })
+      sentMarks.value = [...sentMarks.value,
+        { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
+      saveStudioState()
+      instJob.value = { id, status: 'queued', standalone: true }
+      startJobPoll()
+      pollInst()
+      return
+    }
+    // вокальный: стемы (минуты, demucs) → инструментальный ререндер → микс сервисом
+    trickMsg.value = t('studio.trick.inst.stems')
+    await api.makeStems(props.job.id)
+    const abc = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
+    const id = await api.submit({
+      title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
+      style: style.replace(/,? [^,]*vocals[^,]*/gi, '') + ', instrumental, no vocals',
+      lyrics: '[Instrumental]',
+      seed: props.job.seed || Math.floor(Math.random() * 1e9),
+      cot: props.job.cot === 'off' ? 'melody' : props.job.cot, abc,
+    })
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
     saveStudioState()
-    instJob.value = { id, status: 'queued', overdub: true }
+    inserts.register([{ mode: 'vocal-restyle', parent: props.job.id, childId: id }])
+    instJob.value = { id, status: 'queued', restyle: true }
     startJobPoll()
     pollInst()
   } catch (e) {
@@ -643,6 +675,15 @@ const durOf = (ins) => (ins.to && ins.from != null && ins.to > ins.from ? ins.to
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
 // успела/не дошла) — вклеить прямо сейчас; кнопка ▶ тем же путём самолечится
 async function playInstrument(j) {
+  if (j.restyle) {
+    // вокальная перелепка: готовый результат = dsp-with-vocal у ререндера
+    await api.playFile(j.id, 'dsp-with-vocal.flac', props.job.duration_sec)
+    return
+  }
+  if (j.standalone) {
+    await api.playAudio(j.id)
+    return
+  }
   if (j.overdub) {
     // овердаб-партия микшируется воркером в родителя: overdub-<id>.flac
     await api.playFile(props.job.id, `overdub-${j.id}.flac`, props.job.duration_sec)

@@ -220,6 +220,7 @@ export default {
   'studio.trick.inst.mixing': 'mixing the party under the original…',
   'studio.trick.inst.starting': 'starting the instrument party…',
   'studio.trick.inst.wait': 'the party is rendering · gets mixed in and plays here',
+  'studio.trick.inst.stems': 'separating stems (vocals/accompaniment) — takes minutes…',
   'studio.trick.inst.play': 'instrument mixed in, playing:',
   'studio.trick.inst.flute': 'flute',
   'studio.trick.inst.strings': 'strings',

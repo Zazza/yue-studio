@@ -220,6 +220,7 @@ export default {
   'studio.trick.inst.mixing': 'вклеиваю партию под оригинал…',
   'studio.trick.inst.starting': 'запускаю партию инструмента…',
   'studio.trick.inst.wait': 'партия рендерится · подмикшируется и заиграет здесь',
+  'studio.trick.inst.stems': 'разделяю трек на стемы (вокал/аккомпанемент) — это минуты…',
   'studio.trick.inst.play': 'инструмент подмешан, играет:',
   'studio.trick.inst.flute': 'флейта',
   'studio.trick.inst.strings': 'струнные',
