@@ -324,6 +324,7 @@ export default {
   'dur.s2': '2–5 min',
   'dur.s3': '5–10 min',
   'dur.s4': '10–30 min',
+  'queue.cancel.tip': 'Remove the job from the queue / stop the render',
   'queue.cancel': 'cancel',
   'queue.progress.plan': 'planning…',
   'queue.progress.load': 'loading model',

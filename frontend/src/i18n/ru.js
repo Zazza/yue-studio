@@ -324,6 +324,7 @@ export default {
   'dur.s2': '2–5 мин',
   'dur.s3': '5–10 мин',
   'dur.s4': '10–30 мин',
+  'queue.cancel.tip': 'Снять джобу из очереди / остановить рендер',
   'queue.cancel': 'отменить',
   'queue.progress.plan': 'план…',
   'queue.progress.load': 'загрузка модели',

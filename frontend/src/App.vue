@@ -775,7 +775,8 @@ function onWindowClick(e) {
               <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
             </span>
           </span>
-          <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
+          <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
+                  :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
           <span class="spacer"></span>
           <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
           <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
