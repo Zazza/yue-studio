@@ -48,6 +48,8 @@ export function YueGetServerURL():Promise<string>;
 
 export function YueImportTrack():Promise<Record<string, any>>;
 
+export function YueJobAbcText(arg1:number,arg2:string):Promise<string>;
+
 export function YueJobLyrics(arg1:number):Promise<yue.LyricsResult>;
 
 export function YueJobPreview(arg1:number,arg2:number,arg3:number):Promise<Record<string, any>>;

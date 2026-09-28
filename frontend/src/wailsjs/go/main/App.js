@@ -90,6 +90,10 @@ export function YueImportTrack() {
   return window['go']['main']['App']['YueImportTrack']();
 }
 
+export function YueJobAbcText(arg1, arg2) {
+  return window['go']['main']['App']['YueJobAbcText'](arg1, arg2);
+}
+
 export function YueJobLyrics(arg1) {
   return window['go']['main']['App']['YueJobLyrics'](arg1);
 }

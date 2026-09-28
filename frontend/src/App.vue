@@ -493,8 +493,8 @@ async function loadJobAbc(j) {
   if (!j.abc_file) return
   planErr.value = ''
   try {
-    const r = await fetch(`/audio/${j.id}/${j.abc_file}`)
-    setPlanAbc(await r.text(), { seed: j.seed, seconds: null, truncated: false, fromJob: j.id })
+    const abc = await api.jobAbcText(j.id, j.abc_file)
+    setPlanAbc(abc, { seed: j.seed, seconds: null, truncated: false, fromJob: j.id })
   } catch (e) {
     planErr.value = String(e)
     planOpen.value = true

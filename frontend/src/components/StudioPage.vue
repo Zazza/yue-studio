@@ -257,10 +257,7 @@ async function renderInstrumental() {
   trickMsg.value = ''
   buildJob.value = { id: null, status: 'starting' }
   try {
-    if (!baseAbc.value) {
-      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
-      baseAbc.value = await res.text()
-    }
+    await ensureBaseAbc()
     const abc = dropVoices(planDraft.value || baseAbc.value, vocalVoices)
     const id = await api.submit({
       title: (props.job.title || 'трек') + ' · инструментал',
@@ -291,6 +288,14 @@ const trickMsg = ref('')
 // его же, поэтому повтор стабилен). Так «убрать приём» — просто вычеркнуть
 // из списка. sentMarks — метки, уже уехавшие в отрендеренные версии (история).
 const baseAbc = ref(null)     // исходный план джобы (подкачивается раз)
+
+// подкачка исходного плана — через Go-биндинг: fetch('/audio/...') из окна
+// Wails не долетает до воркера (нет его origin)
+async function ensureBaseAbc() {
+  if (!baseAbc.value) {
+    baseAbc.value = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
+  }
+}
 const pendingSpecs = ref([])  // неподтверждённые: [{kind, label, from, to, dir, targets}]
 const sentMarks = ref([])     // [{kind, label, from, to}] — история версий
 const trickMarks = computed(() => [...sentMarks.value, ...pendingSpecs.value])
@@ -359,10 +364,7 @@ async function runTrick(kind, extra = {}) {
   rollErr.value = ''
   trickMsg.value = ''
   try {
-    if (!baseAbc.value) {
-      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
-      baseAbc.value = await res.text()
-    }
+    await ensureBaseAbc()
     pendingSpecs.value = [...pendingSpecs.value, spec]
     trickMsg.value = t('studio.trick.staged', { n: pendingSpecs.value.length })
   } catch (e) {
@@ -387,10 +389,7 @@ async function addInstrument(instId) {
   trickMsg.value = ''
   instJob.value = { id: null, status: 'starting' }
   try {
-    if (!baseAbc.value) {
-      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
-      baseAbc.value = await res.text()
-    }
+    await ensureBaseAbc()
     const plan = sliceAbc(baseAbc.value, r.from, r.to, 1)
     if (!plan.includes('|')) {
       rollErr.value = t('studio.trick.fragment.empty')
@@ -471,10 +470,7 @@ async function rebuild(draft = false) {
   trickMsg.value = ''
   if (!draft) buildJob.value = { id: null, status: 'starting' }   // отклик сразу
   try {
-    if (!baseAbc.value) {
-      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
-      baseAbc.value = await res.text()
-    }
+    await ensureBaseAbc()
     // без план-правок — исходный план (тот же seed → практически тот же трек)
     const abc = planDraft.value || baseAbc.value
     const id = await api.submit({
@@ -614,10 +610,7 @@ async function renderFragment() {
   trickMsg.value = ''
   fragJob.value = { id: null, status: 'starting' }   // отклик на клик — сразу
   try {
-    if (!baseAbc.value) {
-      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
-      baseAbc.value = await res.text()
-    }
+    await ensureBaseAbc()
     const mini = sliceAbc(planDraft.value || baseAbc.value, from, to)
     if (!mini.includes('|')) {
       rollErr.value = t('studio.trick.fragment.empty')

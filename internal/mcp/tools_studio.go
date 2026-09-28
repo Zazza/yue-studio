@@ -422,7 +422,7 @@ func RegisterStudioTools(s *Server) {
 	// ---------- голоса (примерочная) ----------
 
 	s.Register(Tool{
-		Name:        "voices_list",
+		Name: "voices_list",
 		Description: "Карточки голосов примерочной: ручки характера (params), seed прослушивания, " +
 			"жива ли исходная джоба (job_alive).",
 		InputSchema: props(nil),
@@ -436,7 +436,7 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "voice_create",
+		Name: "voice_create",
 		Description: "Сохранить карточку голоса из джобы-прослушивания (draft-джоба примерочной). " +
 			"params — JSON ручек: {register, rough, creak, delivery, breath, extra}.",
 		InputSchema: props(map[string]any{
@@ -457,7 +457,7 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "voice_delete",
+		Name: "voice_delete",
 		Description: "Удалить карточку голоса и копию аудио на сервере. Необратимо. " +
 			"Деструктивное: требует confirm=true (спроси пользователя).",
 		InputSchema: props(map[string]any{

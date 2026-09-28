@@ -459,6 +459,22 @@ func (a *App) YueTranscribeFile() (*yue.TranscribeResult, error) {
 	return a.yue.Transcribe(a.ctx, name, data)
 }
 
+// YueJobAbcText — текст ABC-артефакта джобы (score.abc / request.abc).
+// Через Go, а не fetch из webview: у окна Wails нет origin воркера,
+// относительный /audio/... туда не долетает.
+func (a *App) YueJobAbcText(id int64, file string) (string, error) {
+	body, _, err := a.yue.FetchAudio(a.ctx, id, file)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(body, 8<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 func (a *App) YueJobScore(id int64) (map[string]any, error) {
 	return a.yue.JobScore(a.ctx, id)
 }
