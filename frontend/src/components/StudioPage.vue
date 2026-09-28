@@ -116,6 +116,7 @@ onMounted(async () => {
     if (per.trickV === 2) {
       if (per.trickMarks) sentMarks.value = per.trickMarks      // история версий
       if (per.pendingSpecs) pendingSpecs.value = per.pendingSpecs
+      if (per.instSpecs) instSpecs.value = per.instSpecs
     }
   } catch {}
 })
@@ -134,6 +135,7 @@ function saveStudioState() {
       trickV: 2,
       trickMarks: sentMarks.value,
       pendingSpecs: pendingSpecs.value,
+      instSpecs: instSpecs.value,
     }
     localStorage.setItem(key, JSON.stringify(st))
   } catch {}
@@ -409,6 +411,8 @@ async function addInstrument(instId) {
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
     instMix = { from: r.from }
+    instSpecs.value = [...instSpecs.value, { childId, from: r.from, gain: 0.5 }]
+    saveStudioState()
     instJob.value = { id: childId, status: 'queued' }
     startJobPoll()
     pollInst()
@@ -471,8 +475,13 @@ async function rebuild(draft = false) {
   if (!draft) buildJob.value = { id: null, status: 'starting' }   // отклик сразу
   try {
     await ensureBaseAbc()
-    // без план-правок — исходный план (тот же seed → практически тот же трек)
-    const abc = planDraft.value || baseAbc.value
+    // без план-правок — исходный план (тот же seed → практически тот же трек).
+    // План режем по фактической длительности аудио: аудио могло обрезаться
+    // лимитом токенов, а полный план длиннее — пересборка по нему раздувалась
+    // до десятков минут («2-минутный трек → 10:40»).
+    const full = planDraft.value || baseAbc.value
+    const dur = Number(props.job.duration_sec) || 0
+    const abc = dur > 0 ? sliceAbc(full, 0, dur + 1, 0) : full
     const id = await api.submit({
       title: (props.job.title || 'трек') + (draft ? ' · ✦' : ' · приёмы'),
       style: trickStyle(props.job.style),
@@ -533,7 +542,7 @@ function stopFragPoll() {
   if (jobsTimer) { clearInterval(jobsTimer); jobsTimer = null }
 }
 
-function watchJob(refObj, key, label, playFn = null) {
+function watchJob(refObj, key, label, playFn = null, onDone = null) {
   return async () => {
     if (!refObj.value || !refObj.value.id) return
     try {
@@ -543,6 +552,7 @@ function watchJob(refObj, key, label, playFn = null) {
       const was = refObj.value.status
       refObj.value = j
       if (j.status === 'done' && was !== 'done') {
+        if (onDone) await onDone(j)
         const play = playFn || (() => api.playAudio(j.id))
         await toggleArtifact(key + j.id, `${label} · #${j.id}`, play)
       }
@@ -562,12 +572,25 @@ function maybeStopPoll() {
   if (!active) stopFragPoll()
 }
 const pollFragment = watchJob(fragJob, 'f', 'кусок')
-const pollBuild = watchJob(buildJob, 'b', 'новая версия')
+// новая версия трека: по готовности накатываем на неё все вклейки
+// инструментов (мини-рендерам все равно, чей базовый трек) — иначе пересборка
+// выходила «голой»: струнные/орган оставались на старой джобе
+const pollBuild = watchJob(buildJob, 'b', 'новая версия', null, async (j) => {
+  for (const ins of instSpecs.value) {
+    try {
+      await api.mixInstrument(j.id, ins.childId, ins.from, ins.gain)
+    } catch (e) {
+      rollErr.value = String(e)
+    }
+  }
+})
 const instJob = ref(null)
 
 // партия инструмента: по готовности дитя вклеиваем его в оригинал (ffmpeg на
 // ПК, точно в секунды выделения) и играем уже смешанный файл
 let instMix = { from: 0 }
+// все вклейки сессии: пере-накатываются на пересобранную версию
+const instSpecs = ref([])   // [{childId, from, gain}]
 
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
 // успела/не дошла) — вклеить прямо сейчас; кнопка ▶ тем же путём самолечится

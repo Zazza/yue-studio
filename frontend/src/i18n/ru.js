@@ -330,6 +330,7 @@ export default {
   'queue.progress.load': 'загрузка модели',
   'queue.progress.finalize': 'сохранение…',
   'queue.progress.semantic': 'генерация',
+  'queue.progress.decode': 'озвучивание партитуры…',
   'queue.progress.tps': 'т/с',
   'form.draft': '✦ черновик',
   'form.draft.tip': 'Короткая версия ~15-20 с (~полминуты GPU): послушать стиль до полного рендера',

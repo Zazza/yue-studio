@@ -72,8 +72,9 @@ async function onSeekChange() {
 
 export function fmtDur(s) {
   if (!s) return ''
-  const m = Math.floor(s / 60)
-  return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`
+  // округляем ДО деления: floor+round(остатка) давал «1:60» вместо «2:00»
+  const total = Math.round(s)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
 export function usePlayer() {

@@ -221,22 +221,30 @@ def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
     """Раз в 2 с пишет прогресс в _progress (для /jobs)."""
     stop = threading.Event()
     last = 0
+    last_sem_move = time.time()
 
     def watch():
-        nonlocal last   # иначе первый тик: referenced before assignment
+        nonlocal last, last_sem_move   # иначе первый тик: referenced before assignment
         while not stop.is_set():
             elapsed = time.time() - t0
             sem = _sem_tokens(counters)
             tps = (sem - last) / 2 if elapsed > 2 and sem >= last else None
+            if sem != last:
+                last_sem_move = time.time()
             last = sem
+            stage = counters["phase"]
+            # семантика замерла, но пайплайн жив — это synthesize/decode:
+            # на длинном треке минуты тишины, UI висел «на 99%» без объяснения
+            if stage == "semantic" and sem > 0 and time.time() - last_sem_move > 15:
+                stage = "decode"
             # честный процент есть только у семантики (самая длинная фаза):
             # токены / бюджет; загрузка модели и план — неопределённая длительность
             pct = None
-            if counters["phase"] == "semantic":
+            if stage == "semantic":
                 pct = min(99, sem * 100 // max(1, budget or MAX_SEM_TOKENS))
             with _state_lock:
                 _progress[job_id] = {
-                    "stage": counters["phase"],
+                    "stage": stage,
                     "tokens": counters["tokens"],
                     "tok_per_s": round(tps, 1) if tps else None,
                     "elapsed_s": round(elapsed, 1),
