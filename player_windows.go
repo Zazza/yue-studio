@@ -25,7 +25,10 @@ func playerCommand(file string, volume float64) *exec.Cmd {
 		`Add-Type -AssemblyName PresentationCore; `+
 			`$m = New-Object System.Windows.Media.MediaPlayer; `+
 			`$m.Volume = `+strconv.FormatFloat(volume, 'f', 2, 64)+`; `+
-			`$m.Open([Uri]%q); $m.Play(); `+
+			`$m.Open([Uri]%q); `+
+			`$w = [Diagnostics.Stopwatch]::StartNew(); `+
+			`while ($m.NaturalDuration.TimeSpan.TotalSeconds -le 0 -and $w.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 50 }; `+
+			`$m.Play(); `+
 			`$vf = '%s'; `+
 			`while ($true) { `+
 			`if (Test-Path $vf) { $nv = [double](Get-Content $vf -ErrorAction SilentlyContinue); `+

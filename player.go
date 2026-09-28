@@ -15,8 +15,10 @@ import (
 // т.к. у webview во Wails нет аудио-выхода. Пауза — SIGSTOP/SIGCONT.
 type player struct {
 	mu        sync.Mutex
+	seekMu    sync.Mutex // сериализует перемотки: ffmpeg-нарезка + подмена файла
 	cmd       *exec.Cmd
 	tmpFile   string
+	origFile  string // нетронутый оригинал: перемотка всегда режет от него
 	startedAt time.Time
 	pausedAt  time.Duration
 	playing   bool
@@ -77,6 +79,7 @@ func (p *player) Load(id int64, wavBytes []byte, dur time.Duration) error {
 	p.mu.Lock()
 	p.stopLocked()
 	p.tmpFile = f.Name()
+	p.origFile = f.Name()
 	p.loadedID = id
 	p.duration = dur
 	p.pausedAt = 0
@@ -102,9 +105,14 @@ func (p *player) stopLocked() {
 	if p.tmpFile != "" {
 		os.Remove(p.tmpFile)
 		os.Remove(p.tmpFile + ".vol") // файл живой громкости (Windows-плеер)
+		if p.origFile != "" && p.origFile != p.tmpFile {
+			os.Remove(p.origFile)
+		}
 		p.tmpFile = ""
+		p.origFile = ""
 		p.loadedID = 0
 		p.duration = 0
+		p.offset = 0
 	}
 }
 
@@ -208,9 +216,11 @@ func (p *player) State() (playing bool, pos, dur time.Duration, loadedID int64) 
 // seek — перемотка: ffmpeg -ss нарезает хвост локального файла в новый temp,
 // плеер перезапускается с него (у pw-play/WPF-обёртки нет нативного seek).
 func (p *player) Seek(target time.Duration) error {
+	p.seekMu.Lock() // подряд кликов по шкале: нарезки не конкурируют
+	defer p.seekMu.Unlock()
 	p.mu.Lock()
-	src := p.tmpFile
-	if src == "" {
+	orig := p.origFile
+	if orig == "" {
 		p.mu.Unlock()
 		return fmt.Errorf("nothing loaded")
 	}
@@ -220,14 +230,10 @@ func (p *player) Seek(target time.Duration) error {
 	if p.duration > 0 && target > p.duration {
 		target = p.duration
 	}
-	// из текущего смещения можно прыгнуть только вперёд — назад перекодируем от 0
-	seekFrom := p.offset
-	if target < seekFrom {
-		seekFrom = 0
-	}
-	skip := target - seekFrom
 	remaining := p.duration - target
-	p.killLocked() // файл не трогаем: он источник для ffmpeg
+	curID := p.loadedID
+	prevCut := p.tmpFile
+	p.killLocked() // оригинал не трогаем: режем всегда от него
 	p.playing = false
 	p.mu.Unlock()
 
@@ -238,28 +244,33 @@ func (p *player) Seek(target time.Duration) error {
 		p.mu.Unlock()
 		return nil
 	}
-	out, err := os.CreateTemp("", fmt.Sprintf("yue-seek-%d-*.flac", p.loadedID))
+	out, err := os.CreateTemp("", fmt.Sprintf("yue-seek-%d-*.flac", curID))
 	if err != nil {
 		return err
 	}
 	outName := out.Name()
 	out.Close()
+	// Пере-кодирование во flac, а не -c copy: потоковое копирование на
+	// повторных нарезках даёт пустые/битые хвосты — «таймер идёт, звука нет».
 	cmd := hiddenCmd("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-		"-ss", fmt.Sprintf("%.3f", skip.Seconds()), "-i", src,
+		"-ss", fmt.Sprintf("%.3f", target.Seconds()), "-i", orig,
 		"-t", fmt.Sprintf("%.3f", remaining.Seconds()),
-		"-c", "copy", outName)
+		"-c:a", "flac", outName)
 	if err := cmd.Run(); err != nil {
 		os.Remove(outName)
 		return fmt.Errorf("seek: ffmpeg: %v", err)
 	}
 
 	p.mu.Lock()
-	if src != p.tmpFile && src != "" { // источник сменился, пока резали
+	if p.loadedID != curID || p.origFile != orig { // трек сменился, пока резали
 		os.Remove(outName)
 		p.mu.Unlock()
 		return fmt.Errorf("track changed during seek")
 	}
-	os.Remove(src)
+	if prevCut != "" && prevCut != orig && prevCut != outName {
+		os.Remove(prevCut)
+		os.Remove(prevCut + ".vol")
+	}
 	p.tmpFile = outName
 	p.offset = target
 	p.pausedAt = 0
