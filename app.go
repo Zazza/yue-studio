@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -224,7 +225,18 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 // fromSec с гейном: короткий рендер куска + ffmpeg-микс = инструмент слышен
 // ровно в выбранном месте. Результат кладётся как overdub-inst-<id>.flac.
 func (a *App) YueMixInstrument(parentID, childID int64, fromSec, gain float64) (*yue.DspVariant, error) {
-	parent, err := a.fetchTempFile(parentID, "audio.flac", fmt.Sprintf("yue-mix-%d-in-*.flac", parentID))
+	// база — последняя вклейка (накопительно: новый инструмент поверх всех
+	// предыдущих, итог = самая свежая строка «Эффектов»), иначе оригинал трека
+	base := "audio.flac"
+	if vs, err := a.yue.JobDspVariants(a.ctx, parentID); err == nil {
+		for _, v := range vs { // список от воркера уже по свежести
+			if strings.HasPrefix(v.File, "overdub-inst-") {
+				base = v.File
+				break
+			}
+		}
+	}
+	parent, err := a.fetchTempFile(parentID, base, fmt.Sprintf("yue-mix-%d-in-*.flac", parentID))
 	if err != nil {
 		return nil, err
 	}
