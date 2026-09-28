@@ -1,5 +1,9 @@
 <script setup>
 // Редактор плана: ABC-партитура до рендера (план, из джобы, из трека, из профиля).
+import { useI18n } from '../i18n/index.js'
+
+const { t } = useI18n()
+
 defineProps({
   open: Boolean,
   busy: Boolean,
