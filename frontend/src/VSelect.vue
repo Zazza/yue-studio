@@ -1,7 +1,10 @@
 <script setup>
 // Единый селект в стиле приложения: кнопка + свой выпадающий список.
 // Нативные <select> в WebKitGTK/WebView2 рисуются по-разному и глючат.
-import { ref, onMounted, onUnmounted } from 'vue'
+// Список телепортируется в body с position:fixed: absolute внутри
+// скроллящейся панели (студия трека) не накрывает контент, а удлиняет
+// скролл — «открыл селект, а прокручивать надо панель».
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -11,20 +14,37 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const open = ref(false)
-const up = ref(false) // раскрывать вверх, когда внизу нет места (низ экрана/панель плеера)
 const root = ref(null)
-const maxH = ref(220)  // не длиннее места на экране: страница не обрастает скроллом
+const drop = ref(null)
+const dropStyle = ref({})   // fixed-координаты по кнопке
 
-const toggle = () => {
-  if (props.disabled) return
-  if (!open.value && root.value) {
-    const r = root.value.getBoundingClientRect()
-    const below = window.innerHeight - r.bottom
-    const above = r.top
-    up.value = below < 260 && above > below
-    maxH.value = Math.max(120, Math.min(220, (up.value ? above : below) - 12))
+function place() {
+  if (!root.value) return
+  const r = root.value.getBoundingClientRect()
+  const below = window.innerHeight - r.bottom
+  const above = r.top
+  const up = below < 260 && above > below
+  const maxH = Math.max(120, Math.min(220, (up ? above : below) - 12))
+  dropStyle.value = {
+    position: 'fixed',
+    left: r.left + 'px',
+    width: r.width + 'px',
+    ...(up
+      ? { bottom: (window.innerHeight - r.top + 2) + 'px', boxShadow: '0 -8px 24px rgba(0,0,0,.4)' }
+      : { top: (r.bottom + 2) + 'px', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }),
+    maxHeight: maxH + 'px',
   }
-  open.value = !open.value
+}
+
+const toggle = async () => {
+  if (props.disabled) return
+  if (!open.value) {
+    open.value = true
+    await nextTick()
+    place()
+  } else {
+    open.value = false
+  }
 }
 
 const current = () => {
@@ -36,29 +56,42 @@ const pick = (o) => {
   open.value = false
   emit('update:modelValue', o.value)
 }
-const onDocClick = (e) => { if (root.value && !root.value.contains(e.target)) open.value = false }
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+const onDocClick = (e) => {
+  if (root.value && !root.value.contains(e.target) && drop.value && !drop.value.contains(e.target)) {
+    open.value = false
+  }
+}
+// скролл/ресайз уводят fixed-список от кнопки — закрываем, это честнее сдвига
+const onReflow = () => { if (open.value) open.value = false }
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  window.addEventListener('scroll', onReflow, true)
+  window.addEventListener('resize', onReflow)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  window.removeEventListener('scroll', onReflow, true)
+  window.removeEventListener('resize', onReflow)
+})
 </script>
 
 <template>
-  <div ref="root" class="vselect" :class="{ disabled, open }">
+  <div ref="root" class="vselect" :class="{ disabled }">
     <button type="button" class="vselect-btn" :disabled="disabled" @click.stop="toggle">
       <span class="vselect-label">{{ current() }}</span>
       <span class="vselect-arrow" :class="{ open }">▾</span>
     </button>
-    <ul v-if="open && options.length" class="vselect-drop" :class="{ up }" :style="{ maxHeight: maxH + 'px' }">
-      <li v-for="o in options" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
-          @mousedown.prevent="pick(o)">{{ o.label }}</li>
-    </ul>
+    <Teleport to="body">
+      <ul v-if="open && options.length" ref="drop" class="vselect-drop" :style="dropStyle">
+        <li v-for="o in options" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
+            @mousedown.prevent="pick(o)">{{ o.label }}</li>
+      </ul>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .vselect { position: relative; }
-/* открытый селект — выше последующих строк панели (варианты эффектов и пр.):
-   без z-index у обёртки выпадашка вниз тонет в следующих siblings */
-.vselect.open { z-index: 1000; }
 .vselect-btn {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   width: 100%; text-align: left; background: var(--panel2); border: 1px solid var(--border);
@@ -68,14 +101,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .vselect-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vselect-arrow { flex: none; color: var(--muted); font-size: 10px; transition: transform .15s; }
 .vselect-arrow.open { transform: rotate(180deg); }
+/* список телепортирован в body: fixed-координаты приходят инлайн-стилем */
 .vselect-drop {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; margin: 2px 0 0; padding: 4px 0;
+  z-index: 2000; margin: 0; padding: 4px 0;
   list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-  max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.4);
-  /* высота зажимается по месту на экране (инлайн-стилем), страница не растёт */
+  overflow-y: auto;
 }
-/* внизу экрана нет места — раскрываем вверх (низ страницы, панель плеера) */
-.vselect-drop.up { top: auto; bottom: 100%; margin: 0 0 2px; box-shadow: 0 -8px 24px rgba(0,0,0,.4); }
 .vselect-drop li { padding: 5px 10px; font-size: 13px; cursor: pointer; }
 .vselect-drop li:hover { background: var(--panel2); }
 .vselect-drop li.sel { color: var(--accent); font-weight: 600; }
