@@ -466,13 +466,17 @@ function trickStyle(base) {
 // пересборка: одна кнопка на все накопленные приёмы; тот же стиль/лирика/seed,
 // план с поломками (req_abc). Черновик — быстрая проба начала, список не сбрасывает.
 async function rebuild(draft = false) {
-  const abc = planDraft.value
-  if (!abc) return
   trickBusy.value = true
   rollErr.value = ''
   trickMsg.value = ''
   if (!draft) buildJob.value = { id: null, status: 'starting' }   // отклик сразу
   try {
+    if (!baseAbc.value) {
+      const res = await fetch(`/audio/${props.job.id}/${props.job.abc_file || 'score.abc'}`)
+      baseAbc.value = await res.text()
+    }
+    // без план-правок — исходный план (тот же seed → практически тот же трек)
+    const abc = planDraft.value || baseAbc.value
     const id = await api.submit({
       title: (props.job.title || 'трек') + (draft ? ' · ✦' : ' · приёмы'),
       style: trickStyle(props.job.style),
@@ -898,9 +902,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <button class="ghost small-btn" :disabled="trickBusy || !(selTimeRange() || pendingSpecs.length)"
                     :title="t('studio.trick.fragment.tip')" @click="renderFragment">
               {{ trickBusy ? '…' : t('studio.trick.fragment') }}</button>
-            <button class="ghost small-btn" :disabled="!planDraft || trickBusy"
+            <button class="ghost small-btn" :disabled="trickBusy"
                     :title="t('studio.trick.redraft.tip')" @click="rebuild(true)">{{ t('studio.trick.redraft') }}</button>
-            <button class="primary small" :disabled="!planDraft || trickBusy"
+            <button class="primary small" :disabled="trickBusy"
                     :title="t('studio.trick.rebuild.tip')" @click="rebuild(false)">{{ t('studio.trick.rebuild') }}</button>
             <button class="ghost small-btn" :disabled="!pickableCount || trickBusy"
                     :title="t('studio.trick.unpick.tip')" @click="unpickSelection">{{ t('studio.trick.unpick') }}</button>

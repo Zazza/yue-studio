@@ -182,7 +182,7 @@ export default {
   'studio.trick.done': '✓ queued: #{id} — a new version, watch the track list',
   'studio.trick.drafted': '✓ draft #{id} queued — the track start with the edits, the plan is kept',
   'studio.trick.rebuild': '⟳ rebuild the track',
-  'studio.trick.rebuild.tip': 'One generation with all the accumulated tricks: same style, lyrics and voice (seed), plan with the edits. Status under the button; plays by itself when done',
+  'studio.trick.rebuild.tip': 'One generation with all the accumulated tricks: same style, lyrics and voice (seed), plan with the edits. Without plan edits — the original plan: with the same seed you get practically the same track. Instruments are separate inserts, not part of the rebuild',
   'studio.trick.build.starting': 'starting the rebuild…',
   'studio.trick.build.label': 'new version',
   'studio.trick.build.play': 'playing:',
