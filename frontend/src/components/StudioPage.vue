@@ -416,7 +416,7 @@ async function addInstrument(instId) {
     }
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
-    instMix = { from: r.from }
+    instMix = { from: r.from, to: r.to }
     instSpecs.value = [...instSpecs.value,
       { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.5 }]
     saveStudioState()
@@ -596,7 +596,7 @@ const pollBuild = watchJob(buildJob, 'b', 'новая версия', null, async
 // их из очереди) — тогда пересоздаём кусок по сохранённому описанию и ждём
 async function mixInsertInto(newId, ins) {
   try {
-    return await api.mixInstrument(newId, ins.childId, ins.from, ins.gain)
+    return await api.mixInstrument(newId, ins.childId, ins.from, durOf(ins), ins.gain)
   } catch {
     const inst = TRICK_INSTRUMENTS.find((i) => i.id === ins.instId)
     if (!inst) return null          // старый формат журнала без instId — не восстановить
@@ -612,7 +612,7 @@ async function mixInsertInto(newId, ins) {
         ins.childId = childId
         instSpecs.value = [...instSpecs.value]
         saveStudioState()
-        return api.mixInstrument(newId, childId, ins.from, ins.gain)
+        return api.mixInstrument(newId, childId, ins.from, durOf(ins), ins.gain)
       }
       if (cj.status === 'error' || cj.status === 'canceled') break
     }
@@ -623,9 +623,12 @@ const instJob = ref(null)
 
 // партия инструмента: по готовности дитя вклеиваем его в оригинал (ffmpeg на
 // ПК, точно в секунды выделения) и играем уже смешанный файл
-let instMix = { from: 0 }
+let instMix = { from: 0, to: 0 }
 // все вклейки сессии: пере-накатываются на пересобранную версию
-const instSpecs = ref([])   // [{childId, from, gain}]
+const instSpecs = ref([])   // [{childId, instId, from, to, gain}]
+
+// длительность вклейки по журналу (0 = не резать — старые записи без окна)
+const durOf = (ins) => (ins.to && ins.from != null && ins.to > ins.from ? ins.to - ins.from : 0)
 
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
 // успела/не дошла) — вклеить прямо сейчас; кнопка ▶ тем же путём самолечится
@@ -636,7 +639,7 @@ async function playInstrument(j) {
     j = { ...j, mixing: true }
     instJob.value = j
     try {
-      const v = await api.mixInstrument(props.job.id, j.id, instMix.from, 0.5)
+      const v = await api.mixInstrument(props.job.id, j.id, instMix.from, instMix.to ? instMix.to - instMix.from : 0, 0.5)
       await api.playFile(props.job.id, v.file, props.job.duration_sec)
     } finally {
       instJob.value = { ...j, mixing: false }

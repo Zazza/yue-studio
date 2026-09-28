@@ -224,7 +224,7 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 // YueMixInstrument — вклеить партию (джоба-рендер) в трек джобы на секунду
 // fromSec с гейном: короткий рендер куска + ffmpeg-микс = инструмент слышен
 // ровно в выбранном месте. Результат кладётся как overdub-inst-<id>.flac.
-func (a *App) YueMixInstrument(parentID, childID int64, fromSec, gain float64) (*yue.DspVariant, error) {
+func (a *App) YueMixInstrument(parentID, childID int64, fromSec, durSec, gain float64) (*yue.DspVariant, error) {
 	// база — последняя вклейка (накопительно: новый инструмент поверх всех
 	// предыдущих, итог = самая свежая строка «Эффектов»), иначе оригинал трека
 	base := "audio.flac"
@@ -252,7 +252,7 @@ func (a *App) YueMixInstrument(parentID, childID int64, fromSec, gain float64) (
 	}
 	out.Close()
 	defer os.Remove(out.Name())
-	if err := dsp.RunTwoInputs(parent, child, out.Name(), dsp.MixUnderGraph(fromSec, gain)); err != nil {
+	if err := dsp.RunTwoInputs(parent, child, out.Name(), dsp.MixUnderGraph(fromSec, durSec, gain)); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(out.Name())

@@ -64,7 +64,7 @@ export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<stri
 
 export function YueMakeStems(arg1:number):Promise<Record<string, any>>;
 
-export function YueMixInstrument(arg1:number,arg2:number,arg3:number,arg4:number):Promise<yue.DspVariant>;
+export function YueMixInstrument(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<yue.DspVariant>;
 
 export function YueOllamaModels(arg1:string):Promise<Record<string, any>>;
 
