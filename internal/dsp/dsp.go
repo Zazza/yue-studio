@@ -63,6 +63,50 @@ func tapeGraph(p map[string]float64) string {
 		p["wow"], p["cut"], p["hiss"])
 }
 
+var aliveParams = []Param{
+	{ID: "wobble", Label: "микро-детюн (живость высоты)", Min: 0, Max: 0.2, Step: 0.005, Default: 0.06},
+	{ID: "breath", Label: "дыхание громкости", Min: 0, Max: 0.4, Step: 0.01, Default: 0.12},
+	{ID: "pump", Label: "насос компрессора", Min: 0.5, Max: 5, Step: 0.1, Default: 2.5},
+	{ID: "grit", Label: "зерно верхов", Min: 0, Max: 3, Step: 0.1, Default: 1.0},
+}
+
+func aliveGraph(p map[string]float64) string {
+	return fmt.Sprintf(
+		"[0:a]vibrato=f=0.35:d=%.2f,tremolo=f=0.12:d=%.2f,"+
+			"acompressor=threshold=0.12:ratio=%.1f:attack=12:release=220:makeup=1.4,"+
+			"aexciter=amount=%.2f:drive=6:freq=2200:ceil=11000,"+
+			"alimiter=limit=0.95:attack=2:release=25:level=disabled[out]",
+		p["wobble"], p["breath"], p["pump"], p["grit"])
+}
+
+var gritParams = []Param{
+	{ID: "drive", Label: "перегруз", Min: 1, Max: 5, Step: 0.1, Default: 2.4},
+	{ID: "crush", Label: "биткраш (ломкость)", Min: 0, Max: 0.6, Step: 0.05, Default: 0.35},
+	{ID: "grit", Label: "песок верхов", Min: 0, Max: 4, Step: 0.1, Default: 2.2},
+}
+
+func gritGraph(p map[string]float64) string {
+	return fmt.Sprintf(
+		"[0:a]volume=%.2f,alimiter=limit=0.55:attack=1:release=8:level=disabled,"+
+			"acrusher=bits=10:mix=%.2f,"+
+			"aexciter=amount=%.2f:drive=8:freq=2400:ceil=12000,"+
+			"alimiter=limit=0.94:attack=1:release=15:level=disabled[out]",
+		p["drive"], p["crush"], p["grit"])
+}
+
+var warpParams = []Param{
+	{ID: "wow", Label: "варп (завывание)", Min: 0, Max: 0.4, Step: 0.01, Default: 0.22},
+	{ID: "flutter", Label: "флаттер (дрожь)", Min: 0, Max: 0.3, Step: 0.01, Default: 0.12},
+	{ID: "cut", Label: "срез верхов, кГц", Min: 3, Max: 12, Step: 0.5, Default: 7},
+}
+
+func warpGraph(p map[string]float64) string {
+	return fmt.Sprintf(
+		"[0:a]vibrato=f=0.5:d=%.2f,vibrato=f=4.5:d=%.2f,lowpass=f=%.0f,"+
+			"alimiter=limit=0.9:attack=5:release=60:level=disabled[out]",
+		p["wow"], p["flutter"], p["cut"])
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -83,6 +127,21 @@ var chains = []Chain{
 		ID: "tape", Name: "Кассета",
 		Note:   "Wow/флаттер, срез верхов, розовое шипение — домашняя лента.",
 		Params: tapeParams, graph: tapeGraph,
+	},
+	{
+		ID: "alive", Name: "Живость",
+		Note:   "Микро-детюн, дыхание громкости, насос компрессора — из пластмассы в «играли руками».",
+		Params: aliveParams, graph: aliveGraph,
+	},
+	{
+		ID: "grit", Name: "Грязь/перегруз",
+		Note:   "Сатурация в лимитере, биткраш, песок — гараж и ламповый хрип.",
+		Params: gritParams, graph: gritGraph,
+	},
+	{
+		ID: "warp", Name: "Варп-лента",
+		Note:   "Глубокое завывание и дрожь, глухой верх — плёночный брак как приём.",
+		Params: warpParams, graph: warpGraph,
 	},
 }
 
