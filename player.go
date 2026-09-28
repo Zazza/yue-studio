@@ -244,7 +244,7 @@ func (p *player) Seek(target time.Duration) error {
 	}
 	outName := out.Name()
 	out.Close()
-	cmd := exec.Command("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+	cmd := hiddenCmd("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
 		"-ss", fmt.Sprintf("%.3f", skip.Seconds()), "-i", src,
 		"-t", fmt.Sprintf("%.3f", remaining.Seconds()),
 		"-c", "copy", outName)

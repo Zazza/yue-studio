@@ -4,7 +4,6 @@ package dsp
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -156,7 +155,7 @@ func MixUnderGraph(atSec, gain float64) string {
 func RunTwoInputs(basePath, partyPath, outPath, filterGraph string) error {
 	args := []string{"-y", "-hide_banner", "-loglevel", "error",
 		"-i", basePath, "-i", partyPath, "-filter_complex", filterGraph, "-map", "[out]", outPath}
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := ffmpegCmd(args)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -173,7 +172,7 @@ func Run(inPath, outPath, filterGraph string, span *Span) error {
 			"-t", fmt.Sprintf("%.1f", span.DurSec))
 	}
 	args = append(args, "-i", inPath, "-filter_complex", filterGraph, "-map", "[out]", outPath)
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := ffmpegCmd(args)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

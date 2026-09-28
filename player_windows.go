@@ -46,9 +46,14 @@ func playerCommand(file string, volume float64) *exec.Cmd {
 			}
 		}
 	}
-	cmd := exec.Command(psExe, "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", ps)
-	// без CREATE_NO_WINDOW у GUI-процесса для консольного powershell.exe
-	// мелькает окно терминала (Hidden прячет его уже после создания)
+	cmd := hiddenCmd(psExe, "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", ps)
+	return cmd
+}
+
+// hiddenCmd — команда без окна консоли: у GUI-процесса любой консольный
+// потомок (powershell/ffmpeg/cmd) иначе мелькает терминалом.
+func hiddenCmd(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	return cmd
 }
