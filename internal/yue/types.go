@@ -73,10 +73,11 @@ type Job struct {
 	Draft bool `json:"draft,omitempty"`
 
 	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
-	Stage      string   `json:"stage,omitempty"`
-	Tokens     int      `json:"tokens,omitempty"`
-	TokPerSec  *float64 `json:"tok_per_s,omitempty"`
-	ElapsedSec float64  `json:"elapsed_s,omitempty"`
+	Stage       string   `json:"stage,omitempty"`
+	Tokens      int      `json:"tokens,omitempty"`
+	TokPerSec   *float64 `json:"tok_per_s,omitempty"`
+	ElapsedSec  float64  `json:"elapsed_s,omitempty"`
+	ProgressPct *int     `json:"progress_pct,omitempty"`
 }
 
 type HealthInfo struct {

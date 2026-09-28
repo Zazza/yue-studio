@@ -198,6 +198,7 @@ export namespace yue {
 	    tokens?: number;
 	    tok_per_s?: number;
 	    elapsed_s?: number;
+	    progress_pct?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Job(source);
@@ -226,6 +227,7 @@ export namespace yue {
 	        this.tokens = source["tokens"];
 	        this.tok_per_s = source["tok_per_s"];
 	        this.elapsed_s = source["elapsed_s"];
+	        this.progress_pct = source["progress_pct"];
 	    }
 	}
 	export class LyricsResult {
