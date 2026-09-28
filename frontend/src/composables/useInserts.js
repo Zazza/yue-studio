@@ -63,7 +63,7 @@ async function tick() {
       if (child.status !== 'done') continue
       const dur = spec.to && spec.to > spec.from ? spec.to - spec.from : 0
       try {
-        await api.mixInstrument(spec.parent, spec.childId, spec.from, dur, spec.gain ?? 0.5)
+        await api.mixInstrument(spec.parent, spec.childId, spec.from, dur, spec.gain ?? 0.8)
         spec.done = true
       } catch { /* сеть/воркер моргнул — попробуем на следующем тике */ }
     }

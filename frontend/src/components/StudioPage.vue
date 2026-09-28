@@ -420,11 +420,11 @@ async function addInstrument(instId) {
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
     instMix = { from: r.from, to: r.to }
     instSpecs.value = [...instSpecs.value,
-      { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.5 }]
+      { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.8 }]
     saveStudioState()
     // микс — на вечном сервисе: студию можно закрыть сразу
     inserts.register([{ parent: props.job.id, childId, instId: inst.id,
-      from: r.from, to: r.to, gain: 0.5, srcJob: props.job.id }])
+      from: r.from, to: r.to, gain: 0.8, srcJob: props.job.id }])
     instJob.value = { id: childId, status: 'queued' }
     startJobPoll()
     pollInst()
