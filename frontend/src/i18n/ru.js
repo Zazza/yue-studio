@@ -328,6 +328,7 @@ export default {
   'queue.cancel': 'отменить',
   'queue.progress.plan': 'план…',
   'queue.progress.load': 'загрузка модели',
+  'queue.progress.finalize': 'сохранение…',
   'queue.progress.semantic': 'генерация',
   'queue.progress.tps': 'т/с',
   'form.draft': '✦ черновик',

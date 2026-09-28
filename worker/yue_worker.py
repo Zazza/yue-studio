@@ -116,6 +116,8 @@ def _migrate():
             conn.execute("ALTER TABLE jobs ADD COLUMN draft INTEGER DEFAULT 0")
         if "arc" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN arc TEXT DEFAULT ''")
+        if "max_tokens" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN max_tokens INTEGER DEFAULT 0")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,16 +192,29 @@ _state_lock = threading.Lock()
 
 
 def _on_token_cb(job_id: int):
-    """Счётчик токенов/фазы из колбэка пайплайна (plan/generate_semantic)."""
-    counters = {"phase": "load", "tokens": 0}
+    """Счётчик токенов/фазы из колбэка пайплайна (plan/generate_semantic).
+
+    plan_end фиксирует последний токен фазы плана: семантические токены =
+    tokens - plan_end. Смешивать нельзя — план короткий, семантика длинная,
+    и процент от смешанного счётчика доезжал до 99% задолго до конца."""
+    counters = {"phase": "load", "tokens": 0, "plan_end": None}
 
     def on_token(*args):
         for a in args:
             if isinstance(a, str):
-                counters["phase"] = "plan" if "abc" in a.lower() else "semantic"
+                new_phase = "plan" if "abc" in a.lower() else "semantic"
+                if new_phase == "semantic" and counters["plan_end"] is None:
+                    counters["plan_end"] = counters["tokens"]
+                counters["phase"] = new_phase
         counters["tokens"] += 1
 
     return on_token, counters
+
+
+def _sem_tokens(counters: dict) -> int:
+    if counters.get("plan_end") is None:
+        return 0
+    return counters["tokens"] - counters["plan_end"]
 
 
 def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
@@ -211,13 +226,14 @@ def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
         nonlocal last   # иначе первый тик: referenced before assignment
         while not stop.is_set():
             elapsed = time.time() - t0
-            tps = (counters["tokens"] - last) / 2 if elapsed > 2 else None
-            last = counters["tokens"]
+            sem = _sem_tokens(counters)
+            tps = (sem - last) / 2 if elapsed > 2 and sem >= last else None
+            last = sem
             # честный процент есть только у семантики (самая длинная фаза):
             # токены / бюджет; загрузка модели и план — неопределённая длительность
             pct = None
             if counters["phase"] == "semantic":
-                pct = min(99, counters["tokens"] * 100 // max(1, budget or MAX_SEM_TOKENS))
+                pct = min(99, sem * 100 // max(1, budget or MAX_SEM_TOKENS))
             with _state_lock:
                 _progress[job_id] = {
                     "stage": counters["phase"],
@@ -243,6 +259,8 @@ def _run_job(job_id: int):
         _cancel_flags[job_id] = cancel_ev
     on_token, counters = _on_token_cb(job_id)
     budget = 450 if row["draft"] else MAX_SEM_TOKENS   # ~18 с превью
+    if not row["draft"] and row["max_tokens"]:
+        budget = max(500, min(int(row["max_tokens"]), 30000))
     watch_stop = _progress_watcher(job_id, counters, time.time(), budget)
     try:  # noqa: SIM105 - очистка состояния после любого исхода
         with _pipe_lock:
@@ -280,6 +298,8 @@ def _run_job(job_id: int):
             try:
                 try:
                     song = pipe(**request)
+                    with _state_lock:
+                        _progress.setdefault(job_id, {})["stage"] = "finalize"
                 except TypeError as te:
                     # старые сборки yue2 могут не знать cfg_scale — без него
                     if "cfg_scale" in str(te):
@@ -370,6 +390,9 @@ class JobIn(BaseModel):
     style: str
     lyrics: str
     seed: int | None = None
+    # жёсткий потолок семантических токенов (~25 т/с): селектор длительности
+    # формы; 0 = бюджет воркера. Модель может закончить раньше, но не позже
+    max_tokens: int = 0
     cot: str = Field(default="full", pattern="^(full|melody|off)$")
     abc: str | None = None
     # черновик ~15-20 с вместо полного трека: быстро послушать, стоит ли рендерить целиком
@@ -515,9 +538,11 @@ def submit(req: JobIn):
         raise HTTPException(422, "arc requires cot=full or cot=melody (needs the plan)")
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,arc,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,"
+            "arc,max_tokens,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
-             req.lyrics, req.seed, req.cot, int(req.draft), req.arc, time.strftime("%Y-%m-%dT%H:%M:%S")))
+             req.lyrics, req.seed, req.cot, int(req.draft), req.arc,
+             int(req.max_tokens or 0), time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
             (JOBS_DIR / str(job_id)).mkdir(parents=True, exist_ok=True)

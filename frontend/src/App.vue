@@ -5,7 +5,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from './api.js'
 import { rackGroups, rackEffects, rackCompile } from './rack.js'
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './groups.js'
-import { slotKeys, slotHints, durOptions } from './slotOptions.js'
+import { slotKeys, slotHints, durOptions, durTokens } from './slotOptions.js'
 import { useI18n } from './i18n/index.js'
 import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
 import { defaultJobFilter, filterJobs, pageJobs, pageCount } from './jobFilter.js'
@@ -135,6 +135,8 @@ function payload(extra = {}) {
     // драматургии нужен план: off его не строит — молча повышаем до melody
     cot: arcKind.value && cot.value === 'off' ? 'melody' : cot.value,
     arc: arcKind.value,
+    // потолок длины из селектора длительности (0 = бюджет воркера)
+    max_tokens: durTokens[durMode.value] || 0,
     ...extra,
   }
 }

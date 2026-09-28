@@ -415,6 +415,16 @@ export const durOptions = [
   { id: 's4', n: 36 },
 ]
 
+// жёсткий потолок семантических токенов для режима длительности (~25 т/с):
+// «1–2 мин» → не дальше ~3000 токенов, сколько бы модель ни хотела
+export const durTokens = {
+  auto: 0,
+  s1: 3000,    // ~1–2 мин
+  s2: 7500,    // ~2–5 мин
+  s3: 15000,   // ~5–10 мин
+  s4: 16000,   // ~10 мин; дальше — потолок VRAM 16 ГБ (YUE2_MAX_TOKENS)
+}
+
 export const odPartyChips = [
   { ru: 'чистая гитара (арпеджио)', en: 'clean arpeggiated guitar' },
   { ru: 'гитара с фуззом', en: 'fuzz lead guitar' },

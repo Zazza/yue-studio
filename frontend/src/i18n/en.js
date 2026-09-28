@@ -328,6 +328,7 @@ export default {
   'queue.cancel': 'cancel',
   'queue.progress.plan': 'planning…',
   'queue.progress.load': 'loading model',
+  'queue.progress.finalize': 'saving…',
   'queue.progress.semantic': 'generating',
   'queue.progress.tps': 'tok/s',
   'form.draft': '✦ draft',

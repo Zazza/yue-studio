@@ -305,6 +305,7 @@ export namespace yue {
 	    abc?: string;
 	    draft?: boolean;
 	    arc?: string;
+	    max_tokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SubmitParams(source);
@@ -320,6 +321,7 @@ export namespace yue {
 	        this.abc = source["abc"];
 	        this.draft = source["draft"];
 	        this.arc = source["arc"];
+	        this.max_tokens = source["max_tokens"];
 	    }
 	}
 	export class TranscribeResult {

@@ -98,6 +98,8 @@ type SubmitParams struct {
 	// драматургия поверх плана: "" | build (нарастание) | wave (волна) |
 	// burst (взрыв: пол-время на входе, breakdown, финал — голос на октаву выше)
 	Arc string `json:"arc,omitempty"`
+	// жёсткий потолок семантических токенов (селектор длительности); 0 = бюджет воркера
+	MaxTokens int64 `json:"max_tokens,omitempty"`
 }
 
 type PlanParams struct {
