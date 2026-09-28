@@ -448,6 +448,52 @@
   ]
  },
  {
+  "id": "alt-rock",
+  "name": "Альт-рок / гитарная гармония",
+  "items": [
+   {
+    "id": "dark-arpeggio-postpunk",
+    "name": "Тёмный пост-панк с арпеджио (Interpol-вайб)",
+    "style": "English, dark post-punk, two interlocking minor-key arpeggiated guitars, deep propulsive bass, metronomic drums, deadpan baritone male vocals, doomed urban romance, 130 BPM"
+   },
+   {
+    "id": "dark-arpeggio-postpunk-instr",
+    "name": "Тёмный пост-панк с арпеджио (без слов)",
+    "style": "Instrumental, no vocals, dark post-punk, interlocking minor-key arpeggiated guitars carrying the melody, deep propulsive bass, metronomic drums, doomed urban night, 130 BPM"
+   },
+   {
+    "id": "art-rock-chords",
+    "name": "Арт-рок с необычными аккордами (Radiohead-вайб)",
+    "style": "English, art rock, unusual guitar harmony with sus2 and add9 colors, clean delayed arpeggios, paranoid melancholy, quiet-loud dynamics, occasional 5/4 passage, anxious high male vocals, 110 BPM"
+   },
+   {
+    "id": "art-rock-chords-instr",
+    "name": "Арт-рок с необычными аккордами (без слов)",
+    "style": "Instrumental, no vocals, art rock, unusual sus2/add9 guitar harmony, clean delayed arpeggios, paranoid melancholy, quiet-loud dynamics, occasional 5/4 passage, 110 BPM"
+   },
+   {
+    "id": "chorus-wall-alt",
+    "name": "Альт-рок с chorus-гитарами (Placebo-вайб)",
+    "style": "English, alternative rock, chorus-drenched buzzing guitar walls, glam edge, driving straight beat, ringing melodic riffs, tense high androgynous male vocals, bittersweet intoxicating romance, 125 BPM"
+   },
+   {
+    "id": "chorus-wall-alt-instr",
+    "name": "Альт-рок с chorus-гитарами (без слов)",
+    "style": "Instrumental, no vocals, alternative rock, chorus-drenched buzzing guitar walls, glam edge, driving straight beat, ringing melodic riffs, bittersweet intensity, 125 BPM"
+   },
+   {
+    "id": "garage-blues-duo",
+    "name": "Гараж-блюз-дуэт (White Stripes-вайб)",
+    "style": "English, garage blues rock duo, slide guitar in open tuning, no bass guitar, pounding heavy drums, stomping fuzz riffs, raw passionate male vocals, frantic swagger, 120 BPM"
+   },
+   {
+    "id": "garage-blues-duo-instr",
+    "name": "Гараж-блюз-дуэт (без слов)",
+    "style": "Instrumental, no vocals, garage blues rock duo, slide guitar in open tuning carrying the tune, no bass, pounding heavy drums, stomping fuzz riffs, frantic swagger, 120 BPM"
+   }
+  ]
+ },
+ {
   "id": "punk",
   "name": "Панк / пост-панк",
   "items": [

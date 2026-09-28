@@ -404,6 +404,54 @@ export const groups = [
       },
     ],
   },
+  // Альт-рок с «умной» гитарной гармонией: интерлок-арпеджио, sus/add9-аккорды,
+  // chorus-стены, слайд в открытом строе. Вайбы Interpol / Radiohead / Placebo /
+  // White Stripes без прямых цитат; каждый стиль — с вокалом и «без слов».
+  {
+    id: 'alt-rock', name: 'Альт-рок / гитарная гармония',
+    items: [
+      {
+        id: 'dark-arpeggio-postpunk', name: 'Тёмный пост-панк с арпеджио (Interpol-вайб)',
+        style: 'English, dark post-punk, two interlocking minor-key arpeggiated guitars, deep propulsive bass, metronomic drums, deadpan baritone male vocals, doomed urban romance, 130 BPM',
+        slots: { language: 'English', genre: 'post-punk, post-punk revival', rhythm: 'metronomic driving', guitars: 'interlocking minor arpeggios, staccato chords', keys: '', vocals: 'deadpan baritone male', mood: 'doomed romance, night city', production: 'dry tight, punchy modern' }, bpm: 130,
+      },
+      {
+        id: 'dark-arpeggio-postpunk-instr', name: 'Тёмный пост-панк с арпеджио (без слов)',
+        style: 'Instrumental, no vocals, dark post-punk, interlocking minor-key arpeggiated guitars carrying the melody, deep propulsive bass, metronomic drums, doomed urban night, 130 BPM',
+        slots: instr({ genre: 'instrumental post-punk', rhythm: 'metronomic driving', guitars: 'interlocking minor arpeggios, melodic leads', keys: '', mood: 'doomed urban night', production: 'dry tight modern' }), bpm: 130, lyrics: '[Instrumental]',
+      },
+      {
+        id: 'art-rock-chords', name: 'Арт-рок с необычными аккордами (Radiohead-вайб)',
+        style: 'English, art rock, unusual guitar harmony with sus2 and add9 colors, clean delayed arpeggios, paranoid melancholy, quiet-loud dynamics, occasional 5/4 passage, anxious high male vocals, 110 BPM',
+        slots: { language: 'English', genre: 'art rock, alternative', rhythm: 'shifting, breathing, dynamic', guitars: 'clean sus/add9 chords, delay arpeggios', keys: '', vocals: 'anxious high male, falsetto leaps', mood: 'paranoid melancholy, alienation', production: 'wide modern alt-rock' }, bpm: 110,
+      },
+      {
+        id: 'art-rock-chords-instr', name: 'Арт-рок с необычными аккордами (без слов)',
+        style: 'Instrumental, no vocals, art rock, unusual sus2/add9 guitar harmony, clean delayed arpeggios, paranoid melancholy, quiet-loud dynamics, occasional 5/4 passage, 110 BPM',
+        slots: instr({ genre: 'instrumental art rock', rhythm: 'shifting, dynamic', guitars: 'sus/add9 chords, delay arpeggios', keys: '', mood: 'paranoid melancholy', production: 'wide modern alt-rock' }), bpm: 110, lyrics: '[Instrumental]',
+      },
+      {
+        id: 'chorus-wall-alt', name: 'Альт-рок с chorus-гитарами (Placebo-вайб)',
+        style: 'English, alternative rock, chorus-drenched buzzing guitar walls, glam edge, driving straight beat, ringing melodic riffs, tense high androgynous male vocals, bittersweet intoxicating romance, 125 BPM',
+        slots: { language: 'English', genre: 'alternative rock, glam-tinged', rhythm: 'driving straight', guitars: 'chorus-drenched walls, ringing riffs', keys: '', vocals: 'tense high androgynous male', mood: 'bittersweet intoxicating romance', production: 'polished 1998 alt-rock' }, bpm: 125,
+      },
+      {
+        id: 'chorus-wall-alt-instr', name: 'Альт-рок с chorus-гитарами (без слов)',
+        style: 'Instrumental, no vocals, alternative rock, chorus-drenched buzzing guitar walls, glam edge, driving straight beat, ringing melodic riffs, bittersweet intensity, 125 BPM',
+        slots: instr({ genre: 'instrumental alternative rock', rhythm: 'driving straight', guitars: 'chorus-drenched walls, ringing melodies', keys: '', mood: 'bittersweet intensity', production: 'polished alt-rock' }), bpm: 125, lyrics: '[Instrumental]',
+      },
+      {
+        id: 'garage-blues-duo', name: 'Гараж-блюз-дуэт (White Stripes-вайб)',
+        style: 'English, garage blues rock duo, slide guitar in open tuning, no bass guitar, pounding heavy drums, stomping fuzz riffs, raw passionate male vocals, frantic swagger, 120 BPM',
+        slots: { language: 'English', genre: 'garage blues', rhythm: 'pounding stomping', guitars: 'open-tuning slide, fuzz riffs', keys: '', vocals: 'raw passionate male, howling', mood: 'frantic swagger', production: 'raw analog two-piece' }, bpm: 120,
+      },
+      {
+        id: 'garage-blues-duo-instr', name: 'Гараж-блюз-дуэт (без слов)',
+        style: 'Instrumental, no vocals, garage blues rock duo, slide guitar in open tuning carrying the tune, no bass, pounding heavy drums, stomping fuzz riffs, frantic swagger, 120 BPM',
+        slots: instr({ genre: 'instrumental garage blues', rhythm: 'pounding stomping', guitars: 'open-tuning slide leads, fuzz riffs', keys: '', mood: 'frantic swagger', production: 'raw analog two-piece' }), bpm: 120, lyrics: '[Instrumental]',
+      },
+    ],
+  },
   {
     id: 'punk', name: 'Панк / пост-панк',
     items: [
