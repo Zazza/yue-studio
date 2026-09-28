@@ -1,12 +1,14 @@
 <script setup>
 // Yue Studio — корневой компонент: форма новой композиции, очередь/результаты,
 // переключение страниц. Экранные компоненты и модалки — в ./components/.
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from './api.js'
 import { rackGroups, rackEffects, rackCompile } from './rack.js'
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './groups.js'
 import { slotKeys, slotHints, durOptions } from './slotOptions.js'
 import { useI18n } from './i18n/index.js'
+import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
+import { defaultJobFilter, filterJobs, pageJobs, pageCount } from './jobFilter.js'
 import { SLOT_ORDER, buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics } from './styleLogic.js'
 import { usePlayer, fmtDur } from './composables/usePlayer.js'
 import { useConfirm } from './composables/useConfirm.js'
@@ -15,6 +17,7 @@ import PlayerBar from './components/PlayerBar.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import CorpusPage from './components/CorpusPage.vue'
+import VoicesPage from './components/VoicesPage.vue'
 import StudioPage from './components/StudioPage.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import MetricsModal from './components/MetricsModal.vue'
@@ -229,6 +232,40 @@ const jobs = ref([])
 const health = ref(null)
 let timer = null
 
+// фильтры и пейджер списка треков (логика — jobFilter.js, там же тесты)
+const qf = ref(defaultJobFilter())
+const qPage = ref(1)
+const filteredJobs = computed(() => filterJobs(jobs.value, qf.value))
+const qPageMax = computed(() => pageCount(filteredJobs.value.length))
+const qPageNow = computed(() => Math.min(qPage.value, qPageMax.value))
+const queuePage = computed(() => pageJobs(filteredJobs.value, qPage.value))
+watch(qf, () => { qPage.value = 1 }, { deep: true })
+
+const qStatusOptions = computed(() => [
+  { value: 'all', label: t('queue.filter.status.all') },
+  { value: 'active', label: t('queue.filter.status.active') },
+  { value: 'done', label: t('queue.filter.status.done') },
+  { value: 'failed', label: t('queue.filter.status.failed') },
+])
+const qPeriodOptions = computed(() => [
+  { value: 'all', label: t('queue.filter.period.all') },
+  { value: 'today', label: t('queue.filter.period.today') },
+  { value: 'week', label: t('queue.filter.period.week') },
+  { value: 'month', label: t('queue.filter.period.month') },
+])
+const qDurOptions = computed(() => [
+  { value: 'all', label: t('queue.filter.dur.all') },
+  { value: 'draft', label: t('queue.filter.dur.draft') },
+  { value: 'short', label: t('queue.filter.dur.short') },
+  { value: 'mid', label: t('queue.filter.dur.mid') },
+  { value: 'long', label: t('queue.filter.dur.long') },
+])
+const qDraftOptions = computed(() => [
+  { value: 'all', label: t('queue.filter.draft.all') },
+  { value: 'only', label: t('queue.filter.draft.only') },
+  { value: 'hide', label: t('queue.filter.draft.hide') },
+])
+
 
 async function refresh() {
   try {
@@ -302,7 +339,23 @@ async function saveAudio(j, file) {
 const settingsPage = ref(false)
 const libraryPage = ref(false)
 const corpusPage = ref(false)
+const voicesPage = ref(false)
 const studioJob = ref(null)
+
+// страницы в меню «⋮»: треки/голоса переключаются, настройки просто открываются
+const navOpen = ref(false)
+
+function navGo(page) {
+  navOpen.value = false
+  libraryPage.value = false
+  if (page === 'tracks') {
+    corpusPage.value = !corpusPage.value; settingsPage.value = false; voicesPage.value = false
+  } else if (page === 'voices') {
+    voicesPage.value = !voicesPage.value; corpusPage.value = false; settingsPage.value = false
+  } else {
+    settingsPage.value = true; corpusPage.value = false; voicesPage.value = false
+  }
+}
 
 // импорт своего трека (кнопка на странице «свои треки»)
 async function onImported(r) {
@@ -339,6 +392,34 @@ function applyProfileStyle(style) {
   corpusPage.value = false   // применяем — возвращаемся к основной форме
 }
 
+// голос из примерочной → форма: дескриптор в слот вокала + seed карточки
+// (точная строка стиля очищается, иначе она перекрыла бы слоты)
+function applyVoice({ vocals, seed }) {
+  slots.value.vocals = vocals
+  styleOverride.value = ''
+  seed.value = seed || null
+  voicesPage.value = false
+}
+
+// сохранённые голоса прямо в форме: выбор карточки = слот вокала + seed
+const voiceCards = ref([])
+const voicePick = ref('')
+
+async function loadVoiceCards() {
+  try { voiceCards.value = (await api.voices()) || [] } catch { voiceCards.value = [] }
+}
+
+const voiceOptions = computed(() => voiceCards.value.map((v) => ({ value: String(v.id), label: v.name })))
+
+function onVoicePick() {
+  const v = voiceCards.value.find((x) => String(x.id) === voicePick.value)
+  if (!v) return
+  try {
+    const p = normalizeVoiceParams(JSON.parse(v.params || '{}'))
+    applyVoice({ vocals: voiceDescriptor(p), seed: v.seed })
+  } catch { /* битые params карточки — молча пропускаем */ }
+}
+
 // ---------- Редактор плана (ABC) ----------
 
 const planOpen = ref(false)
@@ -373,21 +454,37 @@ async function makePlan() {
   } finally { planBusy.value = false }
 }
 
-async function renderFromAbc(abc) {
+async function renderFromAbc(abc, draft = false) {
   if (!abc || !abc.trim()) return
   submitting.value = true
   try {
-    await api.submit({
+    const id = await api.submit({
       ...payload({
         abc: abc,
         cot: cot.value === 'off' ? 'melody' : cot.value,   // abc требует full|melody
         seed: seed.value ? Number(seed.value) : Math.floor(Math.random() * 1e9),
+        draft,
       }),
       style: await finalStyle(),
     })
+    inheritTrickMarks(id)
     planOpen.value = false
     await refresh()
   } finally { submitting.value = false }
+}
+
+// метки приёмов переезжают в новую версию трека: правки плана накопительные,
+// ролл ребёнка показывает, что уже ломали (формат — состояние студии, см. StudioPage)
+function inheritTrickMarks(newJobId) {
+  const marks = planInfo.value && planInfo.value.marks
+  if (!marks || !marks.length || !newJobId) return
+  try {
+    const key = 'yue_studio_state'
+    const st = JSON.parse(localStorage.getItem(key) || '{}')
+    st.jobs = st.jobs || {}
+    st.jobs[newJobId] = { ...(st.jobs[newJobId] || {}), trickMarks: marks }
+    localStorage.setItem(key, JSON.stringify(st))
+  } catch {}
 }
 
 async function loadJobAbc(j) {
@@ -462,6 +559,7 @@ onMounted(async () => {
   onVolume()
   serverURL.value = await api.getServerURL()
   refresh()
+  loadVoiceCards()
   timer = setInterval(refresh, 3000)
   window.addEventListener('click', onWindowClick)
 })
@@ -477,6 +575,7 @@ function progressTip(j) {
 
 function onWindowClick(e) {
   if (!e.target.closest('.slot-box')) openSlot.value = ''
+  if (!e.target.closest('.nav-wrap')) navOpen.value = false
 }
 </script>
 
@@ -489,8 +588,14 @@ function onWindowClick(e) {
             :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <span class="spacer"></span>
-    <button class="ghost" @click="corpusPage = !corpusPage; libraryPage = false; settingsPage = false" :title="t('nav.tracks.tip')">{{ t('nav.tracks') }}</button>
-    <button class="ghost" @click="settingsPage = true; libraryPage = false; corpusPage = false" :title="t('nav.settings.tip')">{{ t('nav.settings') }}</button>
+    <div class="nav-wrap">
+      <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen">⋮</button>
+      <ul v-if="navOpen" class="nav-menu">
+        <li :title="t('nav.tracks.tip')" @click="navGo('tracks')"><span class="nav-ico">🎵</span>{{ t('nav.tracks') }}</li>
+        <li :title="t('nav.voices.tip')" @click="navGo('voices')"><span class="nav-ico">🎤</span>{{ t('nav.voices') }}</li>
+        <li :title="t('nav.settings.tip')" @click="navGo('settings')"><span class="nav-ico">⚙</span>{{ t('nav.settings') }}</li>
+      </ul>
+    </div>
   </header>
 
   <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
@@ -502,10 +607,12 @@ function onWindowClick(e) {
               @apply-style="applyProfileStyle"
               @apply-abc="(abc) => setPlanAbc(abc, { seed: null, seconds: null, truncated: false, fromProfile: true })"
               @style-to-library="profileStyleToLibrary" />
+  <VoicesPage v-else-if="voicesPage"
+              @close="voicesPage = false; loadVoiceCards()"
+              @apply-voice="applyVoice" />
   <StudioPage v-else-if="studioJob" :job="studioJob" :auto-translate="autoTranslate"
               @close="studioJob = null; refresh()"
-              @open-metrics="openMetrics"
-              @voices-to-plan="(abc) => setPlanAbc(abc, { seed: studioJob.seed, seconds: null, truncated: false, fromJob: studioJob.id })" />
+              @open-metrics="openMetrics" />
 
   <main v-else>
     <div class="left-col">
@@ -534,6 +641,12 @@ function onWindowClick(e) {
             <span>BPM</span>
             <input v-model.number="slots.bpm" type="number" min="40" max="250" placeholder="—" />
           </label>
+        </div>
+
+        <div class="lib-row" :title="t('form.voice.tip')">
+          <VSelect v-model="voicePick" :options="voiceOptions" :disabled="!voiceCards.length"
+                   :placeholder="voiceCards.length ? t('form.voice.ph') : t('form.voice.empty')"
+                   @update:model-value="onVoicePick()" />
         </div>
 
         <details>
@@ -630,10 +743,22 @@ function onWindowClick(e) {
     <section class="panel list">
       <h2>{{ t('queue.title') }}</h2>
       <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}</p>
-      <article v-for="j in jobs" :key="j.id" class="job" :class="j.status">
+      <template v-else>
+        <div class="queue-tools">
+          <VSelect v-model="qf.status" :options="qStatusOptions" />
+          <VSelect v-model="qf.period" :options="qPeriodOptions" />
+          <VSelect v-model="qf.dur" :options="qDurOptions" />
+          <VSelect v-model="qf.draft" :options="qDraftOptions" />
+          <input v-model="qf.q" :placeholder="t('queue.filter.search')" />
+        </div>
+        <p class="muted">{{ filteredJobs.length
+          ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
+          : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
+        <article v-for="j in queuePage" :key="j.id" class="job" :class="j.status">
         <div class="job-head">
           <strong>#{{ j.id }} {{ j.title }}</strong>
           <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
+          <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
           <span v-if="j.cot && j.cot !== 'full'" class="muted">cot {{ j.cot }}</span>
@@ -669,6 +794,12 @@ function onWindowClick(e) {
           <button v-if="j.abc_file" class="ghost icon" :title="t('queue.notes.save.tip')" @click="saveAudio(j, j.abc_file)">⤓ abc</button>
         </div>
       </article>
+        <div v-if="qPageMax > 1" class="pager">
+          <button class="ghost small-btn" :disabled="qPageNow <= 1" @click="qPage = qPageNow - 1">←</button>
+          <span class="muted">{{ qPageNow }} / {{ qPageMax }}</span>
+          <button class="ghost small-btn" :disabled="qPageNow >= qPageMax" @click="qPage = qPageNow + 1">→</button>
+        </div>
+      </template>
     </section>
   </main>
 
@@ -685,7 +816,8 @@ function onWindowClick(e) {
 /* Стили приложения — глобальные: экранные компоненты (components/) рендерятся
    внутри этого корня и пользуются теми же классами. */
 header {
-  position: relative; flex-wrap: wrap;
+  /* выше панелей main (стекинг-контексты из backdrop-filter), но ниже модалок (z-index 10) */
+  position: relative; z-index: 5; flex-wrap: wrap;
   display: flex; align-items: center; gap: 14px; padding: 10px 16px;
   background: color-mix(in srgb, var(--panel2) 78%, transparent);
   backdrop-filter: blur(14px) saturate(1.15);
@@ -707,7 +839,9 @@ h2 {
 .page-head h2 { margin: 0; border-bottom: none; background: none; text-shadow: none; padding: 0; }
 .icon-btn {
   background: none; border: none; box-shadow: none; cursor: pointer;
-  color: var(--muted); font-size: 15px; padding: 2px 4px; font-weight: 400;
+  color: var(--muted); font-size: 15px; padding: 2px 0; font-weight: 400;
+  /* все иконки шапки — одинаковые квадраты: ☀/☾, EN/RU, ⋮ */
+  width: 30px; height: 26px; line-height: 22px; text-align: center;
 }
 .icon-btn:hover { color: var(--text); filter: none; transform: none; }
 .health-dot {
@@ -719,6 +853,31 @@ h2 {
 .settings-page { display: flex; justify-content: center; align-items: flex-start; }
 .panel.lib { position: relative; z-index: 3; } /* выпадашки VSelect выше соседних панелей (стекинг-контексты из backdrop-filter) */
 .panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
+/* очередь — правая колонка сетки: растягивается на всё свободное место */
+.panel.list { width: auto; }
+.trick-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+.trick-hint { font-size: 11px; margin: 4px 0 0; }
+/* живой отклик: пульсирующая нота, пока кусок генерится */
+.pulse { display: inline-block; animation: trickpulse 1.2s ease-in-out infinite; }
+@keyframes trickpulse { 0%, 100% { opacity: .35 } 50% { opacity: 1 } }
+/* такты с приёмами: точка в углу + рамка акцентом, метка живёт и в выделении */
+.roll-cell.trick { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.roll-cell.trick::after { content: ''; position: absolute; top: 1px; right: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+.plan-marks { font-size: 13px; margin: 0; color: var(--accent); }
+.plan-marks .muted { display: block; font-size: 12px; }
+.queue-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.queue-tools input { flex: 1 1 150px; min-width: 0; }
+.pager { display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 6px; font-size: 13px; }
+.nav-wrap { position: relative; }
+.nav-menu {
+  position: absolute; top: 100%; right: 0; z-index: 40; margin: 2px 0 0; padding: 4px 0;
+  list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  min-width: 175px; box-shadow: 0 8px 24px rgba(0,0,0,.4); white-space: nowrap;
+}
+.nav-menu li { padding: 6px 12px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.nav-menu li:hover { background: var(--panel2); }
+/* колонка под иконку фиксированной ширины — подписи выровнены, эмодзи разной ширины не толкают текст */
+.nav-ico { flex: none; width: 20px; text-align: center; }
 .set-h { margin: 14px 0 2px; font-size: 13px; }
 .set-row { display: flex; align-items: center; gap: 10px; }
 .set-row input, .set-row select { flex: 1; min-width: 0; width: 100%; }
@@ -785,7 +944,8 @@ h2 {
 
 main {
   display: grid;
-  grid-template-columns: clamp(360px, 34vw, 560px) minmax(340px, 1fr);
+  /* левая колонка (форма) фиксированная — очередь забирает всё остальное */
+  grid-template-columns: 520px minmax(340px, 1fr);
   gap: 20px; padding: 20px 24px; max-width: 1800px; margin: 0 auto;
 }
 @media (max-width: 780px) { main { grid-template-columns: minmax(0, 1fr); } }
@@ -934,6 +1094,10 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .corpus-profile { width: 100%; font-size: 12px; }
 .corpus-profile p { margin: 4px 0; }
 .corpus-actions { display: flex; gap: 8px; }
+.voice-hint { font-size: 12px; margin: 6px 0 0; }
+.voice-presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 10px; font-size: 12px; }
+.voice-preview { font-size: 12px; margin: 6px 0 0; word-break: break-word; }
+.voice-card-desc { flex: 1 1 240px; min-width: 0; word-break: break-word; font-size: 12px; }
 .corpus-tracks { width: 100%; display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .corpus-track { font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .corpus-track .track-lyrics { width: 100%; margin: 0; color: var(--muted); font-style: italic; opacity: .8; }
@@ -959,7 +1123,7 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .roll-grid + .roll-grid { margin-top: 8px; }
 .roll-voice { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .roll-sec { font-size: 9px; color: var(--muted); text-align: center; overflow: hidden; }
-.roll-cell { height: 18px; border-radius: 3px; cursor: pointer; border: 1px solid transparent; }
+.roll-cell { height: 18px; border-radius: 3px; cursor: pointer; border: 1px solid transparent; position: relative; }
 .roll-cell.d0 { background: var(--panel); }
 .roll-cell.d1 { background: rgba(120,140,255,.18); }
 .roll-cell.d2 { background: rgba(120,140,255,.42); }

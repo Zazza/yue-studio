@@ -13,13 +13,16 @@ const emit = defineEmits(['update:modelValue'])
 const open = ref(false)
 const up = ref(false) // раскрывать вверх, когда внизу нет места (низ экрана/панель плеера)
 const root = ref(null)
+const maxH = ref(220)  // не длиннее места на экране: страница не обрастает скроллом
 
 const toggle = () => {
   if (props.disabled) return
   if (!open.value && root.value) {
     const r = root.value.getBoundingClientRect()
     const below = window.innerHeight - r.bottom
-    up.value = below < 260 && r.top > below
+    const above = r.top
+    up.value = below < 260 && above > below
+    maxH.value = Math.max(120, Math.min(220, (up.value ? above : below) - 12))
   }
   open.value = !open.value
 }
@@ -39,12 +42,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div ref="root" class="vselect" :class="{ disabled }">
+  <div ref="root" class="vselect" :class="{ disabled, open }">
     <button type="button" class="vselect-btn" :disabled="disabled" @click.stop="toggle">
       <span class="vselect-label">{{ current() }}</span>
       <span class="vselect-arrow" :class="{ open }">▾</span>
     </button>
-    <ul v-if="open && options.length" class="vselect-drop" :class="{ up }">
+    <ul v-if="open && options.length" class="vselect-drop" :class="{ up }" :style="{ maxHeight: maxH + 'px' }">
       <li v-for="o in options" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
           @mousedown.prevent="pick(o)">{{ o.label }}</li>
     </ul>
@@ -53,6 +56,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 <style scoped>
 .vselect { position: relative; }
+/* открытый селект — выше последующих строк панели (варианты эффектов и пр.):
+   без z-index у обёртки выпадашка вниз тонет в следующих siblings */
+.vselect.open { z-index: 1000; }
 .vselect-btn {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   width: 100%; text-align: left; background: var(--panel2); border: 1px solid var(--border);
@@ -66,6 +72,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; margin: 2px 0 0; padding: 4px 0;
   list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  /* высота зажимается по месту на экране (инлайн-стилем), страница не растёт */
 }
 /* внизу экрана нет места — раскрываем вверх (низ страницы, панель плеера) */
 .vselect-drop.up { top: auto; bottom: 100%; margin: 0 0 2px; box-shadow: 0 -8px 24px rgba(0,0,0,.4); }

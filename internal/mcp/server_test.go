@@ -20,6 +20,8 @@ type fakeService struct {
 	submitted []yue.SubmitParams
 	canceled  []int64
 	deleted   []int64
+	voices    []yue.Voice
+	voiceDel  []int64
 	fetch     map[string]string // file -> content
 }
 
@@ -38,6 +40,27 @@ func (f *fakeService) Cancel(ctx context.Context, id int64) (bool, error) {
 
 func (f *fakeService) DeleteJob(ctx context.Context, id int64) (bool, error) {
 	f.deleted = append(f.deleted, id)
+	return true, nil
+}
+
+func (f *fakeService) Voices(ctx context.Context) ([]yue.Voice, error) { return f.voices, nil }
+
+func (f *fakeService) VoiceCreate(ctx context.Context, name string, jobID int64, params string, seed int64) (int64, error) {
+	f.voices = append(f.voices, yue.Voice{ID: int64(len(f.voices)) + 1, Name: name,
+		JobID: jobID, Params: params, Seed: seed, JobAlive: true, HasAudio: true})
+	return int64(len(f.voices)), nil
+}
+
+func (f *fakeService) VoiceDelete(ctx context.Context, id int64) (bool, error) {
+	f.voiceDel = append(f.voiceDel, id)
+	return true, nil
+}
+
+func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error) {
+	return 77, nil
+}
+
+func (f *fakeService) DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error) {
 	return true, nil
 }
 
@@ -161,6 +184,48 @@ func TestCancelRequiresConfirm(t *testing.T) {
 	}
 }
 
+func TestVoiceDeleteRequiresConfirm(t *testing.T) {
+	s, fake := newTestServer(t)
+	if _, ok := call(t, s, "voice_delete", map[string]any{"voice_id": 3}); ok {
+		t.Fatal("voice_delete without confirm should fail")
+	}
+	if len(fake.voiceDel) != 0 {
+		t.Fatal("no delete expected")
+	}
+	if _, ok := call(t, s, "voice_delete", map[string]any{"voice_id": 3, "confirm": true}); !ok {
+		t.Fatal("voice_delete with confirm should succeed")
+	}
+	if len(fake.voiceDel) != 1 || fake.voiceDel[0] != 3 {
+		t.Fatalf("voiceDel: %v", fake.voiceDel)
+	}
+}
+
+func TestVoiceCreateSavesParamsAndSeed(t *testing.T) {
+	s, fake := newTestServer(t)
+	out, ok := call(t, s, "voice_create", map[string]any{
+		"name": "бархатный хрип", "job_id": 7,
+		"params": `{"register":"male-low","rough":2}`, "seed": 42,
+	})
+	if !ok {
+		t.Fatalf("voice_create failed: %s", out)
+	}
+	if len(fake.voices) != 1 {
+		t.Fatalf("voices: %+v", fake.voices)
+	}
+	v := fake.voices[0]
+	if v.Name != "бархатный хрип" || v.JobID != 7 || v.Seed != 42 {
+		t.Fatalf("voice: %+v", v)
+	}
+	if !strings.Contains(v.Params, "male-low") {
+		t.Fatalf("params: %s", v.Params)
+	}
+	// сохранённый голос виден в списке
+	out, ok = call(t, s, "voices_list", nil)
+	if !ok || !strings.Contains(out, "бархатный хрип") {
+		t.Fatalf("voices_list: %s", out)
+	}
+}
+
 func TestArtifactsPicksBestFile(t *testing.T) {
 	s, fake := newTestServer(t)
 	fake.jobs = []yue.Job{{ID: 9, AudioFile: "audio.flac", Mp3File: "audio.mp3"}}
@@ -263,7 +328,9 @@ func TestProtocolHandshakeAndToolsList(t *testing.T) {
 		"transcribe", "job_score", "job_preview",
 		"config_get", "config_set", "dsp_chains", "dsp_apply", "dsp_preview", "dsp_variants",
 		"analyze_job", "make_stems", "make_minus", "overdub", "import_track",
+		"variant_track", "dsp_variant_delete",
 		"corpus_list", "corpus_create", "corpus_add_tracks", "corpus_build", "corpus_get",
+		"voices_list", "voice_create", "voice_delete",
 		"styles", "slot_options", "doctor", "install_worker", "install_app",
 	} {
 		if !have[want] {

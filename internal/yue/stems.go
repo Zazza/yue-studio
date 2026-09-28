@@ -59,6 +59,17 @@ func (c *Client) MakeStems(ctx context.Context, id int64) (map[string]any, error
 	return out, nil
 }
 
+// DspVariantDelete — удалить вариант эффекта/вклейки (файл + метрики).
+func (c *Client) DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error) {
+	var out struct {
+		Deleted bool `json:"deleted"`
+	}
+	if err := c.del(ctx, fmt.Sprintf("/jobs/%d/dsp/%s", id, fname), &out); err != nil {
+		return false, err
+	}
+	return out.Deleted, nil
+}
+
 func (c *Client) JobStems(ctx context.Context, id int64) ([]map[string]any, error) {
 	var out []map[string]any
 	if err := c.get(ctx, fmt.Sprintf("/jobs/%d/stems", id), &out); err != nil {

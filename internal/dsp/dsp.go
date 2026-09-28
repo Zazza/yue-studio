@@ -2,6 +2,7 @@
 package dsp
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -136,6 +137,32 @@ func (c *Chain) Defaults() map[string]float64 {
 type Span struct {
 	StartSec float64
 	DurSec   float64
+}
+
+// MixUnderGraph — filter_complex для вклейки партии в оригинал: партия
+// задерживается до atSec, приглушается и подмешивается без нормализации
+// (amix normalize=0 — иначе он делит громкость на число входов).
+func MixUnderGraph(atSec, gain float64) string {
+	if atSec < 0 {
+		atSec = 0
+	}
+	ms := int(atSec * 1000)
+	return fmt.Sprintf(
+		"[1:a]adelay=%d|%d,volume=%.2f[du];[0:a][du]amix=inputs=2:duration=first:normalize=0[out]",
+		ms, ms, gain)
+}
+
+// RunTwoInputs — ffmpeg с двумя входами (микс партии под оригинал).
+func RunTwoInputs(basePath, partyPath, outPath, filterGraph string) error {
+	args := []string{"-y", "-hide_banner", "-loglevel", "error",
+		"-i", basePath, "-i", partyPath, "-filter_complex", filterGraph, "-map", "[out]", outPath}
+	cmd := exec.Command("ffmpeg", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg: %w: %s", err, stderr.String())
+	}
+	return nil
 }
 
 // Run прогоняет файл через filter_complex (ffmpeg на ПК).

@@ -23,7 +23,7 @@ POST /jobs/{id}/lyrics текст из готового аудио джобы (�
 POST /lyrics/adapt     {text, to} → адаптация-перевод под пение с сохранением слогов (Ollama)
 GET  /jobs/{id}/score  таймлайн: такты × голоса, аккорды, секции, RMS по секциям
 POST /jobs/{id}/preview {from_sec, to_sec} → preview-*.flac (VAE-decode куска латентов)
-POST /jobs/{id}/overdub {style, lyrics, gain} → джоба-партия поверх трека (микс автоматом;
+POST /jobs/{id}/overdub {style, lyrics, gain, abc?} → джоба-партия поверх трека (микс автоматом; abc — свой план партии, так «+ инструмент» локализуется выделением;
                        lyrics — текст голоса, без него модель поёт вокализ)
 POST /jobs/{id}/stems  demucs → stem-{drums,bass,other,vocals}.flac
 GET  /jobs/{id}/stems  список стемов
@@ -32,4 +32,13 @@ POST /corpus           {name} — профиль из корпуса
 POST /corpus/{id}/track  трек (байты): DSP + транскрипция + Whisper
 POST /corpus/{id}/build  агрегация → profile.json (стиль через Ollama)
 GET  /corpus[/{id}]    список / профиль
+
+POST /voices           {name, job_id, params, seed} — карточка голоса из джобы-прослушивания
+                       примерочной (копия аудио → voices/<id>/, переживает удаление джобы)
+GET  /voices           список карточек (job_alive — жива ли исходная джоба, has_audio)
+DELETE /voices/{id}   удалить карточку (строка БД + voices/<id>/)
+
+DELETE /jobs/{id}/dsp/{file}  удалить вариант эффекта/вклейки (файл + метрики)
+POST /jobs/{id}/variant_track  {file, title} — вариант DSP-эффекта (dsp-*.flac) отдельным
+                       треком-готов: копия аудио + партитура исходника, стемы/минус работают
 ```

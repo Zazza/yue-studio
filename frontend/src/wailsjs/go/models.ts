@@ -193,6 +193,7 @@ export namespace yue {
 	    abc_file: string;
 	    created_at: string;
 	    finished_at: string;
+	    draft?: boolean;
 	    stage?: string;
 	    tokens?: number;
 	    tok_per_s?: number;
@@ -220,6 +221,7 @@ export namespace yue {
 	        this.abc_file = source["abc_file"];
 	        this.created_at = source["created_at"];
 	        this.finished_at = source["finished_at"];
+	        this.draft = source["draft"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];
 	        this.tok_per_s = source["tok_per_s"];
@@ -350,6 +352,32 @@ export namespace yue {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.text = source["text"];
 	        this.seconds = source["seconds"];
+	    }
+	}
+	export class Voice {
+	    id: number;
+	    name: string;
+	    job_id: number;
+	    params: string;
+	    seed: number;
+	    created_at: string;
+	    job_alive: boolean;
+	    has_audio: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Voice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.job_id = source["job_id"];
+	        this.params = source["params"];
+	        this.seed = source["seed"];
+	        this.created_at = source["created_at"];
+	        this.job_alive = source["job_alive"];
+	        this.has_audio = source["has_audio"];
 	    }
 	}
 

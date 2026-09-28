@@ -24,6 +24,10 @@ const abc = defineModel('abc', { type: String, default: '' })
       </div>
       <p v-if="busy" class="muted">{{ t('plan.busy') }}</p>
       <p v-if="err" class="error">{{ err }}</p>
+      <p v-if="info && info.marks && info.marks.length" class="plan-marks">
+        {{ t('plan.marks') }}: {{ info.marks.map((m) => m.label).join(' · ') }}
+        <span class="muted">{{ t('plan.marks.hint') }}</span>
+      </p>
       <details class="abc-help">
         <summary>{{ t('plan.help') }}</summary>
         <p class="muted">
@@ -35,6 +39,8 @@ const abc = defineModel('abc', { type: String, default: '' })
       <textarea v-model="abc" rows="18" class="abc" spellcheck="false"></textarea>
       <div class="modal-actions">
         <button class="primary" :disabled="submitting || !abc.trim()" @click="emit('render', abc)">{{ t('plan.render') }}</button>
+        <button class="primary alt" :disabled="submitting || !abc.trim()" :title="t('plan.draft.tip')"
+                @click="emit('render', abc, true)">{{ t('plan.draft') }}</button>
         <button class="ghost" :disabled="busy" @click="emit('new-plan')">{{ t('plan.new') }}</button>
         <button class="ghost" :disabled="busy" @click="emit('from-track')" :title="t('plan.fromTrack.tip')">{{ t('plan.fromTrack') }}</button>
       </div>

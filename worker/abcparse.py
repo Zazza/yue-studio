@@ -102,10 +102,16 @@ def parse_abc(text: str) -> dict:
     unit_quarters = unit * 4.0                          # единица в четвертях
     sec_per_unit = 60.0 / tempo * unit_quarters
 
-    t = 0.0
+    # Время — у каждого голоса свой ход часов: голоса звучат одновременно, но
+    # в диалекте YuE их такты идут последовательными блоками (секция Vocal,
+    # затем секция Ins). Сквозной накопитель раздувал таймлайн почти вдвое
+    # от реального трека и сдвигал «тот же момент» у второго голоса.
+    vt: dict[str, float] = {}
     bars = []
     for i, b in enumerate(raw_bars):
         dur_sec = b["dur_units"] * sec_per_unit if b["dur_units"] else beats_per_bar * 60.0 / tempo
+        v = next(iter(b["voices"]), "")
+        t = vt.get(v, 0.0)
         bars.append({
             "idx": i,
             "section": b["section"],
@@ -115,7 +121,7 @@ def parse_abc(text: str) -> dict:
             "start_sec": round(t, 2),
             "end_sec": round(t + dur_sec, 2),
         })
-        t += dur_sec
+        vt[v] = t + dur_sec
     return {
         "tempo_bpm": tempo,
         "key": key,
@@ -124,5 +130,5 @@ def parse_abc(text: str) -> dict:
         "voices": voices,
         "voice_order": voice_order,
         "bars": bars,
-        "duration_sec": round(t, 2),
+        "duration_sec": round(max(vt.values(), default=0.0), 2),
     }

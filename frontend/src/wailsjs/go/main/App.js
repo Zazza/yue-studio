@@ -70,6 +70,10 @@ export function YueDspPreview(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueDspPreview'](arg1, arg2, arg3);
 }
 
+export function YueDspVariantDelete(arg1, arg2) {
+  return window['go']['main']['App']['YueDspVariantDelete'](arg1, arg2);
+}
+
 export function YueDspVariants(arg1) {
   return window['go']['main']['App']['YueDspVariants'](arg1);
 }
@@ -112,6 +116,10 @@ export function YueMakeMinus(arg1, arg2) {
 
 export function YueMakeStems(arg1) {
   return window['go']['main']['App']['YueMakeStems'](arg1);
+}
+
+export function YueMixInstrument(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['YueMixInstrument'](arg1, arg2, arg3, arg4);
 }
 
 export function YueOllamaModels(arg1) {
@@ -182,8 +190,8 @@ export function YueSubmitFan(arg1, arg2) {
   return window['go']['main']['App']['YueSubmitFan'](arg1, arg2);
 }
 
-export function YueSubmitOverdub(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['YueSubmitOverdub'](arg1, arg2, arg3, arg4);
+export function YueSubmitOverdub(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['YueSubmitOverdub'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function YueToggleAudio() {
@@ -196,6 +204,22 @@ export function YueTranscribeFile() {
 
 export function YueTranslate(arg1) {
   return window['go']['main']['App']['YueTranslate'](arg1);
+}
+
+export function YueVariantToTrack(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueVariantToTrack'](arg1, arg2, arg3);
+}
+
+export function YueVoiceCreate(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['YueVoiceCreate'](arg1, arg2, arg3, arg4);
+}
+
+export function YueVoiceDelete(arg1) {
+  return window['go']['main']['App']['YueVoiceDelete'](arg1);
+}
+
+export function YueVoices() {
+  return window['go']['main']['App']['YueVoices']();
 }
 
 export function YueWorkerConfig() {

@@ -38,6 +38,8 @@ export function YueDspChains():Promise<Array<dsp.Chain>>;
 
 export function YueDspPreview(arg1:number,arg2:string,arg3:Record<string, number>):Promise<yue.DspVariant>;
 
+export function YueDspVariantDelete(arg1:number,arg2:string):Promise<boolean>;
+
 export function YueDspVariants(arg1:number):Promise<Array<yue.DspVariant>>;
 
 export function YueEnsureMp3(arg1:number):Promise<Record<string, any>>;
@@ -59,6 +61,8 @@ export function YueJobs():Promise<Array<yue.Job>>;
 export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<string, any>>;
 
 export function YueMakeStems(arg1:number):Promise<Record<string, any>>;
+
+export function YueMixInstrument(arg1:number,arg2:number,arg3:number,arg4:number):Promise<yue.DspVariant>;
 
 export function YueOllamaModels(arg1:string):Promise<Record<string, any>>;
 
@@ -94,12 +98,20 @@ export function YueSubmit(arg1:yue.SubmitParams):Promise<number>;
 
 export function YueSubmitFan(arg1:yue.SubmitParams,arg2:number):Promise<Array<number>>;
 
-export function YueSubmitOverdub(arg1:number,arg2:string,arg3:string,arg4:number):Promise<number>;
+export function YueSubmitOverdub(arg1:number,arg2:string,arg3:string,arg4:number,arg5:string):Promise<number>;
 
 export function YueToggleAudio():Promise<void>;
 
 export function YueTranscribeFile():Promise<yue.TranscribeResult>;
 
 export function YueTranslate(arg1:string):Promise<yue.TranslateResult>;
+
+export function YueVariantToTrack(arg1:number,arg2:string,arg3:string):Promise<number>;
+
+export function YueVoiceCreate(arg1:string,arg2:number,arg3:string,arg4:number):Promise<number>;
+
+export function YueVoiceDelete(arg1:number):Promise<boolean>;
+
+export function YueVoices():Promise<Array<yue.Voice>>;
 
 export function YueWorkerConfig():Promise<Record<string, any>>;

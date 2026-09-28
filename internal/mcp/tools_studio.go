@@ -169,6 +169,45 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name:        "dsp_variant_delete",
+		Description: "Удалить вариант эффекта/вклейки (файл + метрики). Деструктивное: требует confirm=true.",
+		InputSchema: props(map[string]any{
+			"job_id":  prop("ID джобы", "integer"),
+			"file":    prop("имя файла варианта (dsp-*.flac / overdub-*.flac)", "string"),
+			"confirm": prop("явное подтверждение пользователя", "boolean"),
+		}, "job_id", "file", "confirm"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			if !argBool(args, "confirm") {
+				return "", errConfirm
+			}
+			ok, err := s.client.DspVariantDelete(context.Background(),
+				argInt(args, "job_id"), argString(args, "file"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("deleted=%v", ok), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "variant_track",
+		Description: "Вариант DSP-эффекта (dsp-*.flac) отдельным треком с подписью эффекта — дальше работают стемы/минус/эффекты.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы с вариантом", "integer"),
+			"file":   prop("имя файла варианта, напр. dsp-tape.flac", "string"),
+			"title":  prop("название нового трека (обычно «исходное · эффект»)", "string"),
+		}, "job_id", "file"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			id, err := s.client.VariantToTrack(context.Background(),
+				argInt(args, "job_id"), argString(args, "file"), argString(args, "title"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("вариант стал треком #%d", id), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "make_minus",
 		Description: "Минус-трек: микс стемов без выбранных групп (напр. vocals для караоке).",
 		InputSchema: props(map[string]any{
@@ -194,6 +233,7 @@ func RegisterStudioTools(s *Server) {
 			"style":  prop("строка стиля партии (англ. теги)", "string"),
 			"lyrics": prop("текст голосовой партии (пусто = вокализ; [Instrumental] = без голоса)", "string"),
 			"gain":   prop("гейн микса (0.1–1, по умолчанию 0.5)", "number"),
+			"abc":    prop("свой план партии (пусто = партитура джобы); инструмент-только-в-куске строит soloInstrumentPlan", "string"),
 		}, "job_id", "style"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			gain := argFloat(args, "gain")
@@ -201,7 +241,7 @@ func RegisterStudioTools(s *Server) {
 				gain = 0.5
 			}
 			id, err := s.client.SubmitOverdub(context.Background(), argInt(args, "job_id"),
-				argString(args, "style"), argString(args, "lyrics"), gain)
+				argString(args, "style"), argString(args, "lyrics"), gain, argString(args, "abc"))
 			if err != nil {
 				return "", err
 			}
@@ -376,6 +416,63 @@ func RegisterStudioTools(s *Server) {
 				return "", err
 			}
 			return toJSON(out), nil
+		},
+	})
+
+	// ---------- голоса (примерочная) ----------
+
+	s.Register(Tool{
+		Name:        "voices_list",
+		Description: "Карточки голосов примерочной: ручки характера (params), seed прослушивания, " +
+			"жива ли исходная джоба (job_alive).",
+		InputSchema: props(nil),
+		Handler: func(s *Server, _ map[string]any) (string, error) {
+			out, err := s.client.Voices(context.Background())
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "voice_create",
+		Description: "Сохранить карточку голоса из джобы-прослушивания (draft-джоба примерочной). " +
+			"params — JSON ручек: {register, rough, creak, delivery, breath, extra}.",
+		InputSchema: props(map[string]any{
+			"name":   prop("имя голоса", "string"),
+			"job_id": prop("ID готовой джобы-прослушивания", "integer"),
+			"params": prop("JSON ручек примерочной", "string"),
+			"seed":   prop("seed прослушивания (для воспроизводимости голоса)", "integer"),
+		}, "name", "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			id, err := s.client.VoiceCreate(context.Background(),
+				argString(args, "name"), argInt(args, "job_id"),
+				argString(args, "params"), argInt(args, "seed"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("голос #%d сохранён (джоба #%d)", id, argInt(args, "job_id")), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "voice_delete",
+		Description: "Удалить карточку голоса и копию аудио на сервере. Необратимо. " +
+			"Деструктивное: требует confirm=true (спроси пользователя).",
+		InputSchema: props(map[string]any{
+			"voice_id": prop("ID карточки голоса", "integer"),
+			"confirm":  prop("явное подтверждение пользователя", "boolean"),
+		}, "voice_id", "confirm"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			if !argBool(args, "confirm") {
+				return "", errConfirm
+			}
+			ok, err := s.client.VoiceDelete(context.Background(), argInt(args, "voice_id"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("deleted=%v", ok), nil
 		},
 	})
 }

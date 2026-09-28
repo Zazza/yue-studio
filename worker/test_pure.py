@@ -195,12 +195,15 @@ class TestParseAbc(unittest.TestCase):
     def test_section_comment(self):
         self.assertEqual(self.r["bars"][0]["section"], "verse")
 
-    def test_timeline_monotonic_and_consistent(self):
-        # spec: такты идут подряд без дыр, end[i] == start[i+1]
+    def test_timeline_per_voice(self):
+        # spec: у каждого голоса свой ход часов — голоса звучат одновременно,
+        # хотя в тексте их такты идут последовательными блоками
         bars = self.r["bars"]
-        for a, b in zip(bars, bars[1:], strict=False):
-            self.assertEqual(a["end_sec"], b["start_sec"])
-        self.assertEqual(self.r["duration_sec"], bars[-1]["end_sec"])
+        self.assertEqual((bars[0]["start_sec"], bars[0]["end_sec"]), (0.0, 1.25))   # Vocal 1
+        self.assertEqual((bars[1]["start_sec"], bars[1]["end_sec"]), (1.25, 2.75))  # Vocal 2
+        self.assertEqual((bars[2]["start_sec"], bars[2]["end_sec"]), (0.0, 1.25))   # Ins 1 — параллельно
+        self.assertEqual((bars[3]["start_sec"], bars[3]["end_sec"]), (1.25, 2.75))  # Ins 2
+        self.assertEqual(self.r["duration_sec"], 2.75)
 
     def test_chords_not_counted_as_notes(self):
         # spec: "Am" — аннотация, в такте 3 ноты: A2 B c2

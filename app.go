@@ -220,6 +220,37 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	return a.yue.UploadDsp(a.ctx, jobID, fname, data)
 }
 
+// YueMixInstrument — вклеить партию (джоба-рендер) в трек джобы на секунду
+// fromSec с гейном: короткий рендер куска + ffmpeg-микс = инструмент слышен
+// ровно в выбранном месте. Результат кладётся как overdub-inst-<id>.flac.
+func (a *App) YueMixInstrument(parentID, childID int64, fromSec, gain float64) (*yue.DspVariant, error) {
+	parent, err := a.fetchTempFile(parentID, "audio.flac", fmt.Sprintf("yue-mix-%d-in-*.flac", parentID))
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(parent)
+	child, err := a.fetchTempFile(childID, "audio.flac", fmt.Sprintf("yue-mix-%d-party-*.flac", childID))
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(child)
+	out, err := os.CreateTemp("", fmt.Sprintf("yue-mix-%d-out-*.flac", parentID))
+	if err != nil {
+		return nil, err
+	}
+	out.Close()
+	defer os.Remove(out.Name())
+	if err := dsp.RunTwoInputs(parent, child, out.Name(), dsp.MixUnderGraph(fromSec, gain)); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(out.Name())
+	if err != nil {
+		return nil, err
+	}
+	fname := fmt.Sprintf("overdub-inst-%d.flac", childID)
+	return a.yue.UploadDsp(a.ctx, parentID, fname, data)
+}
+
 // YueApplyDsp — применить цепочку к треку джобы и вернуть метрики варианта.
 func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
 	return a.runDsp(jobID, chainID, params, false)
@@ -445,8 +476,8 @@ func (a *App) YueAdaptLyrics(text, to string) (*yue.LyricsResult, error) {
 	return a.yue.AdaptLyrics(a.ctx, text, to)
 }
 
-func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64) (int64, error) {
-	return a.yue.SubmitOverdub(a.ctx, id, style, lyrics, gain)
+func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64, abc string) (int64, error) {
+	return a.yue.SubmitOverdub(a.ctx, id, style, lyrics, gain, abc)
 }
 
 func (a *App) YueMakeStems(id int64) (map[string]any, error) {
@@ -515,4 +546,27 @@ func (a *App) YueCorpusGet(id int64) (map[string]any, error) {
 
 func (a *App) YueCorpusTracks(id int64) ([]map[string]any, error) {
 	return a.yue.CorpusTracks(a.ctx, id)
+}
+
+// YueVoiceCreate — сохранить карточку голоса из джобы-прослушивания примерочной.
+func (a *App) YueVoiceCreate(name string, jobID int64, params string, seed int64) (int64, error) {
+	return a.yue.VoiceCreate(a.ctx, name, jobID, params, seed)
+}
+
+func (a *App) YueVoices() ([]yue.Voice, error) {
+	return a.yue.Voices(a.ctx)
+}
+
+func (a *App) YueVoiceDelete(id int64) (bool, error) {
+	return a.yue.VoiceDelete(a.ctx, id)
+}
+
+// YueDspVariantDelete — удалить вариант эффекта/вклейки.
+func (a *App) YueDspVariantDelete(id int64, fname string) (bool, error) {
+	return a.yue.DspVariantDelete(a.ctx, id, fname)
+}
+
+// YueVariantToTrack — вариант DSP-эффекта отдельным треком с подписью эффекта.
+func (a *App) YueVariantToTrack(jobID int64, file, title string) (int64, error) {
+	return a.yue.VariantToTrack(a.ctx, jobID, file, title)
 }

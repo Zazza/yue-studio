@@ -45,8 +45,9 @@ JOBS_DIR = DATA_DIR / "jobs"
 REFS_DIR = DATA_DIR / "references"
 TRANSCRIBES_DIR = DATA_DIR / "transcribes"
 CORPUS_DIR = DATA_DIR / "corpus"
+VOICES_DIR = DATA_DIR / "voices"
 DB_PATH = DATA_DIR / "yue.db"
-for d in (JOBS_DIR, REFS_DIR, TRANSCRIBES_DIR, CORPUS_DIR):
+for d in (JOBS_DIR, REFS_DIR, TRANSCRIBES_DIR, CORPUS_DIR, VOICES_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 WHISPER_PY = Path(os.environ.get("YUE_WHISPER_PY", Path.home() / "whisper-venv" / "bin" / "python"))
@@ -120,6 +121,16 @@ def _migrate():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'open',
+            created_at TEXT NOT NULL
+        );
+        """)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS voices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            job_id INTEGER,
+            params TEXT NOT NULL DEFAULT '{}',
+            seed INTEGER DEFAULT 0,
             created_at TEXT NOT NULL
         );
         """)
@@ -537,6 +548,7 @@ def plan(req: PlanIn):
 
 def _job_dict(row) -> dict:
     d = {k: row[k] for k in row.keys()}
+    d["draft"] = bool(d.get("draft"))  # sqlite даёт 0/1, клиент ждёт bool
     if d.get("status") == "running":
         with _state_lock:
             d.update(_progress.get(row["id"], {}))
@@ -802,7 +814,7 @@ def job_lyrics(job_id: int):
 @app.get("/jobs/{job_id}/score")
 def job_score(job_id: int):
     """Таймлайн из score.abc: такты × голоса, аккорды, секции + RMS по секциям.
-    Кэшируется в score.json."""
+    Кэшируется в score.json; _v — версия формата (смена разметки сбрасывает кэш)."""
     row = _job_row(job_id)
     if row is None:
         raise HTTPException(404, "job not found")
@@ -812,8 +824,14 @@ def job_score(job_id: int):
     if not abc_path.is_file():
         raise HTTPException(404, "no score.abc for this job")
     if cache.is_file() and cache.stat().st_mtime >= abc_path.stat().st_mtime:
-        return json.loads(cache.read_text())
+        try:
+            cached = json.loads(cache.read_text())
+            if cached.get("_v") == 2:   # 2 = per-voice таймлайн тактов
+                return cached
+        except Exception:  # noqa: BLE001 — битый кэш просто перегенерим
+            pass
     parsed = parse_abc(abc_path.read_text())
+    parsed["_v"] = 2
     parsed["rms_sections"] = _rms_sections(job_dir / row["audio_file"], parsed["bars"]) \
         if row["audio_file"] and (job_dir / row["audio_file"]).is_file() else []
     cache.write_text(json.dumps(parsed, ensure_ascii=False))
@@ -905,6 +923,9 @@ class OverdubIn(BaseModel):
     style: str
     gain: float = 0.5
     lyrics: str = ""
+    # свой план партии (иначе — score.abc исходника); так «+ инструмент»
+    # рендерит план, где партия молчит вне нужного куска — локализация звука
+    abc: str | None = None
 
 
 def _mix_overdub(parent_id: int, child_id: int, gain: float = 0.5):
@@ -945,6 +966,47 @@ def _mix_overdub(parent_id: int, child_id: int, gain: float = 0.5):
 class ImportIn(BaseModel):
     title: str = ""
     transcribe: bool = True   # сразу делать транскрипцию (SheetSage2) для ролла/овердаба
+
+
+class VariantTrackIn(BaseModel):
+    """Вариант DSP-эффекта → отдельный трек: тот же звук с обработкой,
+    с подписью эффекта; в студии работают стемы/минус/эффекты."""
+    file: str
+    title: str = ""
+
+
+@app.post("/jobs/{job_id}/variant_track")
+def job_variant_track(job_id: int, req: VariantTrackIn):
+    import shutil
+    if "/" in req.file or ".." in req.file or not DSP_NAME_RE.match(req.file):
+        raise HTTPException(422, "file must be dsp-<chain>.flac")
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT title, abc_file FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "job not found")
+        src = JOBS_DIR / str(job_id) / req.file
+        if not src.is_file():
+            raise HTTPException(404, f"variant {req.file} not found")
+        cur = conn.execute(
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,created_at,finished_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (req.title or row["title"], "done", "(вариант DSP-эффекта)", "", None, "full",
+             time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
+        jid = cur.lastrowid
+    jdir = JOBS_DIR / str(jid)
+    jdir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, jdir / "audio.flac")
+    if row["abc_file"] and (JOBS_DIR / str(job_id) / row["abc_file"]).is_file():
+        shutil.copy2(JOBS_DIR / str(job_id) / row["abc_file"], jdir / "score.abc")
+        abc = "score.abc"
+    else:
+        abc = ""
+    with db_lock, db() as conn:
+        conn.execute(
+            "UPDATE jobs SET duration_sec=?, audio_file=?, abc_file=? WHERE id=?",
+            (_audio_duration(jdir / "audio.flac"), "audio.flac", abc, jid))
+    log.info("variant %s of job %s promoted to job %s", req.file, job_id, jid)
+    return {"id": jid}
 
 
 @app.post("/tracks/import")
@@ -996,6 +1058,8 @@ def submit_overdub(job_id: int, req: OverdubIn):
     if row is None or row["status"] != "done" or not row["abc_file"]:
         raise HTTPException(404, "job not done (no score.abc)")
     abc = (JOBS_DIR / str(job_id) / row["abc_file"]).read_text()
+    if req.abc and req.abc.strip():
+        abc = req.abc   # свой план партии (напр., инструмент только в выделении)
     with db_lock, db() as conn:
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,req_abc,overdub_of,created_at)"
@@ -1295,6 +1359,82 @@ def corpus_tracks(cid: int):
     return out
 
 
+# ---------- Карточки голосов (примерочная) ----------
+
+def _voice_dir(vid: int) -> Path:
+    return VOICES_DIR / str(vid)
+
+
+class VoiceIn(BaseModel):
+    """Карточка голоса из джобы-прослушивания: ручки примерочной (params,
+    JSON-строка) + использованный seed — дескриптор пересчитывается на клиенте."""
+    name: str
+    job_id: int
+    params: str = "{}"
+    seed: int = 0
+
+
+@app.post("/voices")
+def voice_create(req: VoiceIn):
+    import shutil
+    if not req.name.strip():
+        raise HTTPException(422, "name is required")
+    try:
+        parsed = json.loads(req.params or "{}")
+        if not isinstance(parsed, dict):
+            raise ValueError("not an object")
+    except ValueError as e:
+        raise HTTPException(422, f"params must be a JSON object: {e}") from None
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id=?", (req.job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "job not found")
+        if row["status"] != "done":
+            raise HTTPException(422, "job is not done")
+        job_dir = JOBS_DIR / str(req.job_id)
+        if not (job_dir / "audio.flac").is_file():
+            raise HTTPException(422, "job has no audio")
+        cur = conn.execute(
+            "INSERT INTO voices(name,job_id,params,seed,created_at) VALUES(?,?,?,?,?)",
+            (req.name.strip(), req.job_id, req.params, req.seed,
+             time.strftime("%Y-%m-%dT%H:%M:%S")))
+        vid = cur.lastrowid
+    d = _voice_dir(vid)
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(job_dir / "audio.flac", d / "audio.flac")
+    if (job_dir / "audio.mp3").is_file():
+        shutil.copy2(job_dir / "audio.mp3", d / "audio.mp3")
+    log.info("voice #%s saved from job %s", vid, req.job_id)
+    return {"id": vid}
+
+
+@app.get("/voices")
+def voices_list():
+    with db_lock, db() as conn:
+        rows = conn.execute("""
+            SELECT v.*, EXISTS(SELECT 1 FROM jobs j WHERE j.id = v.job_id) AS job_alive
+            FROM voices v ORDER BY v.id DESC""").fetchall()
+    out = []
+    for r in rows:
+        item = {k: r[k] for k in r.keys()}
+        item["job_alive"] = bool(r["job_alive"])  # sqlite EXISTS даёт 0/1, клиент ждёт bool
+        item["has_audio"] = (_voice_dir(r["id"]) / "audio.flac").is_file()
+        out.append(item)
+    return out
+
+
+@app.delete("/voices/{vid}")
+def voice_delete(vid: int):
+    import shutil
+    with db_lock, db() as conn:
+        if conn.execute("SELECT 1 FROM voices WHERE id=?", (vid,)).fetchone() is None:
+            raise HTTPException(404, "voice not found")
+        conn.execute("DELETE FROM voices WHERE id=?", (vid,))
+    shutil.rmtree(_voice_dir(vid), ignore_errors=True)
+    log.info("voice #%s deleted", vid)
+    return {"deleted": True}
+
+
 @app.post("/jobs/{job_id}/dsp")
 async def add_dsp_variant(job_id: int, request: Request):
     """Вариант пост-обработки от приложения (ffmpeg на ПК): тело — flac,
@@ -1324,13 +1464,34 @@ async def add_dsp_variant(job_id: int, request: Request):
     return {"file": fname, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "metrics": metrics}
 
 
+@app.delete("/jobs/{job_id}/dsp/{fname}")
+def dsp_variant_delete(job_id: int, fname: str):
+    """Удалить вариант (dsp-*/overdub-*): сам файл и его метрики."""
+    if "/" in fname or ".." in fname or not DSP_NAME_RE.match(fname):
+        raise HTTPException(422, "bad variant name")
+    d = JOBS_DIR / str(job_id)
+    f = d / fname
+    if not f.is_file():
+        raise HTTPException(404, "variant not found")
+    f.unlink()
+    mp = d / f"{fname}.metrics.json"
+    if mp.is_file():
+        mp.unlink()
+    log.info("job %s: variant %s deleted", job_id, fname)
+    return {"deleted": True}
+
+
 @app.get("/jobs/{job_id}/dsp")
 def dsp_variants(job_id: int):
     job_dir = JOBS_DIR / str(job_id)
     if not job_dir.is_dir():
         return []
     out = []
-    for f in sorted(job_dir.glob("dsp-*.flac"), key=lambda p: p.stat().st_mtime, reverse=True):
+    # dsp-*.flac — варианты эффектов; overdub-*.flac — вклейки партий
+    # (в т.ч. инструменты из приёмов) — единый список «вариантов трека»
+    files = sorted(list(job_dir.glob("dsp-*.flac")) + list(job_dir.glob("overdub-*.flac")),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    for f in files:
         item = {"file": f.name,
                 "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(f.stat().st_mtime)),
                 "metrics": None}

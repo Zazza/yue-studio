@@ -26,7 +26,7 @@ type Service interface {
 	Transcribe(ctx context.Context, name string, data []byte) (*TranscribeResult, error)
 	JobScore(ctx context.Context, id int64) (map[string]any, error)
 	JobPreview(ctx context.Context, id int64, fromSec, toSec float64) (map[string]any, error)
-	SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64) (int64, error)
+	SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64, abc string) (int64, error)
 	MakeStems(ctx context.Context, id int64) (map[string]any, error)
 	MakeMinus(ctx context.Context, id int64, exclude []string) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
@@ -38,6 +38,11 @@ type Service interface {
 	CorpusList(ctx context.Context) ([]Corpus, error)
 	CorpusGet(ctx context.Context, id int64) (map[string]any, error)
 	CorpusTracks(ctx context.Context, id int64) ([]map[string]any, error)
+	VoiceCreate(ctx context.Context, name string, jobID int64, params string, seed int64) (int64, error)
+	Voices(ctx context.Context) ([]Voice, error)
+	VoiceDelete(ctx context.Context, id int64) (bool, error)
+	VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error)
+	DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error)
 	AudioURL(id int64, file string) string
 	FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error)
 	SetURL(baseURL string)
@@ -64,6 +69,8 @@ type Job struct {
 	AbcFile     string  `json:"abc_file"`
 	CreatedAt   string  `json:"created_at"`
 	FinishedAt  string  `json:"finished_at"`
+	// черновик (~18 с): пробы стилей и прослушивания голосов
+	Draft bool `json:"draft,omitempty"`
 
 	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
 	Stage      string   `json:"stage,omitempty"`
@@ -157,4 +164,18 @@ type Corpus struct {
 	CreatedAt  string `json:"created_at"`
 	Tracks     int    `json:"tracks"`
 	HasProfile bool   `json:"has_profile"`
+}
+
+// Voice — карточка голоса примерочной: ручки (params, JSON-строка) + seed
+// прослушивания; JobAlive — жива ли исходная джоба (иначе «переспросить»),
+// HasAudio — есть ли копия аудио в voices/<id>/.
+type Voice struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	JobID     int64  `json:"job_id"`
+	Params    string `json:"params"`
+	Seed      int64  `json:"seed"`
+	CreatedAt string `json:"created_at"`
+	JobAlive  bool   `json:"job_alive"`
+	HasAudio  bool   `json:"has_audio"`
 }
