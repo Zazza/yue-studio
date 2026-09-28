@@ -916,7 +916,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <p v-if="fragJob" class="trick-hint" :class="fragJob.status === 'error' ? 'error' : 'muted'">
             <template v-if="fragJob.status === 'starting'"><span class="pulse">♪</span> {{ t('studio.trick.fragment.starting') }}</template>
             <template v-else-if="['queued', 'running'].includes(fragJob.status)">
-              <span class="pulse">♪</span> {{ t('queue.status.' + fragJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="fragJob.stage"> · {{ fragJob.stage }}</template><template v-if="fragJob.elapsed_s"> {{ Math.round(fragJob.elapsed_s) }} с</template>
+              <span class="pulse">♪</span> {{ t('queue.status.' + fragJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="fragJob.elapsed_s"> {{ Math.round(fragJob.elapsed_s) }} с</template>
             </template>
             <template v-else-if="fragJob.status === 'done'">
               ♪ {{ t('studio.trick.fragment.play') }}
@@ -930,7 +930,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <p v-if="buildJob" class="trick-hint" :class="buildJob.status === 'error' ? 'error' : 'muted'">
             <template v-if="buildJob.status === 'starting'"><span class="pulse">⟳</span> {{ t('studio.trick.build.starting') }}</template>
             <template v-else-if="['queued', 'running'].includes(buildJob.status)">
-              <span class="pulse">⟳</span> {{ t('studio.trick.build.label') }} #{{ buildJob.id }} · {{ t('queue.status.' + buildJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="buildJob.stage"> · {{ buildJob.stage }}</template><template v-if="buildJob.elapsed_s"> {{ Math.round(buildJob.elapsed_s) }} с</template><template v-if="buildJob.progress_pct != null"> · {{ buildJob.progress_pct }}%</template>
+              <span class="pulse">⟳</span> {{ t('studio.trick.build.label') }} #{{ buildJob.id }} · {{ t('queue.status.' + buildJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="buildJob.elapsed_s"> {{ Math.round(buildJob.elapsed_s) }} с</template><template v-if="buildJob.progress_pct != null"> · {{ buildJob.progress_pct }}%</template>
             </template>
             <template v-else-if="buildJob.status === 'done'">
               ✓ {{ t('studio.trick.build.label') }} #{{ buildJob.id }} — {{ t('studio.trick.build.play') }}
@@ -944,7 +944,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <p v-if="instJob" class="trick-hint" :class="instJob.status === 'error' ? 'error' : 'muted'">
             <template v-if="instJob.status === 'starting'"><span class="pulse">♪</span> {{ t('studio.trick.inst.starting') }}</template>
             <template v-else-if="['queued', 'running'].includes(instJob.status)">
-              <span class="pulse">♪</span> {{ t('studio.trick.inst.wait') }}<template v-if="instJob.stage"> · {{ instJob.stage }}</template><template v-if="instJob.elapsed_s"> {{ Math.round(instJob.elapsed_s) }} с</template>
+              <span class="pulse">♪</span> {{ t('studio.trick.inst.wait') }}<template v-if="instJob.elapsed_s"> {{ Math.round(instJob.elapsed_s) }} с</template>
             </template>
             <template v-else-if="instJob.mixing"><span class="pulse">♪</span> {{ t('studio.trick.inst.mixing') }}</template>
             <template v-else-if="instJob.status === 'done'">

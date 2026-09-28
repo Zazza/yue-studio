@@ -769,7 +769,10 @@ function onWindowClick(e) {
               <span v-if="j.progress_pct != null" class="progress-fill" :style="{ width: j.progress_pct + '%' }"></span>
             </span>
             <span class="progress-label muted">
-              {{ t('queue.progress.' + (j.stage || 'plan')) }}<template v-if="j.progress_pct != null"> {{ j.progress_pct }}%</template><template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+              <!-- есть процент — слово стадии не нужно: «41% · 82.5 т/с» -->
+              <template v-if="j.progress_pct != null">{{ j.progress_pct }}%</template>
+              <template v-else>{{ t('queue.progress.' + (j.stage || 'plan')) }}</template>
+              <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
             </span>
           </span>
           <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
