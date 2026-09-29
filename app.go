@@ -206,43 +206,12 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	return a.yue.UploadDsp(a.ctx, jobID, fname, data)
 }
 
-// YueRebuildInserts — пересобрать трек джобы со всеми вклейками инструментов
-// с чистого оригинала: партии встают в ритм по бочке трека (или по плану,
-// если подгонка не уверена), громкость — дБ относительно оригинала.
-// Результат — overdub-inst-<последняя партия>.flac + отчёт по вклейкам.
-func (a *App) YueRebuildInserts(parentID int64, specs []studio.InsertSpec) (*studio.RebuildResult, error) {
-	return studio.RebuildInserts(a.ctx, a.yue, parentID, specs)
-}
-
-// YueMixVocalsOver — родной вокал джобы (stem-vocals) поверх нового
-// инструментального рендера (backingID): перелепка аранжировки вокального
-// трека без удвоения голоса и без микса двух исполнений. Результат —
-// dsp-with-vocal.flac у нового рендера.
-func (a *App) YueMixVocalsOver(backingID, vocalJobID int64) (*yue.DspVariant, error) {
-	backing, err := a.fetchTempFile(backingID, "audio.flac", fmt.Sprintf("yue-voc-%d-back-*.flac", backingID))
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(backing)
-	vocals, err := a.fetchTempFile(vocalJobID, "stem-vocals.flac", fmt.Sprintf("yue-voc-%d-stem-*.flac", vocalJobID))
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(vocals)
-	out, err := os.CreateTemp("", fmt.Sprintf("yue-voc-%d-out-*.flac", backingID))
-	if err != nil {
-		return nil, err
-	}
-	out.Close()
-	defer os.Remove(out.Name())
-	if err := dsp.RunTwoInputs(backing, vocals, out.Name(), dsp.VocalsOverGraph()); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(out.Name())
-	if err != nil {
-		return nil, err
-	}
-	return a.yue.UploadDsp(a.ctx, backingID, "dsp-with-vocal.flac", data)
+// YueRebuildSections — пересобрать трек джобы со всеми заменами дорожек:
+// кусок перерендерен моделью целой группой, в треке меняются только нужные
+// стемы (голос всегда родной), в ритм по бочке, громкость — дБ к старой дорожке.
+// Результат — overdub-inst-<последний рендер>.flac + отчёт.
+func (a *App) YueRebuildSections(parentID int64, specs []studio.SectionSpec) (*studio.RebuildResult, error) {
+	return studio.RebuildSections(a.ctx, a.yue, parentID, specs)
 }
 
 // YueApplyDsp — применить цепочку к треку джобы и вернуть метрики варианта.
@@ -574,6 +543,16 @@ func (a *App) YueVoiceDelete(id int64) (bool, error) {
 // YueDspVariantDelete — удалить вариант эффекта/вклейки.
 func (a *App) YueDspVariantDelete(id int64, fname string) (bool, error) {
 	return a.yue.DspVariantDelete(a.ctx, id, fname)
+}
+
+// YueContinueJob — «продолжение с места»: трек до fromSec + продолжение моделью.
+func (a *App) YueContinueJob(jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
+	return a.yue.ContinueJob(a.ctx, jobID, fromSec, seed, abc, styleAdd)
+}
+
+// YueSetHead — основная версия песни (0 — сам трек).
+func (a *App) YueSetHead(jobID, headID int64) error {
+	return a.yue.SetHead(a.ctx, jobID, headID)
 }
 
 // YueVariantToTrack — вариант DSP-эффекта отдельным треком с подписью эффекта.

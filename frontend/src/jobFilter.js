@@ -48,3 +48,39 @@ export function pageJobs(jobs, page, size = QUEUE_PAGE_SIZE) {
   const p = Math.min(Math.max(1, page), pageCount(jobs.length, size))
   return (jobs || []).slice((p - 1) * size, p * size)
 }
+
+// родитель производного трека: parent_id (кусок для вклейки, пересборка,
+// проверка куска, вариант-трек) или overdub_of (овердаб-партия)
+export function jobParent(j) {
+  return j.parent_id || j.overdub_of || null
+}
+
+// группировка списка: производные треки прячутся под корневым предком
+// (цепочка родителей до трека без родителя). Родитель вне списка (старый,
+// удалён) — трек остаётся на верхнем уровне. Порядок сохраняется.
+// → { top: [...], children: { [rootId]: [...] } }
+export function groupJobs(jobs) {
+  const byId = new Map((jobs || []).map((j) => [j.id, j]))
+  const rootOf = (j) => {
+    const seen = new Set()
+    let cur = j
+    while (jobParent(cur) && byId.has(jobParent(cur)) && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      cur = byId.get(jobParent(cur))
+    }
+    return cur
+  }
+  const top = []
+  const children = {}
+  for (const j of jobs || []) {
+    const root = rootOf(j)
+    if (root.id === j.id) top.push(j)
+    else (children[root.id] = children[root.id] || []).push(j)
+  }
+  // песня с последней правкой — наверх: активность = самое свежее создание
+  // среди неё и её вложений (новая версия поднимает песню, а не прячется внизу)
+  const last = (j) => [j, ...(children[j.id] || [])]
+    .reduce((m, x) => (String(x.created_at || '') > m ? String(x.created_at || '') : m), '')
+  top.sort((a, b) => last(b).localeCompare(last(a)) || b.id - a.id)
+  return { top, children }
+}

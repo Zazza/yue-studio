@@ -222,5 +222,86 @@ class TestParseAbc(unittest.TestCase):
         self.assertEqual(r["tempo_bpm"], 120.0)  # дефолт
 
 
+# мультипауза Z<n> = n тактов тишины (карточка internal-studio-insert-sync, п.8):
+# 4/4, L:1/16, Q=120 → такт 2 с. Секция A: Vocal 4 такта нот, Ins — Z4;
+# секция B: оба голоса по 2 такта нот. Оба голоса заканчиваются на 12 с.
+MULTIREST_ABC = """\
+X:1
+M:4/4
+L:1/16
+Q:1/4=120
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:Em
+% sectionA
+V: Vocal
+"Em"B4B2B2B4B2B2|"C"c2c2c2c2"D"B2A2A4|"Em"e4e4e4e4|"G"d4d4d4d4|
+V: Ins
+Z4|
+% sectionB
+V: Vocal
+"Am"a4a4a4a4|"C"g4g4g4g4|
+V: Ins
+E4E4E4E4|F4F4F4F4|
+"""
+
+
+def _bars_of(result: dict, voice: str) -> list:
+    """Такты голоса: голос такта — ключ в voices или rests (как на ролле)."""
+    return [b for b in result["bars"]
+            if voice in (b.get("voices") or {}) or voice in (b.get("rests") or {})]
+
+
+def _single(voice: str, body: str) -> dict:
+    return abcparse.parse_abc(
+        "X:1\nM:4/4\nL:1/16\nQ:1/4=120\nK:C\n% s\nV: " + voice + "\n" + body + "\n")
+
+
+class TestParseAbcMultiRest(unittest.TestCase):
+    """Спецификация: Z<n> — n целых тактов паузы, Z — один такт; время голоса
+    идёт по всем n тактам (иначе квадратики ролла уезжают раньше звука)."""
+
+    def setUp(self):
+        self.r = abcparse.parse_abc(MULTIREST_ABC)
+
+    def test_ins_has_six_bars(self):
+        self.assertEqual(len(_bars_of(self.r, "Ins")), 6)
+        self.assertEqual(len(_bars_of(self.r, "Vocal")), 6)
+
+    def test_ins_ends_with_vocal(self):
+        ins = _bars_of(self.r, "Ins")
+        voc = _bars_of(self.r, "Vocal")
+        self.assertAlmostEqual(ins[-1]["end_sec"], 12.0, places=6)
+        self.assertAlmostEqual(voc[-1]["end_sec"], 12.0, places=6)
+        self.assertAlmostEqual(self.r["duration_sec"], 12.0, places=6)
+
+    def test_multirest_bars_are_whole_bars(self):
+        ins = _bars_of(self.r, "Ins")
+        spans = [(round(b["start_sec"], 6), round(b["end_sec"], 6)) for b in ins]
+        self.assertEqual(spans, [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0), (6.0, 8.0),
+                                 (8.0, 10.0), (10.0, 12.0)])
+
+    def test_multirest_bars_are_rests(self):
+        ins = _bars_of(self.r, "Ins")
+        for b in ins[:4]:
+            self.assertEqual((b.get("voices") or {}).get("Ins", 0), 0)
+            self.assertEqual(b["section"], "sectionA")
+        # такты с нотами после мультипаузы — ноты считаются
+        self.assertEqual(ins[4]["voices"]["Ins"], 4)
+        self.assertEqual(ins[4]["section"], "sectionB")
+
+    def test_bare_z_is_one_bar(self):
+        r = _single("Ins", "Z|")
+        bars = _bars_of(r, "Ins")
+        self.assertEqual(len(bars), 1)
+        self.assertAlmostEqual(bars[0]["end_sec"], 2.0, places=6)
+
+    def test_z2_is_two_bars(self):
+        r = _single("Ins", "Z2|")
+        bars = _bars_of(r, "Ins")
+        self.assertEqual(len(bars), 2)
+        self.assertAlmostEqual(bars[-1]["end_sec"], 4.0, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()

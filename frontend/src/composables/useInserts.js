@@ -1,15 +1,16 @@
-// Слежение за вклейками инструментов — синглтон в module scope.
+// Слежение за вклейками инструментов (замены дорожек) — синглтон в module scope.
 // Жить должно НЕ в компоненте студии: пока очередь гоняет 3-4 джобы,
-// пользователь закрывает студию — компонент умирает, и готовые мини-рендеры
-// никто не микширует («пересборка вышла голой»). Этот сервис живёт всегда.
+// пользователь закрывает студию — компонент умирает, и готовые рендеры
+// кусков никто не микширует («пересборка вышла голой»). Этот сервис живёт всегда.
 import { ref } from 'vue'
 import { api } from '../api.js'
-import { sliceAbc, TRICK_INSTRUMENTS } from '../abcEdit.js'
+import { sectionRequest, TRICK_INSTRUMENTS } from '../abcEdit.js'
 import { clampDb, INSERT_DEFAULT_DB } from '../insertMix.js'
 
 const KEY = 'yue_insert_queue'
 // применённые вклейки по трекам: {parentId: [{childId, instId, from, to, lead,
-// beat, db, aligned, score}]} — из них трек пересобирается с чистого оригинала
+// beat, db, stems, fadeIn, fadeOut, aligned, score}]} — из них трек
+// пересобирается с чистого оригинала
 const APPLIED_KEY = 'yue_insert_applied'
 const pending = ref(load(KEY, []))
 const applied = ref(load(APPLIED_KEY, {}))
@@ -24,7 +25,7 @@ function save() {
   } catch { /* localStorage недоступен — живём в памяти до перезапуска */ }
 }
 
-// specs: [{parent, childId, instId, from, to, lead, beat, db, srcJob}]
+// specs: [{parent, childId, instId, from, to, lead, beat, db, stems, fadeIn, fadeOut, srcJob}]
 function register(specs) {
   pending.value = [...pending.value, ...specs]
   save()
@@ -46,9 +47,12 @@ function rebuild(parentId) {
 async function doRebuild(parentId) {
   const list = appliedFor(parentId)
   if (!list.length) return null
-  const r = await api.rebuildInserts(parentId, list.map((it) => ({
-    child_id: it.childId, from: it.from, to: it.to,
-    lead: it.lead || 0, beat_sec: it.beat || 0, db: clampDb(it.db),
+  const r = await api.rebuildSections(parentId, list.map((it) => ({
+    child_id: it.childId > 0 ? it.childId : 0, from: it.from, to: it.to,
+    // у «громкости дорожек» (childId ≤ 0) db без зажима: −100 — заглушить
+    lead: it.lead || 0, beat_sec: it.beat || 0, db: it.childId > 0 ? clampDb(it.db) : it.db,
+    stems: it.stems || [], fade_in: it.fadeIn || 0, fade_out: it.fadeOut || 0,
+    keep_high_hz: it.keepHighHz || 0,
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -63,22 +67,48 @@ async function doRebuild(parentId) {
   return r
 }
 // перенос вклеек на новую версию трека (пересборка): применённые — с текущей
-// громкостью, ещё рендерящиеся — как есть; вокальная перелепка не переносится
+// громкостью, ещё рендерящиеся — как есть
 function carryTo(fromParent, toParent, srcJob) {
   const done = appliedFor(fromParent).map(({ aligned: _a, score: _s, ...it }) => it)
   // вклейка может быть и в реестре, и в очереди (tick ждёт её пересборку):
   // берём одну — из реестра, там актуальная громкость
   const inRegistry = new Set(done.map((it) => it.childId))
-  const waiting = byParent(fromParent)
-    .filter((s) => s.mode !== 'vocal-restyle' && !inRegistry.has(s.childId))
+  const waiting = byParent(fromParent).filter((s) => !inRegistry.has(s.childId))
     .map(({ parent: _p, done: _d, dead: _x, ...it }) => it)
   register([...done, ...waiting].map((it) => ({ ...it, parent: toParent, srcJob })))
 }
 
 // файл свежего микса: Go называет его по последней вклейке реестра
 function latestFile(parentId) {
-  const list = appliedFor(parentId)
+  const list = appliedFor(parentId).filter((it) => it.childId > 0)   // «заглушить» файла не именует
   return list.length ? `overdub-inst-${list[list.length - 1].childId}.flac` : null
+}
+
+// выбрать один из вариантов рендера вклейки (alts) и пересобрать трек
+async function selectAlt(parentId, childId, altId) {
+  const it = appliedFor(parentId).find((x) => x.childId === childId)
+  if (!it || !(it.alts || []).includes(altId)) return null
+  it.childId = altId
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId)] }
+  save()
+  return rebuild(parentId)
+}
+
+// «заглушить» (приём без рендера): сразу в реестр и пересборка. childId у
+// таких записей — отрицательная метка времени (уникальна, в api уходит 0)
+async function addMute(parentId, item) {
+  return addMutes(parentId, [item])
+}
+// несколько «громкостей дорожек» разом — одна пересборка (кнопка «куплеты реже»)
+let muteSeq = 0
+async function addMutes(parentId, items) {
+  const added = items.map(({ instId, from, to, stems, db = -100 }) => ({
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId, from, to, lead: 0, beat: 0, db, stems,
+    fadeIn: 0, fadeOut: 0, keepHighHz: 0,
+  }))
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), ...added] }
+  save()
+  return rebuild(parentId)
 }
 
 async function setDb(parentId, childId, db) {
@@ -89,24 +119,16 @@ async function setDb(parentId, childId, db) {
   return rebuild(parentId)
 }
 
-async function recreateChild(spec) {
-  // мини-рендер удалён из очереди — режем такой же из плана исходной джобы
+async function recreateChild(spec, src) {
+  // рендер куска удалён из очереди — ставим такой же по плану исходной джобы
   const inst = TRICK_INSTRUMENTS.find((i) => i.id === spec.instId)
-  if (!inst || !spec.srcJob) return null
+  if (!inst || !src) return null
   try {
-    const abc = await api.jobAbcText(spec.srcJob, 'score.abc')
-    const plan = sliceAbc(abc, spec.from, spec.to ?? spec.from + 15, 1)
-    if (!plan.includes('|')) return null
-    return api.submit({
-      title: 'вклейка · ' + inst.id,
-      style: `solo ${inst.en}, sparse quiet ${inst.en} line, no drums, no vocals`,
-      lyrics: '[Instrumental]',
-      seed: Math.floor(Math.random() * 1e9),
-      cot: 'melody',
-      abc: plan,
-      draft: ((spec.to ?? spec.from + 15) - spec.from) < 15,
-    })
-  } catch { return null }
+    const abc = await api.jobAbcText(src.id, src.abc_file || 'score.abc')
+    const req = sectionRequest(src, abc, inst, spec.from, spec.to ?? spec.from + 15)
+    if (!req.abc.includes('|')) return null
+    return api.submit(req)
+  } catch { return null }  // воркер/план недоступны — спека уйдёт в dead ниже
 }
 
 // один проход очереди за раз: таймер и flush() (кнопка ▶ студии) делят его
@@ -130,21 +152,9 @@ async function tickOnce() {
     const jobs = await api.jobs()
     const find = (id) => (jobs || []).find((x) => x.id === id)
     for (const spec of pending.value) {
-      if (spec.mode === 'vocal-restyle') {
-        // вокальная перелепка: инструментальный ререндер готов → родной
-        // вокал (stem-vocals родителя) поверх нового аккомпанемента
-        const child = find(spec.childId)
-        if (child && child.status === 'done') {
-          try {
-            await api.mixVocalsOver(spec.childId, spec.parent)
-            spec.done = true
-          } catch { /* повторим на следующем тике */ }
-        }
-        continue
-      }
       let child = find(spec.childId)
       if (!child && spec.instId) {
-        const childId = await recreateChild(spec)
+        const childId = await recreateChild(spec, find(spec.srcJob))
         if (childId) { spec.childId = childId; child = find(childId) }
       }
       if (!child) { spec.dead = true; continue }
@@ -153,11 +163,19 @@ async function tickOnce() {
       // повтор после сбоя пересборки: запись уже в реестре — не трогаем её
       // (громкость с ползунка и порядок сохраняются)
       const list = appliedFor(spec.parent)
-      if (!list.some((x) => x.childId === spec.childId)) {
+      const prev = spec.replaces && list.find((x) => x.childId === spec.replaces)
+      if (prev) {
+        // «ещё вариант»: новый рендер становится текущим, прежние — в alts
+        prev.alts = [...new Set([...(prev.alts || [prev.childId]), spec.childId])]
+        prev.childId = spec.childId
+        applied.value = { ...applied.value, [spec.parent]: [...list] }
+      } else if (!list.some((x) => x.childId === spec.childId)) {
         applied.value = { ...applied.value, [spec.parent]: [...list, {
           childId: spec.childId, instId: spec.instId, from: spec.from,
           to: spec.to ?? spec.from + 15, lead: spec.lead || 0, beat: spec.beat || 0,
           db: spec.db ?? INSERT_DEFAULT_DB,
+          stems: spec.stems || [], fadeIn: spec.fadeIn || 0, fadeOut: spec.fadeOut || 0,
+          keepHighHz: spec.keepHighHz || 0,
         }] }
       }
       try {
@@ -175,5 +193,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, carryTo, flush, latestFile }
 }

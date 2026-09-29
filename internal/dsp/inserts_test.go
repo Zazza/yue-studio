@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -171,5 +172,153 @@ func TestRunInputsInsertDuration(t *testing.T) {
 	}
 	if at := firstPeak(s, 0.1); at >= 0 {
 		t.Errorf("click leaked into output at %.4f s, DurSec must cut it", at)
+	}
+}
+
+// --- плавный вход/выход и инверсия (карточка «+ инструмент/приём» по стемам) ---
+
+func TestInsertsGraphFadeIn(t *testing.T) {
+	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: 1, FadeIn: 0.5}})
+	mustMatch(t, g, `afade=t=in`, "плавный вход")
+	if strings.Contains(g, "afade=t=out") {
+		t.Errorf("FadeOut=0, а в графе afade=t=out: %s", g)
+	}
+}
+
+func TestInsertsGraphFadeOut(t *testing.T) {
+	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: 1, FadeOut: 0.5}})
+	mustMatch(t, g, `afade=t=out`, "плавный выход")
+	if strings.Contains(g, "afade=t=in") {
+		t.Errorf("FadeIn=0, а в графе afade=t=in: %s", g)
+	}
+}
+
+func TestInsertsGraphNoFadeByDefault(t *testing.T) {
+	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: 1}})
+	if strings.Contains(g, "afade") {
+		t.Errorf("FadeIn=FadeOut=0 — afade быть не должно: %s", g)
+	}
+}
+
+// segRMS — RMS отсчётов 16 кГц на [from,to] с.
+func segRMS(s []float32, from, to float64) float64 {
+	a, b := int(from*16000), int(to*16000)
+	if b > len(s) {
+		b = len(s)
+	}
+	if a >= b {
+		return 0
+	}
+	return RMS(s[a:b])
+}
+
+// Отрицательный Gain — инверсия: та же база, вклеенная с Gain −1, гасит её в окне.
+func TestRunInputsNegativeGainSubtracts(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.wav")
+	out := filepath.Join(dir, "out.wav")
+	lavfi(t, "aevalsrc=exprs='0.5*sin(2*PI*440*t)':d=6:s=16000", base)
+	// та же база: SkipSec = AtSec — отсчёты совпадают, окно [2,4] гасится
+	g := InsertsGraph([]Insert{{AtSec: 2, SkipSec: 2, DurSec: 2, Gain: -1}})
+	if err := RunInputs([]string{base, base}, out, g); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	s := decode(t, out)
+	if d := float64(len(s)) / 16000; math.Abs(d-6) > 0.05 {
+		t.Errorf("output duration %.3f, want 6 ± 0.05", d)
+	}
+	if r := segRMS(s, 2.2, 3.8); r > 0.01 {
+		t.Errorf("в окне вычитания RMS=%.4f, want < 0.01 (тишина)", r)
+	}
+	// синус 0.5 → RMS 0.354
+	for _, w := range [][2]float64{{0.5, 1.5}, {4.5, 5.5}} {
+		if r := segRMS(s, w[0], w[1]); math.Abs(r-0.354) > 0.03 {
+			t.Errorf("вне окна [%.1f,%.1f] RMS=%.4f, want ≈0.354 (база на месте)", w[0], w[1], r)
+		}
+	}
+}
+
+// --- фильтр нижних частот у вклейки (сбивка: у старых барабанов вычитается только низ) ---
+
+func TestInsertsGraphLowpass(t *testing.T) {
+	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: -1, LowpassHz: 6000}})
+	mustMatch(t, g, `lowpass=f=6000([^0-9]|$)`, "фильтр нижних частот со срезом 6000")
+}
+
+func TestInsertsGraphNoLowpassByDefault(t *testing.T) {
+	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: -1}})
+	if strings.Contains(g, "lowpass") {
+		t.Errorf("LowpassHz=0 — lowpass быть не должно: %s", g)
+	}
+}
+
+// hiSR — частота для проверок с 9000 Гц: при 16 кГц он выше Найквиста (8 кГц).
+const hiSR = 44100
+
+// decodeAt — декодировать файл в моно float32 с частотой rate.
+func decodeAt(t *testing.T, path string, rate int) []float32 {
+	t.Helper()
+	raw, err := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error",
+		"-i", path, "-f", "f32le", "-ac", "1", "-ar", strconv.Itoa(rate), "-").Output()
+	if err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	s := make([]float32, len(raw)/4)
+	for i := range s {
+		s[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:]))
+	}
+	return s
+}
+
+// toneAmpAt — амплитуда синуса hz на [from,to] с (одна точка ДПФ) для частоты rate.
+func toneAmpAt(s []float32, rate int, hz, from, to float64) float64 {
+	a, b := int(from*float64(rate)), int(to*float64(rate))
+	if b > len(s) {
+		b = len(s)
+	}
+	if a >= b {
+		return 0
+	}
+	w := 2 * math.Pi * hz / float64(rate)
+	var re, im float64
+	for i, v := range s[a:b] {
+		re += float64(v) * math.Cos(w*float64(i))
+		im -= float64(v) * math.Sin(w*float64(i))
+	}
+	return 2 * math.Hypot(re, im) / float64(b-a)
+}
+
+// Вклейка той же базы с Gain −1 и LowpassHz 6000 гасит в окне только низ (200 Гц),
+// верх (9000 Гц) остаётся; вне окна оба на месте.
+func TestRunInputsLowpassSubtractsOnlyLows(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.wav")
+	out := filepath.Join(dir, "out.wav")
+	lavfi(t, "aevalsrc=exprs='0.3*sin(2*PI*200*t)+0.3*sin(2*PI*9000*t)':d=6:s=44100", base)
+	g := InsertsGraph([]Insert{{AtSec: 2, SkipSec: 2, DurSec: 2, Gain: -1, LowpassHz: 6000}})
+	if err := RunInputs([]string{base, base}, out, g); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	s := decodeAt(t, out, hiSR)
+	if d := float64(len(s)) / hiSR; math.Abs(d-6) > 0.05 {
+		t.Errorf("output duration %.3f, want 6 ± 0.05", d)
+	}
+	if a := toneAmpAt(s, hiSR, 200, 2.2, 3.8); a > 0.05 {
+		t.Errorf("200 Гц в окне %.4f, want < 0.05 (низ вычтен)", a)
+	}
+	// Допуск по верху шире ±0.06 из постановки: фазовый сдвиг 2-полюсного lowpass
+	// у 9000 Гц даёт после вычитания ≈0.37 (проверено ffmpeg на 44.1 кГц).
+	// Контракт — «верх остаётся», а не «ровно 0.3»; полное гашение дало бы < 0.06.
+	if a := toneAmpAt(s, hiSR, 9000, 2.2, 3.8); a < 0.24 || a > 0.42 {
+		t.Errorf("9000 Гц в окне %.4f, want 0.24..0.42 (верх остаётся)", a)
+	}
+	for _, w := range [][2]float64{{0.5, 1.5}, {4.5, 5.5}} {
+		for _, hz := range []float64{200, 9000} {
+			if a := toneAmpAt(s, hiSR, hz, w[0], w[1]); math.Abs(a-0.3) > 0.03 {
+				t.Errorf("вне окна [%.1f,%.1f] %.0f Гц %.4f, want ≈0.3", w[0], w[1], hz, a)
+			}
+		}
 	}
 }

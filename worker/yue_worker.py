@@ -9,6 +9,8 @@
   GET  /jobs             — список последних задач
   GET  /jobs/{id}        — статус задачи
   POST /jobs/{id}/cancel — отмена (только queued)
+  POST /jobs/{id}/continue — продолжение с места {from_sec, seed?, abc?, style_add?} → новая джоба-вложение
+  POST /jobs/{id}/head   — основная версия песни {head_id} (сам трек или его потомок)
   POST /plan             — только стадия плана: ABC до рендера {style, lyrics, seed, cot}
   GET  /listen/{id}      — страница прослушивания
   GET  /audio/{id}/{f}   — артефакты задачи (audio.flac, score.abc, request.abc, ...)
@@ -118,6 +120,20 @@ def _migrate():
             conn.execute("ALTER TABLE jobs ADD COLUMN arc TEXT DEFAULT ''")
         if "max_tokens" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN max_tokens INTEGER DEFAULT 0")
+        # производный трек (кусок для вклейки, пересборка, проверка куска,
+        # вариант-трек): parent_id — от какого трека, role — зачем. В списке
+        # треков такие прячутся под родителем («📎 N»), а не сыплются рядом.
+        if "parent_id" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN parent_id INTEGER")
+        if "role" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN role TEXT DEFAULT ''")
+        # «продолжение с места»: с какой секунды родителя модель играет заново
+        if "cont_from" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN cont_from REAL DEFAULT 0")
+        # основная версия песни (у корня): с какой версией человек работает
+        # сейчас — её играет карточка и открывает студия; правки копятся от неё
+        if "head_id" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN head_id INTEGER")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,6 +273,53 @@ def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
     return stop
 
 
+# шагов модели (семантических токенов) на секунду звука: у #174 6904 шага на
+# 274.9 с → 25.1. Гипотеза «ровно 25 Гц» не сверена с кодеком — эксперимент.
+SEM_TOK_PER_SEC = 25
+
+
+def _continue_song(pipe, row, request):
+    """ЭКСПЕРИМЕНТ «продолжение с места»: шаги модели родителя до cont_from
+    подаются как уже сыгранные, дальше модель продолжает сама (другой сид,
+    при req_abc — изменённый план). До отметки — тот же дубль, после — тот же
+    тембр и сведение: вклейка без шва на входе. Не проверено на GPU."""
+    import dataclasses
+
+    import numpy as np
+    from yue2.pipeline import SemanticResult, SongResult, SymbolicPlan
+    from yue2.protocol import CODEC_OFFSET, CONTEXT, Sampling, negative_prefix, token_prefixes
+
+    src = JOBS_DIR / str(row["parent_id"])
+    saved = SymbolicPlan.load(src)
+    tokens = [int(t) for t in np.load(src / "semantic.npy")]
+    k = max(1, min(len(tokens), round(float(row["cont_from"] or 0) * SEM_TOK_PER_SEC)))
+    req = dataclasses.replace(saved.request, seed=int(request.get("seed") or saved.request.seed),
+                              cfg_scale=request.get("cfg_scale", saved.request.cfg_scale))
+    if request.get("abc"):
+        plan = pipe.plan(request=dataclasses.replace(req, abc=request["abc"]))
+    else:
+        plan = SymbolicPlan(req, saved.abc, saved.abc_ids,
+                            token_prefixes(req, pipe.tokenizer, saved.abc_ids), saved.timing, saved.truncated)
+    forced = [t + CODEC_OFFSET for t in tokens[:k]]
+    prefix = plan.prefix + forced
+    negative = None
+    if plan.request.guidance != 1:
+        negative = negative_prefix(plan.request, pipe.tokenizer, plan.abc_ids) + forced
+    budget = request["semantic_sampling"].max_tokens if request.get("semantic_sampling") else MAX_SEM_TOKENS
+    room = CONTEXT - max(len(prefix), len(negative or []))
+    sampling = Sampling(max_tokens=max(200, min(budget - k, room)))
+    ids, timing, truncated = pipe._generate(
+        prefix, sampling, plan.request.seed, "semantic", negative=negative,
+        cfg_scale=plan.request.guidance, legacy_off=plan.request.cot == "off",
+        cancelled=request.get("cancelled"), on_token=request.get("on_token"))
+    semantic = SemanticResult(plan, tokens[:k] + [int(t) - CODEC_OFFSET for t in ids], timing, truncated)
+    latents = pipe.synthesize(semantic, cancelled=request.get("cancelled"))
+    audio = pipe.decode(latents)
+    config = pipe.effective_config(plan.request, None, sampling)
+    return SongResult(audio, 48000, semantic, latents, config, pipe.weights,
+                      {"semantic": timing}, f"continue-{row['parent_id']}-{k}")
+
+
 def _run_job(job_id: int):
     with db_lock, db() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
@@ -305,7 +368,8 @@ def _run_job(job_id: int):
             t0 = time.time()
             try:
                 try:
-                    song = pipe(**request)
+                    song = (_continue_song(pipe, row, request) if row["role"] == "continue"
+                            else pipe(**request))
                     with _state_lock:
                         _progress.setdefault(job_id, {})["stage"] = "finalize"
                 except TypeError as te:
@@ -393,6 +457,12 @@ def _shutdown():
             _pipe = None
 
 
+# роли производных треков: section — рендер куска для вклейки, rebuild —
+# пересборка с приёмами, fragment — «проверить кусок», variant — вариант
+# эффекта, ставший треком
+JOB_ROLE_PATTERN = "^(|section|rebuild|fragment|variant|continue)$"
+
+
 class JobIn(BaseModel):
     title: str = ""
     style: str
@@ -407,6 +477,9 @@ class JobIn(BaseModel):
     draft: bool = False
     # драматургия: "" | build (нарастание) | wave (волна) | burst (взрыв)
     arc: str = Field(default="", pattern="^(|build|wave|burst)$")
+    # производный трек: от какого трека и зачем (см. _migrate)
+    parent_id: int | None = None
+    role: str = Field(default="", pattern=JOB_ROLE_PATTERN)
 
 
 class PlanIn(BaseModel):
@@ -547,16 +620,76 @@ def submit(req: JobIn):
     with db_lock, db() as conn:
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,"
-            "arc,max_tokens,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "arc,max_tokens,parent_id,role,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
              req.lyrics, req.seed, req.cot, int(req.draft), req.arc,
-             int(req.max_tokens or 0), time.strftime("%Y-%m-%dT%H:%M:%S")))
+             int(req.max_tokens or 0), req.parent_id, req.role,
+             time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
             (JOBS_DIR / str(job_id)).mkdir(parents=True, exist_ok=True)
             (JOBS_DIR / str(job_id) / "request.abc").write_text(req.abc, encoding="utf-8")
             conn.execute("UPDATE jobs SET req_abc='request.abc' WHERE id=?", (job_id,))
     return {"id": job_id}
+
+
+class ContinueIn(BaseModel):
+    from_sec: float = Field(gt=0)        # с какой секунды родителя играть заново
+    seed: int | None = None              # None — случайный: другой вариант продолжения
+    abc: str | None = None               # изменённый план (приёмы) — необязательно
+    title: str = ""
+    # что изменить в звучании с этого места: приписка к стилю родителя
+    # («electric guitar enters and builds») — инструменты в плане не записать
+    style_add: str = ""
+
+
+@app.post("/jobs/{job_id}/continue")
+def continue_job(job_id: int, req: ContinueIn):
+    """ЭКСПЕРИМЕНТ: новый трек = родитель до from_sec + продолжение моделью."""
+    import random
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None or row["status"] != "done":
+            raise HTTPException(404, "job not found or not done")
+        if not (JOBS_DIR / str(job_id) / "semantic.npy").is_file():
+            raise HTTPException(422, "no semantic.npy — job cannot be continued")
+        seed = req.seed if req.seed is not None else random.randrange(1, 2**31)
+        cur = conn.execute(
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,cont_from,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (req.title or f"{row['title']} · с {req.from_sec:.0f} с", "queued",
+             row["style"].strip().rstrip(",") + (", " + req.style_add.strip() if req.style_add.strip() else ""),
+             row["lyrics"], seed, row["cot"], job_id, "continue", req.from_sec,
+             time.strftime("%Y-%m-%dT%H:%M:%S")))
+        new_id = cur.lastrowid
+        if req.abc is not None and req.abc.strip():
+            (JOBS_DIR / str(new_id)).mkdir(parents=True, exist_ok=True)
+            (JOBS_DIR / str(new_id) / "request.abc").write_text(req.abc, encoding="utf-8")
+            conn.execute("UPDATE jobs SET req_abc='request.abc' WHERE id=?", (new_id,))
+    return {"id": new_id}
+
+
+class HeadIn(BaseModel):
+    head_id: int | None = None   # None/0 — основной снова сам трек
+
+
+@app.post("/jobs/{job_id}/head")
+def set_head(job_id: int, req: HeadIn):
+    """Основная версия песни: job_id — корень, head_id — он сам или его потомок."""
+    with db_lock, db() as conn:
+        rows = {r["id"]: r["parent_id"] for r in conn.execute("SELECT id, parent_id FROM jobs")}
+        if job_id not in rows:
+            raise HTTPException(404, "job not found")
+        head = req.head_id or None
+        if head is not None:
+            cur, seen = head, set()
+            while cur is not None and cur != job_id and cur not in seen:
+                seen.add(cur)
+                cur = rows.get(cur)
+            if cur != job_id:
+                raise HTTPException(422, "head must be the job itself or its descendant")
+        conn.execute("UPDATE jobs SET head_id=? WHERE id=?", (head, job_id))
+    return {"id": job_id, "head_id": head}
 
 
 @app.post("/plan")
@@ -844,6 +977,11 @@ def job_lyrics(job_id: int):
     return {"text": text.strip(), "seconds": round(time.time() - t0, 1)}
 
 
+# версия формата/расчёта score.json: 2 — per-voice таймлайн тактов; 3 — мультипауза
+# Z<n> = n тактов и время по темпу заголовка (без смены версии кэш отдавал старое)
+SCORE_V = 3
+
+
 @app.get("/jobs/{job_id}/score")
 def job_score(job_id: int):
     """Таймлайн из score.abc: такты × голоса, аккорды, секции + RMS по секциям.
@@ -859,12 +997,12 @@ def job_score(job_id: int):
     if cache.is_file() and cache.stat().st_mtime >= abc_path.stat().st_mtime:
         try:
             cached = json.loads(cache.read_text())
-            if cached.get("_v") == 2:   # 2 = per-voice таймлайн тактов
+            if cached.get("_v") == SCORE_V:
                 return cached
         except Exception:  # noqa: BLE001 — битый кэш просто перегенерим
             pass
     parsed = parse_abc(abc_path.read_text())
-    parsed["_v"] = 2
+    parsed["_v"] = SCORE_V
     parsed["rms_sections"] = _rms_sections(job_dir / row["audio_file"], parsed["bars"]) \
         if row["audio_file"] and (job_dir / row["audio_file"]).is_file() else []
     cache.write_text(json.dumps(parsed, ensure_ascii=False))
@@ -1023,9 +1161,10 @@ def job_variant_track(job_id: int, req: VariantTrackIn):
         if not src.is_file():
             raise HTTPException(404, f"variant {req.file} not found")
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,created_at,finished_at)"
-            " VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,created_at,finished_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
             (req.title or row["title"], "done", "(вариант DSP-эффекта)", "", None, "full",
+             job_id, "variant",
              time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
         jid = cur.lastrowid
     jdir = JOBS_DIR / str(jid)

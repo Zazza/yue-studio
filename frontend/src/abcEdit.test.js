@@ -1,6 +1,6 @@
 // Тесты приёмов над ABC-планом: разбор/сборка и мутации тактов.
 import { describe, it, expect } from 'vitest'
-import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix } from './abcEdit.js'
+import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix, expandMultiRests, sectionStyle, SOFT_MOOD_WORDS } from './abcEdit.js'
 
 // диалект YuE: та же фикстура, что в worker/test_pure.py
 const ABC = [
@@ -312,5 +312,259 @@ describe('сколько плана звучит до начала окна (sli
 
   it('без Q: — темп по умолчанию 120', () => {
     expect(sliceLeadSec(plan(null), 5, 1)).toBeCloseTo(3, 6)
+  })
+})
+
+
+// ---- мультипауза Z<n> = n тактов тишины (карточка internal-studio-insert-sync, п.8–9) ----
+
+// план как у реальных рендеров: 4/4, L:1/16, Q=120 → такт = 2 с.
+// Секция A (0–8 с): Vocal поёт 4 такта, Ins молчит одной мультипаузой Z4.
+// Секция B (8–16 с): Vocal молчит 4 такта (аккорды есть), Ins играет E/F/G/A.
+const ZPLAN = [
+  'X:1', 'T:', 'M:4/4', 'L:1/16', 'Q:1/4=120',
+  'V: Vocal clef=treble name="Vocal Melody" snm="Vocal"',
+  'V: Ins clef=treble name="Ins Melody" snm="Inst."',
+  'K:Em',
+  '% sectionA',
+  'V: Vocal',
+  '"Em"B4B2B2B4B2B2|"C"c2c2c2c2"D"B2A2A4|"Em"e4e4e4e4|"G"d4d4d4d4|',
+  'V: Ins',
+  'Z4|',
+  '% sectionB',
+  'V: Vocal',
+  '"Am"z16|"C"z16|"D"z16|"Em"z16|',
+  'V: Ins',
+  'E4E4E4E4|F4F4F4F4|G4G4G4G4|A4A4A4A4|',
+].join('\n')
+
+// строки тела (с тактами) заданного голоса в порядке появления
+function voiceLines(abc, name) {
+  const out = []
+  let cur = null
+  for (const line of abc.split('\n')) {
+    const t = line.trim()
+    if (t.startsWith('V:')) { cur = t.slice(2).trim().split(/\s+/)[0]; continue }
+    if (t.startsWith('%')) continue
+    if (cur === name && t.includes('|')) out.push(t)
+  }
+  return out
+}
+
+// такты голоса (непустые чанки между |), без пробелов по краям
+function voiceBarsText(abc, name) {
+  return voiceLines(abc, name).flatMap((l) => l.split('|')).map((c) => c.trim()).filter(Boolean)
+}
+
+
+describe('разворот мультипауз (expandMultiRests)', () => {
+  it('Z4| → 4 такта полной паузы z16', () => {
+    const out = expandMultiRests('X:1\nM:4/4\nL:1/16\nK:C\nV: Ins\nZ4|\n')
+    expect(voiceBarsText(out, 'Ins')).toEqual(['z16', 'z16', 'z16', 'z16'])
+  })
+
+  it('Z| без числа → ровно 1 такт', () => {
+    const out = expandMultiRests('X:1\nM:4/4\nL:1/16\nK:C\nV: Ins\nZ|\n')
+    expect(voiceBarsText(out, 'Ins')).toEqual(['z16'])
+  })
+
+  it('пробелы вокруг Z допустимы', () => {
+    const out = expandMultiRests('X:1\nM:4/4\nL:1/16\nK:C\nV: Ins\n Z2 |\n')
+    expect(voiceBarsText(out, 'Ins')).toEqual(['z16', 'z16'])
+  })
+
+  it('длина паузы — единиц L в такте (4/4 + 1/8 → z8)', () => {
+    const out = expandMultiRests('X:1\nM:4/4\nL:1/8\nK:C\nV: Ins\nZ3|\n')
+    expect(voiceBarsText(out, 'Ins')).toEqual(['z8', 'z8', 'z8'])
+  })
+
+  it('такт с нотами и аккордом рядом с мультипаузой не меняется', () => {
+    const out = expandMultiRests('X:1\nM:4/4\nL:1/16\nK:Em\nV: Vocal\n"Em"B4B2B2B4B2B2|Z2|\n')
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"B4B2B2B4B2B2', 'z16', 'z16'])
+  })
+
+  it('строки без Z, заголовок, % и V: остаются идентичными', () => {
+    const out = expandMultiRests(ZPLAN)
+    const src = ZPLAN.split('\n')
+    const got = out.split('\n')
+    for (const l of src) {
+      if (l.trim() === 'Z4|') continue
+      expect(got).toContain(l)
+    }
+    expect(got).not.toContain('Z4|')
+    expect(voiceBarsText(out, 'Ins').slice(0, 4)).toEqual(['z16', 'z16', 'z16', 'z16'])
+  })
+
+  it('план без мультипауз возвращается без изменений (обычная пауза z не трогается)', () => {
+    expect(expandMultiRests(MULTI)).toBe(MULTI)
+    expect(expandMultiRests(ABC)).toBe(ABC)
+  })
+})
+
+describe('мультипауза в нарезке и приёмах (sliceAbc / applyTrick / sliceLeadSec)', () => {
+  it('sliceAbc [10,12] без контекста → у Ins ровно такт F4F4F4F4 (6-й такт, Z4 = 4 такта)', () => {
+    const out = sliceAbc(ZPLAN, 10, 12, 0)
+    expect(voiceBarsText(out, 'Ins')).toEqual(['F4F4F4F4'])
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"C"z16'])
+  })
+
+  it('sliceAbc: «проверить кусок» не глушит вокал (п.9 — меняется только мини-план вклейки)', () => {
+    const out = sliceAbc(ZPLAN, 2, 4, 0)
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"C"c2c2c2c2"D"B2A2A4'])
+  })
+
+  it('applyTrick rest на Ins, такт 5 → паузой становится F4F4F4F4', () => {
+    const out = applyTrick(ZPLAN, { kind: 'rest', targets: [{ voice: 'Ins', bar: 5 }] })
+    expect(out).not.toContain('F4F4F4F4')
+    expect(out).toContain('E4E4E4E4')
+    expect(out).toContain('G4G4G4G4')
+    expect(out).toContain('A4A4A4A4')
+    // вокал не тронут
+    expect(out).toContain('"Em"B4B2B2B4B2B2|"C"c2c2c2c2"D"B2A2A4|"Em"e4e4e4e4|"G"d4d4d4d4|')
+  })
+
+  it('sliceLeadSec на плане с Z4 в начале у всех голосов — число ≥ 0', () => {
+    const plan = [
+      'X:1', 'M:4/4', 'L:1/16', 'Q:1/4=120', 'K:C',
+      'V: Vocal', 'Z4|', 'c4c4c4c4|d4d4d4d4|',
+      'V: Ins', 'Z4|', 'e4e4e4e4|f4f4f4f4|',
+    ].join('\n')
+    const lead = sliceLeadSec(plan, 9, 1)
+    expect(Number.isFinite(lead)).toBe(true)
+    expect(lead).toBeGreaterThanOrEqual(0)
+    // Z4 = 4 такта по 2 с: from 9 в такте 8–10, контекст 1 такт → с 6 с
+    expect(lead).toBeCloseTo(3, 6)
+  })
+})
+
+describe('каталог TRICK_INSTRUMENTS: какие дорожки меняет каждый', () => {
+  const ALLOWED = ['drums', 'bass', 'other']
+  const byId = (id) => TRICK_INSTRUMENTS.find((i) => i.id === id)
+  const sorted = (a) => [...a].sort()
+
+  it('у каждого непустой stems из drums/bass/other, vocals — никогда', () => {
+    expect(TRICK_INSTRUMENTS.length).toBeGreaterThan(0)
+    for (const i of TRICK_INSTRUMENTS) {
+      expect(Array.isArray(i.stems), `${i.id}: stems не массив`).toBe(true)
+      expect(i.stems.length, `${i.id}: пустой stems`).toBeGreaterThan(0)
+      for (const s of i.stems) expect(ALLOWED, `${i.id}: недопустимый стем ${s}`).toContain(s)
+      expect(i.stems).not.toContain('vocals')
+    }
+  })
+
+  it('id уникальны', () => {
+    const ids = TRICK_INSTRUMENTS.map((i) => i.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('поля mode больше нет', () => {
+    for (const i of TRICK_INSTRUMENTS) expect(i, i.id).not.toHaveProperty('mode')
+  })
+
+  it('bass → [bass], drumfill → [drums], buildup → все три', () => {
+    expect(byId('bass')?.stems).toEqual(['bass'])
+    expect(byId('drumfill')?.stems).toEqual(['drums'])
+    expect(sorted(byId('buildup')?.stems || [])).toEqual(['bass', 'drums', 'other'])
+  })
+
+  // замена барабанов на сбивку: у старых барабанов вычитается только низ (бочка/малый/томы),
+  // хэт и тарелки остаются — иначе трек «глохнет» в окне
+  it('drumfill несёт keepHighHz 6000', () => {
+    expect(byId('drumfill')?.keepHighHz).toBe(6000)
+  })
+
+  it('у остальных инструментов keepHighHz нет', () => {
+    for (const i of TRICK_INSTRUMENTS) {
+      if (i.id === 'drumfill') continue
+      expect(i, i.id).not.toHaveProperty('keepHighHz')
+    }
+  })
+
+  it('мелодические (eguitar, strings, flute, piano) → [other]', () => {
+    for (const id of ['eguitar', 'strings', 'flute', 'piano']) {
+      expect(byId(id)?.stems, id).toEqual(['other'])
+    }
+  })
+})
+
+describe('стиль рендера куска (sectionStyle)', () => {
+  const inst = { id: 'flute', en: 'flute solo', stems: ['other'] }
+
+  it('стиль трека + ", " + en инструмента', () => {
+    expect(sectionStyle('pop, female vocal', inst)).toBe('pop, female vocal, flute solo')
+  })
+
+  it('хвостовая запятая и пробелы стиля трека срезаются', () => {
+    expect(sectionStyle('pop, female vocal, ', inst)).toBe('pop, female vocal, flute solo')
+    expect(sectionStyle('pop,', inst)).toBe('pop, flute solo')
+    expect(sectionStyle('pop   ', inst)).toBe('pop, flute solo')
+  })
+
+  it('пустой стиль → только en', () => {
+    expect(sectionStyle('', inst)).toBe('flute solo')
+    expect(sectionStyle('   ', inst)).toBe('flute solo')
+  })
+})
+
+describe('мягкие слова настроения и energetic-инструменты', () => {
+  const byId = (id) => TRICK_INSTRUMENTS.find((i) => i.id === id)
+  // синтетический energetic-инструмент: проверяем правило, не текст каталога
+  const loud = { id: 'x-loud', en: 'loud riff', stems: ['other'], energetic: true }
+  const FOLK = 'instrumental, acoustic folk, calm fingerpicked acoustic guitar riff, warm, intimate, sparse, 90 BPM'
+
+  it('SOFT_MOOD_WORDS содержит базовый набор мягких слов', () => {
+    expect(Array.isArray(SOFT_MOOD_WORDS)).toBe(true)
+    for (const w of ['calm', 'sparse', 'intimate', 'soft', 'quiet', 'gentle', 'mellow', 'delicate']) {
+      expect(SOFT_MOOD_WORDS, w).toContain(w)
+    }
+  })
+
+  it('eguitar, buildup, drumfill помечены energetic: true', () => {
+    for (const id of ['eguitar', 'buildup', 'drumfill']) {
+      expect(byId(id)?.energetic, id).toBe(true)
+    }
+  })
+
+  it('у strings, piano, flute, bass флага energetic нет', () => {
+    for (const id of ['strings', 'piano', 'flute', 'bass']) {
+      expect(byId(id), id).toBeDefined()
+      expect(byId(id)?.energetic, id).toBeFalsy()
+    }
+  })
+
+  it('eguitar.en — нарастающая перегруженная электрогитара', () => {
+    expect(byId('eguitar')?.en).toBe('electric guitar enters and builds, crunchy overdriven electric guitar, rising intensity')
+  })
+
+  it('energetic: мягкие слова вырезаются из стиля трека, в т.ч. внутри тега; пустые теги выкидываются', () => {
+    const eg = byId('eguitar')
+    expect(sectionStyle(FOLK, eg)).toBe('instrumental, acoustic folk, fingerpicked acoustic guitar riff, warm, 90 BPM, ' + eg.en)
+    expect(sectionStyle(FOLK, loud)).toBe('instrumental, acoustic folk, fingerpicked acoustic guitar riff, warm, 90 BPM, loud riff')
+  })
+
+  it('не-energetic (strings): стиль трека не меняется', () => {
+    const st = byId('strings')
+    expect(sectionStyle(FOLK, st)).toBe(FOLK + ', ' + st.en)
+  })
+
+  it('регистр не важен: "Calm, SOFT piano" → "piano"', () => {
+    expect(sectionStyle('Calm, SOFT piano', loud)).toBe('piano, loud riff')
+  })
+
+  it('лишние пробелы после вырезания схлопываются', () => {
+    expect(sectionStyle('warm  gentle   pads, mellow', loud)).toBe('warm pads, loud riff')
+  })
+
+  it('слово внутри другого слова не трогается (softness, calmer)', () => {
+    expect(sectionStyle('softness, calmer mood', loud)).toBe('softness, calmer mood, loud riff')
+  })
+
+  it('energetic, пустой стиль → только en', () => {
+    expect(sectionStyle('', loud)).toBe('loud riff')
+    expect(sectionStyle('', byId('eguitar'))).toBe(byId('eguitar').en)
+  })
+
+  it('energetic, стиль только из мягких слов → только en', () => {
+    expect(sectionStyle('calm, quiet, ', loud)).toBe('loud riff')
   })
 })

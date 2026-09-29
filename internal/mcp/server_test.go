@@ -60,6 +60,12 @@ func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, tit
 	return 77, nil
 }
 
+func (f *fakeService) ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
+	return 78, nil
+}
+
+func (f *fakeService) SetHead(ctx context.Context, jobID, headID int64) error { return nil }
+
 func (f *fakeService) DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error) {
 	return true, nil
 }

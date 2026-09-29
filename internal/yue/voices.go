@@ -47,3 +47,30 @@ func (c *Client) VariantToTrack(ctx context.Context, jobID int64, file, title st
 	}
 	return out.ID, nil
 }
+
+// ContinueJob — «продолжение с места» (POST /jobs/{id}/continue).
+func (c *Client) ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
+	var out struct {
+		ID int64 `json:"id"`
+	}
+	body := map[string]any{"from_sec": fromSec}
+	if seed > 0 {
+		body["seed"] = seed
+	}
+	if abc != "" {
+		body["abc"] = abc
+	}
+	if styleAdd != "" {
+		body["style_add"] = styleAdd
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/continue", jobID), body, requestTimeout, &out); err != nil {
+		return 0, err
+	}
+	return out.ID, nil
+}
+
+// SetHead — основная версия песни (POST /jobs/{id}/head).
+func (c *Client) SetHead(ctx context.Context, jobID, headID int64) error {
+	var out map[string]any
+	return c.postJSON(ctx, fmt.Sprintf("/jobs/%d/head", jobID), map[string]any{"head_id": headID}, requestTimeout, &out)
+}

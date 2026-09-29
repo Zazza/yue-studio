@@ -1,8 +1,9 @@
-// Громкость вклеек инструмента: дБ относительно оригинала. Уровень партии
-// сначала выравнивается по окну оригинала (Go, dsp.InsertGain), дБ — поверх.
-export const INSERT_DEFAULT_DB = -6
+// Громкость замены дорожки: дБ относительно старой дорожки в окне. Новая
+// дорожка сначала выравнивается по уровню старой (Go, stemGain) — 0 дБ = как
+// было; «выделить бас» — плюс (на плотном треке нужно до +12).
+export const INSERT_DEFAULT_DB = 0
 export const INSERT_MIN_DB = -24
-export const INSERT_MAX_DB = 6
+export const INSERT_MAX_DB = 12
 
 export function clampDb(db) {
   const n = typeof db === 'number' ? db : NaN

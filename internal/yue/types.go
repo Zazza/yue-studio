@@ -42,6 +42,12 @@ type Service interface {
 	Voices(ctx context.Context) ([]Voice, error)
 	VoiceDelete(ctx context.Context, id int64) (bool, error)
 	VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error)
+	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
+	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
+	// styleAdd — что изменить в звучании с этого места)
+	ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error)
+	// SetHead — основная версия песни jobID: сам трек (headID 0) или потомок
+	SetHead(ctx context.Context, jobID, headID int64) error
 	DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error)
 	AudioURL(id int64, file string) string
 	FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error)
@@ -71,6 +77,13 @@ type Job struct {
 	FinishedAt  string  `json:"finished_at"`
 	// черновик (~18 с): пробы стилей и прослушивания голосов
 	Draft bool `json:"draft,omitempty"`
+	// производный трек: от какого трека (ParentID) и зачем (Role: section —
+	// кусок для вклейки, rebuild — пересборка с приёмами, fragment — «проверить
+	// кусок», variant — вариант эффекта треком); в списке прячется под родителем
+	ParentID *int64 `json:"parent_id,omitempty"`
+	Role     string `json:"role,omitempty"`
+	// основная версия песни (у корня): её играет карточка и открывает студия
+	HeadID *int64 `json:"head_id,omitempty"`
 
 	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
 	Stage       string   `json:"stage,omitempty"`
@@ -100,6 +113,9 @@ type SubmitParams struct {
 	Arc string `json:"arc,omitempty"`
 	// жёсткий потолок семантических токенов (селектор длительности); 0 = бюджет воркера
 	MaxTokens int64 `json:"max_tokens,omitempty"`
+	// производный трек: родитель и роль (см. Job.ParentID/Role)
+	ParentID int64  `json:"parent_id,omitempty"`
+	Role     string `json:"role,omitempty"`
 }
 
 type PlanParams struct {

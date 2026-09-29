@@ -44,14 +44,16 @@ const A = { childId: 1, instId: 'i-a', from: 0, to: 10, lead: 0, beat: 0.5, db: 
 const specB = { parent: 'P', childId: 2, instId: 'i-b', from: 5, to: 15, lead: 0.1, beat: 0.5, db: -6, srcJob: 'P' }
 
 // Подготовить окружение и импортировать свежий экземпляр модуля.
-async function load({ queue = [], applied = {}, jobs = [], rebuildInserts }) {
+async function load({ queue = [], applied = {}, jobs = [], rebuildSections }) {
   vi.resetModules()
   globalThis.localStorage = new MemStorage()
   localStorage.setItem('yue_insert_queue', JSON.stringify(queue))
   localStorage.setItem('yue_insert_applied', JSON.stringify(applied))
   vi.useFakeTimers()
   apiMock.jobs = vi.fn(async () => jobs)
-  apiMock.rebuildInserts = rebuildInserts || vi.fn(async (_p, specs) => report(specs))
+  apiMock.rebuildSections = rebuildSections || vi.fn(async (_p, specs) => report(specs))
+  // старый контракт: если сервис его вызовет, тест это увидит
+  apiMock.rebuildInserts = vi.fn(async (_p, specs) => report(specs))
   const mod = await import('./useInserts.js')
   return mod.useInserts()
 }
@@ -67,7 +69,7 @@ afterEach(() => {
 describe('гонка пересборок', () => {
   it('вклейка, добавленная тиком во время чужой пересборки, не пропадает, вторая пересборка шлёт обе', async () => {
     const calls = []
-    const rebuildInserts = vi.fn((parent, specs) => {
+    const rebuildSections = vi.fn((parent, specs) => {
       const d = deferred()
       calls.push({ parent, specs: JSON.parse(JSON.stringify(specs)), d })
       return d.promise
@@ -76,7 +78,7 @@ describe('гонка пересборок', () => {
       applied: { P: [A] },
       queue: [specB],
       jobs: [{ id: 2, status: 'done' }],
-      rebuildInserts,
+      rebuildSections,
     })
 
     // первая пересборка (от setDb) повисла
@@ -109,18 +111,18 @@ describe('setDb', () => {
     const ins = await load({ applied: { P: [A] } })
     await ins.setDb('P', 1, -40)
     await flush()
-    const call = apiMock.rebuildInserts.mock.calls.at(-1)
+    const call = apiMock.rebuildSections.mock.calls.at(-1)
     expect(call[0]).toBe('P')
     expect(call[1].find(s => s.child_id === 1).db).toBe(-24)
     expect(ins.appliedFor('P')[0].db).toBe(-24)
   })
 
-  it('зажимает сверху до +6', async () => {
+  it('зажимает сверху до +12', async () => {
     const ins = await load({ applied: { P: [A] } })
     await ins.setDb('P', 1, 20)
     await flush()
-    expect(apiMock.rebuildInserts.mock.calls.at(-1)[1][0].db).toBe(6)
-    expect(ins.appliedFor('P')[0].db).toBe(6)
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[1][0].db).toBe(12)
+    expect(ins.appliedFor('P')[0].db).toBe(12)
   })
 
   it('значение внутри диапазона не меняется (граница 0)', async () => {
@@ -133,11 +135,11 @@ describe('setDb', () => {
 
 describe('отчёт пересборки', () => {
   it('aligned/score из отчёта записываются в вклейку реестра', async () => {
-    const rebuildInserts = vi.fn(async () => ({
+    const rebuildSections = vi.fn(async () => ({
       variant: { file: 'out.wav' },
       inserts: [{ child_id: 1, aligned: false, score: 0, start_sec: 0, gain: 1 }],
     }))
-    const ins = await load({ applied: { P: [A] }, rebuildInserts })
+    const ins = await load({ applied: { P: [A] }, rebuildSections })
     await ins.rebuild('P')
     await flush()
     const reg = ins.appliedFor('P')
@@ -157,7 +159,7 @@ describe('tick', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
     expect(ins.appliedFor('P') || []).toEqual([])
-    expect(apiMock.rebuildInserts).not.toHaveBeenCalled()
+    expect(apiMock.rebuildSections).not.toHaveBeenCalled()
     expect(childIds(pendingOf(ins))).toEqual([2])
   })
 
@@ -166,21 +168,21 @@ describe('tick', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
     expect(childIds(ins.appliedFor('P'))).toEqual([2])
-    expect(apiMock.rebuildInserts).toHaveBeenCalledTimes(1)
-    expect(apiMock.rebuildInserts.mock.calls[0][0]).toBe('P')
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    expect(apiMock.rebuildSections.mock.calls[0][0]).toBe('P')
     expect(pendingOf(ins)).toEqual([])
   })
 
   it('ошибка пересборки не теряет вклейку: она в реестре, спека в очереди, повтор на следующем тике', async () => {
     let fail = true
-    const rebuildInserts = vi.fn(async (_p, specs) => {
+    const rebuildSections = vi.fn(async (_p, specs) => {
       if (fail) throw new Error('воркер недоступен')
       return report(specs)
     })
-    const ins = await load({ queue: [specB], jobs: [{ id: 2, status: 'done' }], rebuildInserts })
+    const ins = await load({ queue: [specB], jobs: [{ id: 2, status: 'done' }], rebuildSections })
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
-    expect(rebuildInserts).toHaveBeenCalledTimes(1)
+    expect(rebuildSections).toHaveBeenCalledTimes(1)
     expect(childIds(ins.appliedFor('P'))).toEqual([2])
     expect(childIds(pendingOf(ins))).toEqual([2])
 
@@ -188,20 +190,19 @@ describe('tick', () => {
     fail = false
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
-    expect(rebuildInserts.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(rebuildSections.mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(childIds(ins.appliedFor('P'))).toEqual([2])
     expect(pendingOf(ins)).toEqual([])
   })
 })
 
 describe('carryTo', () => {
-  it('переносит вклейки реестра (с текущим db) и ожидающие спеки, кроме vocal-restyle', async () => {
+  it('переносит вклейки реестра (с текущим db) и ожидающие спеки', async () => {
     const specC = { parent: 'P', childId: 3, instId: 'i-c', from: 20, to: 30, lead: 0, beat: 0.5, db: -3, srcJob: 'P' }
-    const specV = { parent: 'P', childId: 4, instId: 'i-v', from: 0, to: 40, lead: 0, beat: 0.5, db: 0, srcJob: 'P', mode: 'vocal-restyle' }
     const ins = await load({
       applied: { P: [A] },
-      queue: [specC, specV],
-      jobs: [{ id: 3, status: 'running' }, { id: 4, status: 'running' }],
+      queue: [specC],
+      jobs: [{ id: 3, status: 'running' }],
     })
     await ins.setDb('P', 1, -18)
     await flush()
@@ -215,7 +216,6 @@ describe('carryTo', () => {
     expect(c1).toMatchObject({ instId: 'i-a', from: 0, to: 10, lead: 0, beat: 0.5, db: -18, srcJob: 'P' })
     const c3 = forQ.find(s => s.childId === 3)
     expect(c3).toMatchObject({ from: 20, to: 30, lead: 0, beat: 0.5, db: -3, srcJob: 'P' })
-    expect(forQ.find(s => s.childId === 4)).toBeUndefined()
   })
 
   it('у трека нет ни вклеек, ни спек → в очереди ничего для нового трека', async () => {
@@ -233,7 +233,7 @@ const B = { childId: 2, instId: 'i-b', from: 5, to: 15, lead: 0.1, beat: 0.5, db
 describe('повторное попадание вклейки в реестр', () => {
   it('спека уже применённой вклейки не сбрасывает db из setDb и не меняет порядок реестра', async () => {
     let n = 0
-    const rebuildInserts = vi.fn(async (_p, specs) => {
+    const rebuildSections = vi.fn(async (_p, specs) => {
       n++
       if (n === 1) throw new Error('воркер недоступен')
       return report(specs)
@@ -242,13 +242,13 @@ describe('повторное попадание вклейки в реестр',
       applied: { P: [A, B] },
       queue: [specA],
       jobs: [{ id: 1, status: 'done' }, { id: 2, status: 'done' }],
-      rebuildInserts,
+      rebuildSections,
     })
 
     // первый тик: пересборка падает, спека A остаётся в очереди
     await vi.advanceTimersByTimeAsync(3000)
     await flush()
-    expect(rebuildInserts).toHaveBeenCalledTimes(1)
+    expect(rebuildSections).toHaveBeenCalledTimes(1)
 
     // пользователь меняет громкость — пересборка успешна
     await ins.setDb('P', 1, -12)
@@ -261,7 +261,7 @@ describe('повторное попадание вклейки в реестр',
     const reg = ins.appliedFor('P')
     expect(reg.map(x => x.childId)).toEqual([1, 2])
     expect(reg.find(x => x.childId === 1).db).toBe(-12)
-    const last = rebuildInserts.mock.calls.at(-1)
+    const last = rebuildSections.mock.calls.at(-1)
     expect(last[1].find(s => s.child_id === 1).db).toBe(-12)
   })
 })
@@ -293,8 +293,8 @@ describe('flush', () => {
     const ins = await load({ queue: [specB], jobs: [{ id: 2, status: 'done' }] })
     await ins.flush()
     expect(childIds(ins.appliedFor('P'))).toEqual([2])
-    expect(apiMock.rebuildInserts).toHaveBeenCalled()
-    const call = apiMock.rebuildInserts.mock.calls.at(-1)
+    expect(apiMock.rebuildSections).toHaveBeenCalled()
+    const call = apiMock.rebuildSections.mock.calls.at(-1)
     expect(call[0]).toBe('P')
     expect(call[1].map(s => s.child_id)).toContain(2)
     expect(pendingOf(ins)).toEqual([])
@@ -302,14 +302,14 @@ describe('flush', () => {
 
   it('резолвится только после завершения пересборки', async () => {
     const d = deferred()
-    const rebuildInserts = vi.fn(() => d.promise)
-    const ins = await load({ queue: [specB], jobs: [{ id: 2, status: 'done' }], rebuildInserts })
+    const rebuildSections = vi.fn(() => d.promise)
+    const ins = await load({ queue: [specB], jobs: [{ id: 2, status: 'done' }], rebuildSections })
     let done = false
     const p = ins.flush().then(() => { done = true })
     await flush()
-    expect(rebuildInserts).toHaveBeenCalledTimes(1)
+    expect(rebuildSections).toHaveBeenCalledTimes(1)
     expect(done).toBe(false)
-    d.resolve(report(rebuildInserts.mock.calls[0][1]))
+    d.resolve(report(rebuildSections.mock.calls[0][1]))
     await p
     expect(done).toBe(true)
   })
@@ -317,7 +317,7 @@ describe('flush', () => {
   it('пустая очередь → резолвится без пересборок', async () => {
     const ins = await load({})
     await ins.flush()
-    expect(apiMock.rebuildInserts).not.toHaveBeenCalled()
+    expect(apiMock.rebuildSections).not.toHaveBeenCalled()
   })
 })
 
@@ -341,7 +341,7 @@ describe('flush: ошибка списка джоб и перекрытие с �
     await expect(ins.flush()).rejects.toThrow('net')
     expect(ins.appliedFor('P') || []).toEqual([])
     expect(childIds(pendingOf(ins))).toEqual([2])
-    expect(apiMock.rebuildInserts).not.toHaveBeenCalled()
+    expect(apiMock.rebuildSections).not.toHaveBeenCalled()
   })
 
   it('api.jobs отклонён в проходе по таймеру → нет необработанного отклонения, очередь и реестр не меняются', async () => {
@@ -360,7 +360,7 @@ describe('flush: ошибка списка джоб и перекрытие с �
       expect(unhandled).toEqual([])
       expect(ins.appliedFor('P') || []).toEqual([])
       expect(childIds(pendingOf(ins))).toEqual([2])
-      expect(apiMock.rebuildInserts).not.toHaveBeenCalled()
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
@@ -392,7 +392,104 @@ describe('flush: ошибка списка джоб и перекрытие с �
     expect(done).toBe(true)
     expect(apiMock.jobs).toHaveBeenCalledTimes(2)
     expect(childIds(ins.appliedFor('P'))).toEqual([2])
-    expect(apiMock.rebuildInserts).toHaveBeenCalled()
-    expect(apiMock.rebuildInserts.mock.calls.at(-1)[0]).toBe('P')
+    expect(apiMock.rebuildSections).toHaveBeenCalled()
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[0]).toBe('P')
+  })
+})
+
+// ---- замена дорожек по стемам: stems/fadeIn/fadeOut едут до api.rebuildSections ----
+
+describe('пересборка по стемам (rebuildSections)', () => {
+  const specS = {
+    parent: 'P', childId: 5, instId: 'bass', from: 8, to: 16, lead: 2, beat: 0.5, db: -3, srcJob: 'P',
+    stems: ['bass'], fadeIn: 0.25, fadeOut: 0.5,
+  }
+
+  it('stems/fadeIn/fadeOut спеки из очереди доходят до api вместе с окном', async () => {
+    const ins = await load({ queue: [specS], jobs: [{ id: 5, status: 'done' }] })
+    await ins.flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalled()
+    const [parent, specs] = apiMock.rebuildSections.mock.calls.at(-1)
+    expect(parent).toBe('P')
+    const s = specs.find(x => x.child_id === 5)
+    expect(s).toEqual({
+      child_id: 5, from: 8, to: 16, lead: 2, beat_sec: 0.5, db: -3,
+      stems: ['bass'], fade_in: 0.25, fade_out: 0.5, keep_high_hz: 0,
+    })
+    expect(apiMock.rebuildInserts).not.toHaveBeenCalled()
+  })
+
+  it('вклейка реестра хранит stems/fadeIn/fadeOut: они же уходят в api при setDb', async () => {
+    const S = { childId: 5, instId: 'drumfill', from: 8, to: 16, lead: 2, beat: 0.5, db: -6, stems: ['drums'], fadeIn: 0.1, fadeOut: 0.2 }
+    const ins = await load({ applied: { P: [S] } })
+    await ins.setDb('P', 5, -3)
+    await flush()
+    const s = apiMock.rebuildSections.mock.calls.at(-1)[1].find(x => x.child_id === 5)
+    expect(s).toMatchObject({ stems: ['drums'], fade_in: 0.1, fade_out: 0.2, db: -3 })
+    expect(ins.appliedFor('P')[0]).toMatchObject({ stems: ['drums'], fadeIn: 0.1, fadeOut: 0.2 })
+  })
+
+  it('carryTo переносит stems/fadeIn/fadeOut на новую версию трека', async () => {
+    const S = { childId: 5, instId: 'buildup', from: 8, to: 16, lead: 2, beat: 0.5, db: -6, stems: ['drums', 'bass', 'other'], fadeIn: 0.1, fadeOut: 0.2 }
+    const ins = await load({ applied: { P: [S] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    const c = pendingOf(ins).find(s => s.parent === 'Q' && s.childId === 5)
+    expect(c).toMatchObject({ stems: ['drums', 'bass', 'other'], fadeIn: 0.1, fadeOut: 0.2 })
+  })
+})
+
+// ---- сбивка: у старых барабанов вычитается только низ (keepHighHz → keep_high_hz) ----
+
+describe('keepHighHz вклейки доходит до api (keep_high_hz)', () => {
+  const specK = {
+    parent: 'P', childId: 6, instId: 'drumfill', from: 8, to: 16, lead: 2, beat: 0.5, db: 0, srcJob: 'P',
+    stems: ['drums'], fadeIn: 0.1, fadeOut: 0.2, keepHighHz: 6000,
+  }
+
+  it('keepHighHz спеки из очереди уходит в api как keep_high_hz вместе с остальными полями', async () => {
+    const ins = await load({ queue: [specK], jobs: [{ id: 6, status: 'done' }] })
+    await ins.flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalled()
+    const [parent, specs] = apiMock.rebuildSections.mock.calls.at(-1)
+    expect(parent).toBe('P')
+    expect(specs.find(x => x.child_id === 6)).toEqual({
+      child_id: 6, from: 8, to: 16, lead: 2, beat_sec: 0.5, db: 0,
+      stems: ['drums'], fade_in: 0.1, fade_out: 0.2, keep_high_hz: 6000,
+    })
+  })
+
+  it('спека без keepHighHz → keep_high_hz: 0', async () => {
+    const noKeep = { ...specK }
+    delete noKeep.keepHighHz
+    const ins = await load({ queue: [noKeep], jobs: [{ id: 6, status: 'done' }] })
+    await ins.flush()
+    const s = apiMock.rebuildSections.mock.calls.at(-1)[1].find(x => x.child_id === 6)
+    expect(s.keep_high_hz).toBe(0)
+  })
+
+  it('вклейка реестра хранит keepHighHz: он же уходит в api при setDb', async () => {
+    const K = { childId: 6, instId: 'drumfill', from: 8, to: 16, lead: 2, beat: 0.5, db: -6, stems: ['drums'], fadeIn: 0.1, fadeOut: 0.2, keepHighHz: 6000 }
+    const ins = await load({ applied: { P: [K] } })
+    await ins.setDb('P', 6, -3)
+    await flush()
+    const s = apiMock.rebuildSections.mock.calls.at(-1)[1].find(x => x.child_id === 6)
+    expect(s).toMatchObject({ keep_high_hz: 6000, db: -3 })
+    expect(ins.appliedFor('P')[0]).toMatchObject({ keepHighHz: 6000 })
+  })
+
+  it('спека из очереди попадает в реестр вместе с keepHighHz', async () => {
+    const ins = await load({ queue: [specK], jobs: [{ id: 6, status: 'done' }] })
+    await ins.flush()
+    expect(ins.appliedFor('P').find(x => x.childId === 6)).toMatchObject({ keepHighHz: 6000 })
+  })
+
+  it('carryTo переносит keepHighHz на новую версию трека', async () => {
+    const K = { childId: 6, instId: 'drumfill', from: 8, to: 16, lead: 2, beat: 0.5, db: -6, stems: ['drums'], fadeIn: 0.1, fadeOut: 0.2, keepHighHz: 6000 }
+    const ins = await load({ applied: { P: [K] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    const c = pendingOf(ins).find(s => s.parent === 'Q' && s.childId === 6)
+    expect(c).toMatchObject({ keepHighHz: 6000 })
   })
 })

@@ -208,6 +208,43 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "continue_job",
+		Description: "«Продолжение с места»: новый трек = трек до from_sec + продолжение моделью " +
+			"(то же исполнение до отметки, без склейки; план и звучание можно изменить). Трек-вложение под родителем.",
+		InputSchema: props(map[string]any{
+			"job_id":    prop("ID готовой джобы", "integer"),
+			"from_sec":  prop("с какой секунды играть заново", "number"),
+			"seed":      prop("сид продолжения; 0 — случайный", "integer"),
+			"abc":       prop("изменённый план (необязательно)", "string"),
+			"style_add": prop("что изменить в звучании с этого места, напр. electric guitar enters and builds", "string"),
+		}, "job_id", "from_sec"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			from, _ := args["from_sec"].(float64)
+			id, err := s.client.ContinueJob(context.Background(), argInt(args, "job_id"), from,
+				argInt(args, "seed"), argString(args, "abc"), argString(args, "style_add"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("продолжение поставлено: #%d", id), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "set_head",
+		Description: "Основная версия песни: job_id — корень, head_id — он сам (0) или его версия-потомок.",
+		InputSchema: props(map[string]any{
+			"job_id":  prop("ID корня песни", "integer"),
+			"head_id": prop("ID версии; 0 — сам трек", "integer"),
+		}, "job_id", "head_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			if err := s.client.SetHead(context.Background(), argInt(args, "job_id"), argInt(args, "head_id")); err != nil {
+				return "", err
+			}
+			return "основная версия обновлена", nil
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "make_minus",
 		Description: "Минус-трек: микс стемов без выбранных групп (напр. vocals для караоке).",
 		InputSchema: props(map[string]any{

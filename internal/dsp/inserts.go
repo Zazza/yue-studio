@@ -12,7 +12,12 @@ type Insert struct {
 	SkipSec float64 // сколько отрезать с начала партии (секунды исходной партии, до растяжения)
 	DurSec  float64 // сколько звучит в треке (после растяжения); 0 = до конца партии
 	Tempo   float64 // atempo; 0 или 1 = без растяжения; вне [0.5, 2] — зажимается
-	Gain    float64 // линейный гейн
+	Gain    float64 // линейный гейн; отрицательный — вычитание (замена дорожки)
+	FadeIn  float64 // плавный вход звучащего куска, с; 0 — без фейда
+	FadeOut float64 // плавный выход, с (нужен DurSec); 0 — без фейда
+	// LowpassHz > 0 — кусок проходит фильтр нижних частот: при вычитании
+	// старых барабанов их верх (хэт, тарелки) остаётся в треке
+	LowpassHz float64
 }
 
 // пределы одного фильтра atempo в ffmpeg
@@ -42,6 +47,15 @@ func InsertsGraph(ins []Insert) string {
 		}
 		if in.DurSec > 0 {
 			fmt.Fprintf(&b, "atrim=duration=%.3f,", in.DurSec)
+		}
+		if in.LowpassHz > 0 {
+			fmt.Fprintf(&b, "lowpass=f=%.0f,", in.LowpassHz)
+		}
+		if in.FadeIn > 0 {
+			fmt.Fprintf(&b, "afade=t=in:st=0:d=%.3f,", in.FadeIn)
+		}
+		if in.FadeOut > 0 && in.DurSec > in.FadeOut {
+			fmt.Fprintf(&b, "afade=t=out:st=%.3f:d=%.3f,", in.DurSec-in.FadeOut, in.FadeOut)
 		}
 		ms := int(max(in.AtSec, 0) * 1000)
 		fmt.Fprintf(&b, "adelay=delays=%d:all=1,volume=%.3f[p%d];", ms, in.Gain, i+1)

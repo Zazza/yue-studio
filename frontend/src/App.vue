@@ -8,7 +8,9 @@ import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './g
 import { slotKeys, slotHints, durOptions, durTokens } from './slotOptions.js'
 import { useI18n } from './i18n/index.js'
 import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
-import { defaultJobFilter, filterJobs, pageJobs, pageCount } from './jobFilter.js'
+import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount } from './jobFilter.js'
+import { isResultJob, mixChildId, mixLabel } from './insertLabels.js'
+import { useInserts } from './composables/useInserts.js'
 import { SLOT_ORDER, buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics } from './styleLogic.js'
 import { usePlayer, fmtDur } from './composables/usePlayer.js'
 import { useConfirm } from './composables/useConfirm.js'
@@ -237,7 +239,53 @@ let timer = null
 // фильтры и пейджер списка треков (логика — jobFilter.js, там же тесты)
 const qf = ref(defaultJobFilter())
 const qPage = ref(1)
-const filteredJobs = computed(() => filterJobs(jobs.value, qf.value))
+// производные треки (куски для вклеек, пересборки, варианты) — под родителем
+const grouped = computed(() => groupJobs(jobs.value))
+const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value))
+const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
+// готовые миксы с вклейками (файлы эффектов родителя overdub-inst-*) — по раскрытию
+const kidMixes = ref({})
+const insertsSvc = useInserts()
+async function toggleKids(id) {
+  const s = new Set(openKids.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  openKids.value = s
+  if (s.has(id)) {
+    try {
+      const vs = (await api.dspVariants(id)) || []
+      // свежий первым: текущий результат — последний микс (в нём все вклейки)
+      const mixes = vs.filter((v) => mixChildId(v.file) != null)
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+      kidMixes.value = { ...kidMixes.value, [id]: mixes }
+    } catch { /* варианты недоступны — покажем только треки-вложения */ }
+  }
+}
+const kidResults = (id) => (grouped.value.children[id] || []).filter(isResultJob)
+// основная версия песни (head_id у корня): её играет «▶» и открывает студия
+function headOf(j) {
+  if (!j.head_id) return j
+  return (grouped.value.children[j.id] || []).find((k) => k.id === j.head_id) || j
+}
+async function makeHead(root, v) {
+  try {
+    await api.setHead(root.id, v.id === root.id ? 0 : v.id)
+    await refresh()
+  } catch (e) {
+    alert(String(e))
+  }
+}
+const kidMaterial = (id) => (grouped.value.children[id] || []).filter((k) => !isResultJob(k))
+function mixName(parentId, file) {
+  const label = mixLabel(file, { applied: insertsSvc.appliedFor(parentId), jobs: jobs.value,
+    labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
+  return label ? t('studio.trick.inst.mix', { what: label })
+    : t('studio.trick.inst.variant', { id: mixChildId(file) })
+}
+function playMix(parent, v) {
+  toggleArtifact('mix' + parent.id + ':' + v.file, mixName(parent.id, v.file),
+    () => api.playFile(parent.id, v.file, parent.duration_sec))
+}
 const qPageMax = computed(() => pageCount(filteredJobs.value.length))
 const qPageNow = computed(() => Math.min(qPage.value, qPageMax.value))
 const queuePage = computed(() => pageJobs(filteredJobs.value, qPage.value))
@@ -759,6 +807,7 @@ function onWindowClick(e) {
         <article v-for="j in queuePage" :key="j.id" class="job" :class="j.status">
         <div class="job-head">
           <strong>#{{ j.id }} {{ j.title }}</strong>
+          <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
           <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
@@ -779,25 +828,71 @@ function onWindowClick(e) {
           </span>
           <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
                   :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
+          <button v-if="(grouped.children[j.id] || []).length" class="ghost small-btn" :class="{ on: openKids.has(j.id) }"
+                  :title="t('queue.kids.tip')" @click="toggleKids(j.id)">📎 {{ grouped.children[j.id].length }}</button>
           <span class="spacer"></span>
           <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
           <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
         </div>
         <p class="muted style">{{ j.style }}</p>
+        <div v-if="openKids.has(j.id)" class="job-kids">
+          <span class="muted">{{ t('queue.kids.versions') }}</span>
+          <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id }">
+            <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
+            <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
+                    @click="makeHead(j, v)">☆ {{ t('queue.head.make') }}</button>
+            <span class="muted">#{{ v.id }}</span>
+            <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
+            <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
+            <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
+            <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
+            <span class="spacer"></span>
+            <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" @click="togglePlay(v)">
+              {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
+            </button>
+            <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
+            <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
+          </div>
+          <details v-if="(kidMixes[j.id] || []).length" class="job-material">
+            <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
+            <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
+              <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
+              <span>{{ mixName(j.id, v.file) }}</span>
+              <span v-if="v.created_at" class="muted">{{ String(v.created_at).replace('T', ' ').slice(0, 16) }}</span>
+              <span class="spacer"></span>
+              <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>
+            </div>
+          </details>
+          <details v-if="kidMaterial(j.id).length" class="job-material material">
+            <summary>{{ t('queue.kids.material', { n: kidMaterial(j.id).length }) }}</summary>
+            <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid">
+              <span>#{{ k.id }}</span>
+              <span>{{ k.title }}</span>
+              <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
+              <span>{{ statusLabelC[k.status] || k.status }}</span>
+              <span class="spacer"></span>
+              <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" @click="togglePlay(k)">
+                {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
+              </button>
+              <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)">✕</button>
+            </div>
+          </details>
+        </div>
         <p v-if="j.error" class="error">{{ j.error }}</p>
         <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
-          <button class="play-main" :disabled="playBusy['m' + j.id]" @click="togglePlay(j)">
-            {{ playBtn('m' + j.id) === '…' ? t('queue.loading') : (isPlaying('m' + j.id) ? t('queue.stop') : t('queue.play')) }}
+          <button class="play-main" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
+            {{ playBtn('m' + headOf(j).id) === '…' ? t('queue.loading') : (isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play')) }}
           </button>
           <button class="ghost stopbtn" :title="t('player.stop')" @click="stopAll()">■</button>
-          <button v-if="isPlaying('m' + j.id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
-          <button class="ghost" @click="openListen(j)" :title="t('queue.browser.tip')">{{ t('queue.browser') }}</button>
-          <button v-if="j.status === 'done'" class="ghost" @click="studioJob = j">студия →</button>
-          <button class="ghost icon" :title="t('queue.save.flac.tip')" @click="saveAudio(j)">{{ t('queue.save.flac') }}</button>
-          <button class="ghost icon" :disabled="playBusy['mp3' + j.id]" :title="t('queue.save.mp3.tip')" @click="saveMp3(j)">{{ t('queue.save.mp3') }}</button>
-          <button v-if="j.abc_file" class="ghost" @click="loadJobAbc(j)"
+          <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
+          <!-- всё на карточке — про основную версию песни: играть, скачать, ноты -->
+          <button class="ghost" @click="openListen(headOf(j))" :title="t('queue.browser.tip')">{{ t('queue.browser') }}</button>
+          <button v-if="j.status === 'done'" class="ghost" @click="studioJob = headOf(j)">студия →</button>
+          <button class="ghost icon" :title="t('queue.save.flac.tip')" @click="saveAudio(headOf(j))">{{ t('queue.save.flac') }}</button>
+          <button class="ghost icon" :disabled="playBusy['mp3' + headOf(j).id]" :title="t('queue.save.mp3.tip')" @click="saveMp3(headOf(j))">{{ t('queue.save.mp3') }}</button>
+          <button v-if="headOf(j).abc_file" class="ghost" @click="loadJobAbc(headOf(j))"
                   :title="t('queue.notes.tip')">{{ t('queue.notes') }}</button>
-          <button v-if="j.abc_file" class="ghost icon" :title="t('queue.notes.save.tip')" @click="saveAudio(j, j.abc_file)">⤓ abc</button>
+          <button v-if="headOf(j).abc_file" class="ghost icon" :title="t('queue.notes.save.tip')" @click="saveAudio(headOf(j), headOf(j).abc_file)">⤓ abc</button>
         </div>
       </article>
         <div v-if="qPageMax > 1" class="pager">

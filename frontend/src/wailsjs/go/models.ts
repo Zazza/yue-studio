@@ -108,28 +108,6 @@ export namespace studio {
 	        this.gain = source["gain"];
 	    }
 	}
-	export class InsertSpec {
-	    child_id: number;
-	    from: number;
-	    to: number;
-	    lead: number;
-	    beat_sec: number;
-	    db: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new InsertSpec(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.child_id = source["child_id"];
-	        this.from = source["from"];
-	        this.to = source["to"];
-	        this.lead = source["lead"];
-	        this.beat_sec = source["beat_sec"];
-	        this.db = source["db"];
-	    }
-	}
 	export class RebuildResult {
 	    variant?: yue.DspVariant;
 	    inserts: InsertReport[];
@@ -161,6 +139,36 @@ export namespace studio {
 		    }
 		    return a;
 		}
+	}
+	export class SectionSpec {
+	    child_id: number;
+	    from: number;
+	    to: number;
+	    lead: number;
+	    beat_sec: number;
+	    stems: string[];
+	    db: number;
+	    fade_in: number;
+	    fade_out: number;
+	    keep_high_hz: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SectionSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.child_id = source["child_id"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.lead = source["lead"];
+	        this.beat_sec = source["beat_sec"];
+	        this.stems = source["stems"];
+	        this.db = source["db"];
+	        this.fade_in = source["fade_in"];
+	        this.fade_out = source["fade_out"];
+	        this.keep_high_hz = source["keep_high_hz"];
+	    }
 	}
 
 }
@@ -273,6 +281,9 @@ export namespace yue {
 	    created_at: string;
 	    finished_at: string;
 	    draft?: boolean;
+	    parent_id?: number;
+	    role?: string;
+	    head_id?: number;
 	    stage?: string;
 	    tokens?: number;
 	    tok_per_s?: number;
@@ -302,6 +313,9 @@ export namespace yue {
 	        this.created_at = source["created_at"];
 	        this.finished_at = source["finished_at"];
 	        this.draft = source["draft"];
+	        this.parent_id = source["parent_id"];
+	        this.role = source["role"];
+	        this.head_id = source["head_id"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];
 	        this.tok_per_s = source["tok_per_s"];
@@ -385,6 +399,8 @@ export namespace yue {
 	    draft?: boolean;
 	    arc?: string;
 	    max_tokens?: number;
+	    parent_id?: number;
+	    role?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SubmitParams(source);
@@ -401,6 +417,8 @@ export namespace yue {
 	        this.draft = source["draft"];
 	        this.arc = source["arc"];
 	        this.max_tokens = source["max_tokens"];
+	        this.parent_id = source["parent_id"];
+	        this.role = source["role"];
 	    }
 	}
 	export class TranscribeResult {

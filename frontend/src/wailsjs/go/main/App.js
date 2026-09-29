@@ -30,6 +30,10 @@ export function YueCancelJob(arg1) {
   return window['go']['main']['App']['YueCancelJob'](arg1);
 }
 
+export function YueContinueJob(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['YueContinueJob'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function YueCopilot(arg1) {
   return window['go']['main']['App']['YueCopilot'](arg1);
 }
@@ -122,11 +126,6 @@ export function YueMakeStems(arg1) {
   return window['go']['main']['App']['YueMakeStems'](arg1);
 }
 
-
-export function YueMixVocalsOver(arg1, arg2) {
-  return window['go']['main']['App']['YueMixVocalsOver'](arg1, arg2);
-}
-
 export function YueOllamaModels(arg1) {
   return window['go']['main']['App']['YueOllamaModels'](arg1);
 }
@@ -151,8 +150,8 @@ export function YuePlayFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['YuePlayFile'](arg1, arg2, arg3);
 }
 
-export function YueRebuildInserts(arg1, arg2) {
-  return window['go']['main']['App']['YueRebuildInserts'](arg1, arg2);
+export function YueRebuildSections(arg1, arg2) {
+  return window['go']['main']['App']['YueRebuildSections'](arg1, arg2);
 }
 
 export function YueRecognizeLyricsFile() {
@@ -169,6 +168,10 @@ export function YueSaveAudio(arg1, arg2) {
 
 export function YueSeekAudio(arg1) {
   return window['go']['main']['App']['YueSeekAudio'](arg1);
+}
+
+export function YueSetHead(arg1, arg2) {
+  return window['go']['main']['App']['YueSetHead'](arg1, arg2);
 }
 
 export function YueSetServerURL(arg1) {

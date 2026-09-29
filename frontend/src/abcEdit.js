@@ -112,40 +112,77 @@ export function pickTargets(voiceBars, lo, hi, kind) {
 // чанка — сумма единиц, пустой чанк — такт целиком. Нужен для «проверить
 // кусок»: драфт-рендер мини-плана даёт послушать приём по месту без полной
 // пересборки трека.
-// такт в секундах = единиц в такте × единица в четвертях × сек/четверть
-// (темп — из заголовка Q:, как считает sliceAbc)
-function secPerBarOf(text) {
-  const q = text.match(/^Q:.*?=\s*(\d+)/m)
-  const tempo = q ? Number(q[1]) : 120
+// мультипауза Z<n> = n целых тактов тишины (так YuE пишет долгие паузы голоса).
+// Счёт тактов/времени везде ведётся по развёрнутому плану: без этого голос с
+// Z4 отставал на 3 такта на каждую мультипаузу, и нарезка брала чужой материал.
+const MULTI_REST_RE = /^\s*Z(\d*)\s*$/
+export function expandMultiRests(abc) {
+  const text = String(abc)
+  const units = barUnits(text)
+  return assemble(splitBars(text).map((p) => {
+    if (p.kind !== 'body') return p
+    const chunks = []
+    for (const c of p.chunks) {
+      const m = c.match(MULTI_REST_RE)
+      if (!m) { chunks.push(c); continue }
+      for (let i = 0; i < Number(m[1] || 1); i++) chunks.push('z' + units)
+    }
+    return { ...p, chunks }
+  }))
+}
+
+// длительность такта (с) при темпе tempo: единиц в такте × единица в
+// четвертях × сек/четверть
+function barSec(text, tempo) {
   const m = text.match(/^L:\s*1\/(\d+)/m)
   const lden = m ? Number(m[1]) : 16
   return barUnits(text) * (4 / lden) * (60 / tempo)
 }
 
-export function sliceAbc(abc, from, to, padBars = 1) {
-  const text = String(abc)
-  const secPerBar = secPerBarOf(text)
-
-  const keep = {}   // voice → Set(индексы тактов, попадающих в окно)
-  const counters = {}
-  const vt = {}
-  const parts = splitBars(text)
-  for (const p of parts) {
+// таймлайн плана: {голос: [{start, end, tempo}]} по тактам голоса (после
+// разворота мультипауз). Темп — ТОЛЬКО из заголовка (первая строка Q:): YuE
+// смену темпа посреди плана не исполняет (замер: приём «темп +10%» — бочка
+// осталась 120 BPM), и время звука идёт по темпу заголовка. Ускорение — эффект
+// «Ускорить с отметки» (dsp tempo-from).
+export function planTimeline(abc) {
+  const text = expandMultiRests(abc)
+  const q = text.match(/^Q:.*?=\s*(\d+)/m)
+  const tempo = q ? Number(q[1]) : 120
+  const out = {}
+  for (const p of splitBars(text)) {
     if (p.kind !== 'body' || !p.voice) continue
     const closed = p.raw.trim().endsWith('|')
     const n = closed ? p.chunks.length - 1 : p.chunks.length
-    const base = counters[p.voice] || 0
+    const list = out[p.voice] || (out[p.voice] = [])
+    const dur = barSec(text, tempo)
     for (let j = 0; j < n; j++) {
-      const t0 = vt[p.voice] || 0
-      const t1 = t0 + secPerBar
-      if (t1 > from && t0 < to) {
-        keep[p.voice] = keep[p.voice] || new Set()
-        keep[p.voice].add(base + j)
-      }
-      vt[p.voice] = t1
+      const t0 = list.length ? list[list.length - 1].end : 0
+      list.push({ start: t0, end: t0 + dur, tempo })
     }
-    counters[p.voice] = base + n
   }
+  return out
+}
+
+// длина доли (с) в момент sec: темп такта, который звучит в sec (первый голос,
+// у которого такой такт есть); вне плана — темп последнего такта
+export function beatSecAt(abc, sec) {
+  let tempo = 0
+  for (const list of Object.values(planTimeline(abc))) {
+    const b = list.find((x) => x.start <= sec && sec < x.end) || list[list.length - 1]
+    if (b) { tempo = b.tempo; break }
+  }
+  return 60 / (tempo || 120)
+}
+
+export function sliceAbc(abc, from, to, padBars = 1) {
+  const text = expandMultiRests(abc)
+  const keep = {}   // voice → Set(индексы тактов, попадающих в окно)
+  for (const [voice, list] of Object.entries(planTimeline(text))) {
+    list.forEach((b, i) => {
+      if (b.end > from && b.start < to) (keep[voice] = keep[voice] || new Set()).add(i)
+    })
+  }
+  const parts = splitBars(text)
   // расширить окно на pad тактов контекста по каждому голосу
   for (const v of Object.keys(keep)) {
     const ids = [...keep[v]]
@@ -175,24 +212,100 @@ export function sliceAbc(abc, from, to, padBars = 1) {
 // контекста — при вклейке его начало ставится на from − lead, а не на from
 // (иначе партия опаздывает на такт).
 export function sliceLeadSec(abc, from, padBars = 1) {
-  const secPerBar = secPerBarOf(String(abc))
-  const first = Math.max(0, Math.floor(from / secPerBar + 1e-9) - padBars)
-  return from - first * secPerBar
+  // первый такт в окне (по любому голосу) минус padBars тактов контекста
+  let lead = 0
+  for (const list of Object.values(planTimeline(abc))) {
+    const i = list.findIndex((b) => b.end > from + 1e-9)
+    if (i < 0) continue
+    const first = list[Math.max(0, i - padBars)]
+    lead = Math.max(lead, from - first.start)
+  }
+  return lead
 }
 
-// инструменты «+ инструмент»: mode overdub = цельный ре-рендер того же плана
-// (ритм совпадает всегда, локализация — фразой в стиле); insert = подклад
-// куском поверх (струнные/колокольчики: сетка им не нужна)
+// инструменты и приёмы «+ инструмент»: кусок трека перерендеривается целой
+// группой (стиль трека + en), а в треке заменяются только дорожки stems
+// (стемы demucs; голос не трогается никогда). db — громкость новой дорожки
+// по умолчанию, fadeIn — вход замены, с (сбивка — точно по доле), energetic —
+// из стиля трека убираются мягкие слова настроения (SOFT_MOOD_WORDS),
+// keepHighHz — у старой дорожки убирается только низ (хэт/тарелки остаются).
 export const TRICK_INSTRUMENTS = [
-  { id: 'flute', en: 'flute melody', mode: 'overdub' },
-  { id: 'strings', en: 'string ensemble', mode: 'insert' },
-  { id: 'organ', en: 'hammond organ', mode: 'overdub' },
-  { id: 'sax', en: 'saxophone', mode: 'overdub' },
-  { id: 'eguitar', en: 'distorted electric guitar', mode: 'overdub' },
-  { id: 'synth', en: 'analog synth lead', mode: 'overdub' },
-  { id: 'bells', en: 'glockenspiel', mode: 'insert' },
-  { id: 'piano', en: 'grand piano', mode: 'overdub' },
+  { id: 'eguitar', en: 'electric guitar enters and builds, crunchy overdriven electric guitar, rising intensity', stems: ['other'], energetic: true },
+  { id: 'strings', en: 'lush string ensemble', stems: ['other'] },
+  { id: 'piano', en: 'prominent grand piano', stems: ['other'] },
+  { id: 'organ', en: 'hammond organ', stems: ['other'] },
+  { id: 'synth', en: 'analog synth lead', stems: ['other'] },
+  { id: 'flute', en: 'flute melody', stems: ['other'] },
+  { id: 'sax', en: 'saxophone', stems: ['other'] },
+  { id: 'bells', en: 'glockenspiel', stems: ['other'] },
+  { id: 'bass', en: 'prominent driving bass guitar', stems: ['bass'], db: 4 },
+  { id: 'drumfill', en: 'drum fill building up into the chorus, snare roll crescendo, tom fill, crash cymbal', stems: ['drums'], db: 4, fadeIn: 0.1, keepHighHz: 6000, energetic: true },
+  { id: 'buildup', en: 'building up, rising intensity', stems: ['drums', 'bass', 'other'], energetic: true },
+  // «жёстче» генерацией: перегруз обработкой срезал вершины волны (замер:
+  // 2 → 358 срезанных сэмплов), а «стена» гитар от модели — это аранжировка
+  { id: 'heavy', en: 'heavier, fuzz wall of distorted guitars, driving, soaring intensity', stems: ['other', 'bass'], energetic: true },
 ]
+
+// запрос рендера куска группой: план окна со всеми голосами (+такт контекста),
+// стиль трека с припиской, сид и режим плана родителя — тот же «дубль» по
+// таймингу (замер: бочка перерендера совпадает с оригиналом)
+// seed — для «ещё вариант» (модель играет кусок по-разному от сида к сиду)
+export function sectionRequest(parent, abc, inst, from, to, seed) {
+  return {
+    title: (parent.title || 'трек') + ' · ' + inst.id,
+    style: sectionStyle(parent.style, inst),
+    lyrics: '[Instrumental]',
+    seed: seed || parent.seed || Math.floor(Math.random() * 1e9),
+    cot: parent.cot === 'off' || !parent.cot ? 'melody' : parent.cot,
+    abc: sliceAbc(abc, from, to, 1),
+    draft: false,
+    // производный трек: в списке прячется под родителем
+    parent_id: parent.id, role: 'section',
+  }
+}
+
+// мягкие слова настроения: у спокойного трека они перебивали приписку
+// «энергичного» инструмента — модель играла ту же акустику (замер: центр
+// спектра гитар не сдвинулся; без этих слов электрогитара появилась)
+export const SOFT_MOOD_WORDS = ['calm', 'sparse', 'intimate', 'soft', 'quiet', 'gentle', 'mellow', 'delicate']
+const SOFT_RE = new RegExp('\\b(' + SOFT_MOOD_WORDS.join('|') + ')\\b', 'gi')
+
+// приёмы громкости дорожек без рендера: в окне дорожки mute (можно и голос)
+// меняются на db. «только барабаны» — остальное заглушено (db −100); «барабаны
+// громче» — заход после провала модель играет тихо (замер −42…−31 при бите −18)
+export const TRICK_MUTES = [
+  { id: 'drumsolo', mute: ['other', 'bass', 'vocals'], db: -100 },
+  { id: 'drumsup', mute: ['drums'], db: 6 },
+  { id: 'otherdown', mute: ['other'], db: -6 },
+  { id: 'bassdown', mute: ['bass'], db: -6 },
+]
+
+// окна секций по таймлайну ролла: подряд идущие такты голоса voice с секцией
+// section → [{from, to}] (для «куплеты реже»: все куплеты одной кнопкой)
+export function sectionWindows(bars, voice, section) {
+  const out = []
+  for (const b of bars || []) {
+    if (!(b.voices && voice in b.voices)) continue
+    const last = out[out.length - 1]
+    if (b.section === section) {
+      if (last && last.open && Math.abs(last.to - b.start_sec) < 0.05) last.to = b.end_sec
+      else out.push({ from: b.start_sec, to: b.end_sec, open: true })
+    } else if (last) last.open = false
+  }
+  return out.map(({ from, to }) => ({ from, to }))
+}
+
+// стиль рендера куска: стиль трека + приписка инструмента/приёма; для
+// energetic-инструментов мягкие слова из стиля трека убираются
+export function sectionStyle(parentStyle, inst) {
+  let base = String(parentStyle || '')
+  if (inst.energetic) {
+    base = base.split(',').map((tag) => tag.replace(SOFT_RE, '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean).join(', ')
+  }
+  base = base.trim().replace(/[\s,]+$/, '')
+  return base ? base + ', ' + inst.en : inst.en
+}
 
 // стилевые приписки от приёмов: октава и «+ инструмент» в секцию.
 // Модель следует стилю приблизительно, но такие структурные подсказки
@@ -219,6 +332,7 @@ function baseTempo(abc) {
 // перед строкой с первым целевым тактом — как драматургия; применения
 // накапливаются), instrument (план не трогает — ходит стилевой припиской).
 export function applyTrick(abc, spec) {
+  abc = expandMultiRests(abc)
   const want = new Set((spec.targets || []).map((t) => t.voice + '#' + t.bar))
   const units = barUnits(abc)
   const chord = spec.kind === 'chord' ? borrowedChord(keyRoot(abc), spec.flavor) : null

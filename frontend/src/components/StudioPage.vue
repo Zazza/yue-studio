@@ -8,8 +8,9 @@ import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
 import { useInserts } from '../composables/useInserts.js'
 import { odPartyChips } from '../slotOptions.js'
-import { applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix } from '../abcEdit.js'
+import { applyTrick, beatSecAt, pickTargets, sectionRequest, sectionWindows, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, TRICK_MUTES, trickStyleSuffix } from '../abcEdit.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
+import { mixLabel } from '../insertLabels.js'
 import VSelect from '../VSelect.vue'
 
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
@@ -41,6 +42,7 @@ const dspSel = ref('')
 const dspParams = ref({})
 const dspBusy = ref(false)
 const dspVariants = ref([])
+const allJobs = ref([])
 const jobMetrics = ref(null)   // метрики исходника (для инлайн-дельт)
 
 const curChain = computed(() => dspChains.value.find((c) => c.id === dspSel.value) || null)
@@ -102,6 +104,8 @@ onMounted(async () => {
   await openRoll()
   try { stemsList.value = (await api.jobStems(props.job.id)) || [] } catch {}
   try { dspChains.value = (await api.dspChains()) || [] } catch {}
+  // для подписей вклеек из старых файлов (рендер куска → инструмент)
+  try { allJobs.value = (await api.jobs()) || [] } catch { /* без списка — подпись по номеру */ }
   reloadVariants()
   // восстановить промежуточное состояние студии (переживает перезапуск)
   try {
@@ -269,6 +273,7 @@ async function renderInstrumental() {
       seed: props.job.seed || Math.floor(Math.random() * 1e9),
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,
       abc,
+      parent_id: props.job.id, role: 'rebuild',
     })
     trickMsg.value = t('studio.trick.done', { id })
     buildJob.value = { id, status: 'queued' }
@@ -349,19 +354,14 @@ const hasVocalSel = computed(() => {
 
 // приём по выделению: адресация — чистая функция (тесты в abcEdit.test),
 // позиция = такт, все голоса в выбранных колонках (октава — только вокал).
-// «+ инструмент» план не трогает — ходит стилевой припиской при пересборке.
+// «+ инструмент» план не трогает — рендер куска группой и замена дорожек (addSection).
 const instSel = ref(TRICK_INSTRUMENTS[0].id)
-const instOptions = computed(() => TRICK_INSTRUMENTS.map((i) => ({ value: i.id, label: t('studio.trick.inst.' + i.id) })))
+const instOptions = computed(() => [...TRICK_INSTRUMENTS, ...TRICK_MUTES].map((i) => ({ value: i.id, label: t('studio.trick.inst.' + i.id) })))
 
 async function runTrick(kind, extra = {}) {
   const p = selPos.value
   if (!p) return
-  if (kind === 'instrument') {
-    // мелодические партии — овердабом (цельный ре-рендер того же плана,
-    // ритм всегда в сетке), подклады — вклейкой куском (механизм ниже)
-    const inst = TRICK_INSTRUMENTS.find((i) => i.id === (extra.inst || ''))
-    return inst && inst.mode === 'insert' ? addInstrument(extra.inst) : addInstrumentOverdub(extra.inst)
-  }
+  if (kind === 'instrument') return addSection(extra.inst)
   const r = pickTargets(voiceBarList.value, p.lo, p.hi, kind)
   if (!r || !r.targets.length) return
   const spec = { kind, label: trickLabel(kind, extra), from: r.from, to: r.to,
@@ -380,118 +380,56 @@ async function runTrick(kind, extra = {}) {
   }
 }
 
-// «+ инструмент»: короткий рендер выделенного куска (мини-план, стиль «только
-// инструмент») → ffmpeg вклеивает его в оригинал точно в секунды выделения
-// (overdub-inst-<id>.flac). Два неудачных пути закрыты вашими экспериментами:
-// стилевая приписка расползается на весь трек, «молчащий» план модель
-// пере-спланировывает; короткий кусок она исполняет честно.
-// мини-рендер куска под вклейку: план окна + стиль «только инструмент»
-async function submitInsertJob(inst, from, to) {
-  const plan = sliceAbc(baseAbc.value, from, to, 1)
-  if (!plan.includes('|')) return null
-  const draft = (to - from) < 15   // короткий кусок — драфта (18 с) хватает
-  return api.submit({
-    title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
-    style: `solo ${inst.en}, sparse quiet ${inst.en} line, no drums, no vocals`,
-    lyrics: '[Instrumental]',
-    seed: Math.floor(Math.random() * 1e9),
-    cot: 'melody',
-    abc: plan,
-    draft,
-  })
-}
-
-// «+ инструмент» на мелодическую партию. Три пути по природе трека
-// (проверено на живых треках: микс двух исполнений расходится на быстром
-// груве и удваивает голос на вокальных):
-// - инструментальный трек: НОВАЯ ВЕРСИЯ целиком (ререндер, тот же план+сид,
-//   без микса с оригиналом) — одно исполнение, ритм идеален;
-// - вокальный: стемы — родной вокал поверх инструментального ререндера
-//   (голос один, аккомпанемент один), финишный микс — сервис useInserts.
-async function addInstrumentOverdub(instId) {
-  const inst = TRICK_INSTRUMENTS.find((i) => i.id === instId)
-  const r = selTimeRange()
-  if (!inst || !r) return
-  trickBusy.value = true
-  rollErr.value = ''
-  trickMsg.value = ''
-  instJob.value = { id: null, status: 'starting' }
-  try {
-    const dur = Number(props.job.duration_sec) || 1
-    const mid = (r.from + r.to) / 2 / dur
-    const pos = mid < 0.2 ? 'the intro'
-      : mid < 0.45 ? 'the first half'
-      : mid < 0.7 ? 'the second half' : 'the final section'
-    const style = (props.job.style || '').trim().replace(/,$/, '')
-      + `, prominent ${inst.en} in ${pos}`
-    const vocal = /\[Verse\]|\[Chorus\]|\[Bridge\]/i.test(props.job.lyrics || '')
-    if (!vocal) {
-      // инструментальный: отдельная новая версия по партитуре родителя
-      const abc = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
-      const id = await api.submit({
-        title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
-        style, lyrics: '[Instrumental]',
-        seed: props.job.seed || Math.floor(Math.random() * 1e9),
-        cot: props.job.cot === 'off' ? 'melody' : props.job.cot, abc,
-      })
-      sentMarks.value = [...sentMarks.value,
-        { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
-      saveStudioState()
-      instJob.value = { id, status: 'queued', standalone: true }
-      startJobPoll()
-      pollInst()
-      return
-    }
-    // вокальный: стемы (минуты, demucs) → инструментальный ререндер → микс сервисом
-    trickMsg.value = t('studio.trick.inst.stems')
-    await api.makeStems(props.job.id)
-    const abc = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
-    const id = await api.submit({
-      title: (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id),
-      style: style.replace(/,? [^,]*vocals[^,]*/gi, '') + ', instrumental, no vocals',
-      lyrics: '[Instrumental]',
-      seed: props.job.seed || Math.floor(Math.random() * 1e9),
-      cot: props.job.cot === 'off' ? 'melody' : props.job.cot, abc,
-    })
-    sentMarks.value = [...sentMarks.value,
-      { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
-    saveStudioState()
-    inserts.register([{ mode: 'vocal-restyle', parent: props.job.id, childId: id }])
-    instJob.value = { id, status: 'queued', restyle: true }
-    startJobPoll()
-    pollInst()
-  } catch (e) {
-    instJob.value = null
-    rollErr.value = String(e)
-  } finally {
-    trickBusy.value = false
-  }
-}
-
-async function addInstrument(instId) {
+// «+ инструмент» / приём группой: выделенный кусок перерендеривается моделью
+// целой группой (план окна со всеми голосами, стиль трека + приписка, сид
+// трека), затем сервис useInserts заменяет в треке только дорожки inst.stems
+// (голос не трогается). Замеры: замена целого куска давала слышный шов,
+// наложение одиночной партии — чужой грув и второй голос; замена стема
+// с подгонкой по бочке держит ритм и не шьёт весь микс.
+async function addSection(instId) {
   const p = selPos.value
   const r = selTimeRange()
-  const inst = TRICK_INSTRUMENTS.find((i) => i.id === instId)
+  const inst = [...TRICK_INSTRUMENTS, ...TRICK_MUTES].find((i) => i.id === instId)
   if (!p || !r || !inst) return
+  if (inst.mute) {
+    // без рендера: заглушить дорожки в окне и пересобрать трек
+    trickBusy.value = true
+    rollErr.value = ''
+    try {
+      const res = await inserts.addMute(props.job.id, { instId: inst.id, from: r.from, to: r.to, stems: inst.mute, db: inst.db })
+      if (res && res.variant) await api.playFile(props.job.id, res.variant.file, props.job.duration_sec)
+    } catch (e) {
+      rollErr.value = String(e)
+    } finally {
+      trickBusy.value = false
+    }
+    return
+  }
   trickBusy.value = true
   rollErr.value = ''
   trickMsg.value = ''
   instJob.value = { id: null, status: 'starting' }
   try {
     await ensureBaseAbc()
-    const childId = await submitInsertJob(inst, r.from, r.to)
-    if (!childId) {
+    const req = sectionRequest(props.job, baseAbc.value, inst, r.from, r.to)
+    if (!req.abc.includes('|')) {
       rollErr.value = t('studio.trick.fragment.empty')
       instJob.value = null
       return
     }
+    req.title = (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id)
+    const childId = await api.submit(req)
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
-    // мини-рендер начинается с такта контекста (sliceAbc pad=1): вклейка
-    // ставит его начало на from − lead, иначе партия опаздывает на такт
+    // рендер начинается с такта контекста (sliceAbc pad=1): по плану его
+    // начало стоит на from − lead
     const lead = sliceLeadSec(baseAbc.value, r.from, 1)
-    const beat = 60 / ((rollData.value && rollData.value.tempo_bpm) || 120)
-    const spec = { childId, instId: inst.id, from: r.from, to: r.to, lead, beat, db: INSERT_DEFAULT_DB }
+    // доля — по темпу в месте вклейки (приём «темп» мог его поменять)
+    const beat = beatSecAt(baseAbc.value, r.from)
+    const spec = { childId, instId: inst.id, from: r.from, to: r.to, lead, beat,
+      db: inst.db ?? INSERT_DEFAULT_DB, stems: inst.stems,
+      // мелодическим — плавный вход за такт до выделения, сбивке — точно по доле
+      fadeIn: inst.fadeIn ?? beat * 4, fadeOut: beat, keepHighHz: inst.keepHighHz || 0 }
     saveStudioState()
     // микс — на вечном сервисе: студию можно закрыть сразу
     inserts.register([{ ...spec, parent: props.job.id, srcJob: props.job.id }])
@@ -572,6 +510,7 @@ async function rebuild(draft = false) {
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,   // abc требует full|melody
       abc,
       draft,
+      parent_id: props.job.id, role: draft ? 'fragment' : 'rebuild',
     })
     if (draft) {
       trickMsg.value = t('studio.trick.drafted', { id })
@@ -679,23 +618,101 @@ async function onInsertDb(it, value) {
   }
 }
 
+// «куплеты реже»: во всех куплетах плана гитары −6 дБ, барабаны −3 дБ —
+// куплет «воздушнее», припев сильнее открывается (замер на #212: куплет
+// был тише припева на 0.6 LU, стал на 1.9)
+async function sparseVerses() {
+  const voice = ((rollData.value && rollData.value.voice_order) || [])[0]
+  const wins = sectionWindows((rollData.value && rollData.value.bars) || [], voice, 'verse')
+    .filter((w) => w.from < (Number(props.job.duration_sec) || Infinity))
+  if (!wins.length) { rollErr.value = t('studio.sparse.none'); return }
+  trickBusy.value = true
+  rollErr.value = ''
+  try {
+    const res = await inserts.addMutes(props.job.id, wins.flatMap((w) => [
+      { instId: 'otherdown', from: w.from, to: w.to, stems: ['other'], db: -6 },
+      { instId: 'drumsdown', from: w.from, to: w.to, stems: ['drums'], db: -3 },
+    ]))
+    if (res && res.variant) await api.playFile(props.job.id, res.variant.file, props.job.duration_sec)
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    trickBusy.value = false
+  }
+}
+
+// «ещё вариант»: тот же кусок, другой сид — модель играет его по-разному
+// (сбивка на одном сиде удалась, на другом звучала провалом). Новый рендер
+// станет текущим, прежние остаются в alts — переключатель 1/2/3.
+async function moreVariant(it) {
+  const inst = TRICK_INSTRUMENTS.find((i) => i.id === it.instId)
+  if (!inst) return
+  trickBusy.value = true
+  rollErr.value = ''
+  try {
+    await ensureBaseAbc()
+    const req = sectionRequest(props.job, baseAbc.value, inst, it.from, it.to,
+      Math.floor(Math.random() * 1e9))
+    req.title = (props.job.title || 'трек') + ' · ' + t('studio.trick.inst.' + inst.id) + ' · вариант'
+    const childId = await api.submit(req)
+    const spec = { instId: it.instId, from: it.from, to: it.to, lead: it.lead, beat: it.beat, db: it.db,
+      stems: it.stems, fadeIn: it.fadeIn, fadeOut: it.fadeOut, keepHighHz: it.keepHighHz }
+    inserts.register([{ ...spec, childId, replaces: it.childId, parent: props.job.id, srcJob: props.job.id }])
+    instJob.value = { id: childId, status: 'queued' }
+    startJobPoll()
+    pollInst()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    trickBusy.value = false
+  }
+}
+async function pickAlt(it, alt) {
+  if (alt === it.childId) return
+  dbBusy.value = true
+  rollErr.value = ''
+  try {
+    const r = await inserts.selectAlt(props.job.id, it.childId, alt)
+    if (r && r.variant) await api.playFile(props.job.id, r.variant.file, props.job.duration_sec)
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    dbBusy.value = false
+  }
+}
+
+// ЭКСПЕРИМЕНТ «продолжение с места»: трек до начала выделения остаётся тем же
+// дублем, дальше модель играет заново (другой сид) — новый трек-вложение.
+// Приёмы, собранные на ролле, уходят изменённым планом.
+// что изменить в звучании с места: приписка к стилю трека (инструменты и
+// характер в план не записать — «electric guitar enters and builds»)
+const contStyle = ref('')
+async function continueFromSel() {
+  const r = selTimeRange()
+  if (!r) return
+  trickBusy.value = true
+  rollErr.value = ''
+  try {
+    let abc = ''
+    if (pendingSpecs.value.length) {
+      await ensureBaseAbc()
+      abc = pendingSpecs.value.reduce((plan, spec) => applyTrick(plan, spec), planDraft.value || baseAbc.value)
+    }
+    const id = await api.continueJob(props.job.id, r.from, 0, abc, contStyle.value.trim())
+    buildJob.value = { id, status: 'queued' }
+    trickMsg.value = t('studio.cont.done', { id })
+    startJobPoll()
+    pollBuild()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    trickBusy.value = false
+  }
+}
+
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
 // успела/не дошла) — пересобрать прямо сейчас; кнопка ▶ тем же путём самолечится
 async function playInstrument(j) {
-  if (j.restyle) {
-    // вокальная перелепка: готовый результат = dsp-with-vocal у ререндера
-    await api.playFile(j.id, 'dsp-with-vocal.flac', props.job.duration_sec)
-    return
-  }
-  if (j.standalone) {
-    await api.playAudio(j.id)
-    return
-  }
-  if (j.overdub) {
-    // овердаб-партия микшируется воркером в родителя: overdub-<id>.flac
-    await api.playFile(props.job.id, `overdub-${j.id}.flac`, props.job.duration_sec)
-    return
-  }
   // студия могла заметить готовность партии раньше сервиса: сначала сервис
   // вклеивает готовые партии, потом играем свежий микс (имя — по реестру)
   j = { ...j, mixing: true }
@@ -756,6 +773,7 @@ async function renderFragment() {
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,
       abc: mini,
       draft: true,
+      parent_id: props.job.id, role: 'fragment',
     })
     fragJob.value = { id, status: 'queued' }
     startJobPoll()
@@ -853,7 +871,10 @@ async function submitOverdub() {
 
 function chainLabel(file) {
   if (file.startsWith('overdub-inst-')) {
-    return t('studio.trick.inst.variant', { id: file.replace(/^overdub-inst-/, '').replace(/\.flac$/, '') })
+    const label = mixLabel(file, { applied: inserts.appliedFor(props.job.id), jobs: allJobs.value,
+      labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
+    return label ? t('studio.trick.inst.mix', { what: label })
+      : t('studio.trick.inst.variant', { id: file.replace(/^overdub-inst-/, '').replace(/\.flac$/, '') })
   }
   const isPrev = file.startsWith('dsp-preview-')
   const id = String(file).replace(/^dsp-preview-/, '').replace(/^dsp-/, '').replace(/\.flac$/, '')
@@ -1018,6 +1039,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <VSelect v-model="instSel" :options="instOptions" :title="t('studio.trick.inst.tip')" style="width:150px" />
             <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
                     :title="t('studio.trick.inst.tip')" @click="runTrick('instrument', { inst: instSel })">{{ t('studio.trick.inst.add') }}</button>
+            <input v-model="contStyle" class="cont-style" :placeholder="t('studio.cont.style.ph')" :title="t('studio.cont.style.tip')" />
+            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                    :title="t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
+            <button class="ghost small-btn" :disabled="trickBusy || !rollData"
+                    :title="t('studio.sparse.tip')" @click="sparseVerses">{{ t('studio.sparse') }}</button>
             <span class="muted">{{ t('studio.trick.tempo.label') }}</span>
             <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
                     :title="t('studio.trick.tempo.up.tip')" @click="runTrick('tempo', { dir: 'up' })">{{ t('studio.trick.tempo.up') }}</button>
@@ -1083,16 +1109,22 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </p>
           <div v-if="appliedInserts.length" class="insert-list">
             <span class="muted">{{ t('studio.inserts.title') }}</span>
-            <div v-for="it in appliedInserts" :key="it.childId" class="insert-row">
+            <div v-for="it in appliedInserts" :key="it.instId + ':' + it.from" class="insert-row">
               <strong>{{ t('studio.trick.inst.' + it.instId) }}</strong>
               <span class="muted">{{ fmtDur(it.from) }}–{{ fmtDur(it.to) }}</span>
-              <label class="od-gain">{{ t('studio.inserts.db') }}
+              <label v-if="it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
                 <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
                        :disabled="dbBusy" @change="onInsertDb(it, $event.target.value)" />
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
               </label>
               <span v-if="it.aligned === true" class="muted" :title="t('studio.inserts.aligned.tip')">✓ {{ t('studio.inserts.aligned') }}</span>
               <span v-else-if="it.aligned === false" class="error" :title="t('studio.inserts.plan.tip')">⚠ {{ t('studio.inserts.plan') }}</span>
+              <template v-if="(it.alts || []).length > 1">
+                <button v-for="(alt, n) in it.alts" :key="alt" class="ghost small-btn" :class="{ on: alt === it.childId }"
+                        :disabled="dbBusy" :title="t('studio.inserts.alt.tip')" @click="pickAlt(it, alt)">{{ n + 1 }}</button>
+              </template>
+              <button class="ghost small-btn" :disabled="dbBusy || trickBusy" :title="t('studio.inserts.more.tip')"
+                      @click="moreVariant(it)">↻ {{ t('studio.inserts.more') }}</button>
             </div>
           </div>
 

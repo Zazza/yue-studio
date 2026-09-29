@@ -9,7 +9,9 @@ GET  /health           статус, модель в памяти?
 POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max_tokens?} — abc: свой план; draft: черновик ~15-20 с;
                        max_tokens — жёсткий потолок длины (~25 т/с: 3000 ≈ 1–2 мин), 0 = бюджет воркера;
                        arc: драматургия поверх плана (build|wave|burst: дуга темпа по секциям,
-                       burst — голос на октаву выше в финале; с abc несовместим)
+                       burst — голос на октаву выше в финале; с abc несовместим);
+                       parent_id?, role? — производный трек (section | rebuild | fragment |
+                       variant | continue): в списке приложения прячется под родителем («📎 N»)
 POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
 POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации
@@ -42,4 +44,8 @@ DELETE /voices/{id}   удалить карточку (строка БД + voice
 DELETE /jobs/{id}/dsp/{file}  удалить вариант эффекта/вклейки (файл + метрики)
 POST /jobs/{id}/variant_track  {file, title} — вариант DSP-эффекта (dsp-*.flac) отдельным
                        треком-готов: копия аудио + партитура исходника, стемы/минус работают
+                       (parent_id = исходник, role = variant)
+POST /jobs/{id}/continue {from_sec, seed?, abc?} — ЭКСПЕРИМЕНТ «продолжение с места»: новая
+                       джоба = шаги модели исходника (semantic.npy) до from_sec + продолжение
+                       (другой сид; abc — изменённый план). parent_id = исходник, role = continue
 ```

@@ -6,9 +6,9 @@ import {
   YueCopilot,
   YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
-  YueMakeStems, YueJobStems, YueMakeMinus, YueMixVocalsOver,
+  YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueRebuildInserts, YueDspVariantDelete,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -49,7 +49,6 @@ export const api = {
   jobLyrics: (id) => YueJobLyrics(id),
   adaptLyrics: (text, to) => YueAdaptLyrics(text, to || 'Russian'),
   makeStems: (id) => YueMakeStems(id),
-  mixVocalsOver: (backingId, vocalJobId) => YueMixVocalsOver(backingId, vocalJobId),
   jobStems: (id) => YueJobStems(id),
   makeMinus: (id, exclude) => YueMakeMinus(id, exclude || []),
   corpusCreate: (name) => YueCorpusCreate(name),
@@ -61,10 +60,15 @@ export const api = {
   voiceCreate: (name, jobId, params, seed) => YueVoiceCreate(name, jobId, params, seed),
   voices: () => YueVoices(),
   voiceDelete: (id) => YueVoiceDelete(id),
-  // все вклейки трека заново с чистого оригинала: [{child_id, from, to, lead, beat_sec, db}]
-  rebuildInserts: (parentId, specs) => YueRebuildInserts(parentId, specs),
+  // все замены дорожек трека заново с чистого оригинала:
+  // [{child_id, from, to, lead, beat_sec, db, stems, fade_in, fade_out}]
+  rebuildSections: (parentId, specs) => YueRebuildSections(parentId, specs),
   dspVariantDelete: (id, file) => YueDspVariantDelete(id, file),
   variantToTrack: (jobId, file, title) => YueVariantToTrack(jobId, file, title),
+  // трек до fromSec + продолжение моделью (seed 0 — случайный; abc — план; styleAdd — звучание)
+  continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
+  // основная версия песни: rootId — корень, headId — версия (0 — сам трек)
+  setHead: (rootId, headId) => YueSetHead(rootId, headId || 0),
   playFile: (id, file, dur) => YuePlayFile(id, file, dur),
   playAudio: (id) => YuePlayAudio(id),
   translate: (text) => YueTranslate(text),

@@ -33,7 +33,7 @@ const (
 	AlignMinScore = 0.1
 	// MaxInsertGain — потолок гейна выравнивания (~+18 дБ): тихий рендер не раздуваем в шум.
 	MaxInsertGain = 8.0
-	silenceRMS    = 1e-6
+	silenceRMS    = 1e-3 // −60 дБ: тише — тишина (пустой рендер барабанов −75 дБ раздувался ×8)
 
 	alignHopSec          = 0.005 // шаг огибающей: 5 мс — точность сдвига до интерполяции
 	alignDefaultShift    = 2.0   // ±такт на 120 BPM

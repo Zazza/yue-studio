@@ -54,6 +54,8 @@ func RegisterWorkflowTools(s *Server) {
 			"draft":      prop("черновик ~15-20 с: быстро послушать стиль до полного рендера", "boolean"),
 			"arc":        prop("драматургия поверх плана: build (нарастание) | wave (волна) | burst (взрыв: пол-время, breakdown, голос на октаву выше в финале)", "string"),
 			"max_tokens": prop("жёсткий потолок семантических токенов (~25 т/с): 3000 ≈ 1–2 мин, 7500 ≈ 2–5 мин; 0 = бюджет воркера", "integer"),
+			"parent_id":  prop("производный трек: id родителя (в списке прячется под ним)", "integer"),
+			"role":       prop("роль производного трека: section | rebuild | fragment | variant", "string"),
 			"n":          prop("веер: число джоб с сидами base+0..n-1 (1..10)", "integer"),
 		}, "style", "lyrics"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -66,6 +68,8 @@ func RegisterWorkflowTools(s *Server) {
 				Draft:     argBool(args, "draft"),
 				Arc:       argString(args, "arc"),
 				MaxTokens: argInt(args, "max_tokens"),
+				ParentID:  argInt(args, "parent_id"),
+				Role:      argString(args, "role"),
 			}
 			if p.Cot == "" {
 				p.Cot = "full"
