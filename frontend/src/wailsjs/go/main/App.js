@@ -122,9 +122,6 @@ export function YueMakeStems(arg1) {
   return window['go']['main']['App']['YueMakeStems'](arg1);
 }
 
-export function YueMixInstrument(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['YueMixInstrument'](arg1, arg2, arg3, arg4, arg5);
-}
 
 export function YueMixVocalsOver(arg1, arg2) {
   return window['go']['main']['App']['YueMixVocalsOver'](arg1, arg2);
@@ -152,6 +149,10 @@ export function YuePlayAudio(arg1) {
 
 export function YuePlayFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['YuePlayFile'](arg1, arg2, arg3);
+}
+
+export function YueRebuildInserts(arg1, arg2) {
+  return window['go']['main']['App']['YueRebuildInserts'](arg1, arg2);
 }
 
 export function YueRecognizeLyricsFile() {

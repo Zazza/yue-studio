@@ -112,14 +112,19 @@ export function pickTargets(voiceBars, lo, hi, kind) {
 // чанка — сумма единиц, пустой чанк — такт целиком. Нужен для «проверить
 // кусок»: драфт-рендер мини-плана даёт послушать приём по месту без полной
 // пересборки трека.
-export function sliceAbc(abc, from, to, padBars = 1) {
-  const text = String(abc)
+// такт в секундах = единиц в такте × единица в четвертях × сек/четверть
+// (темп — из заголовка Q:, как считает sliceAbc)
+function secPerBarOf(text) {
   const q = text.match(/^Q:.*?=\s*(\d+)/m)
   const tempo = q ? Number(q[1]) : 120
   const m = text.match(/^L:\s*1\/(\d+)/m)
   const lden = m ? Number(m[1]) : 16
-  // такт в секундах = единиц в такте × единица в четвертях × сек/четверть
-  const secPerBar = barUnits(text) * (4 / lden) * (60 / tempo)
+  return barUnits(text) * (4 / lden) * (60 / tempo)
+}
+
+export function sliceAbc(abc, from, to, padBars = 1) {
+  const text = String(abc)
+  const secPerBar = secPerBarOf(text)
 
   const keep = {}   // voice → Set(индексы тактов, попадающих в окно)
   const counters = {}
@@ -165,6 +170,16 @@ export function sliceAbc(abc, from, to, padBars = 1) {
   }
   return assemble(out)
 }
+// сколько секунд мини-партитуры sliceAbc звучит ДО момента from: такт
+// контекста (padBars) + доля своего такта. Мини-рендер начинается с этого
+// контекста — при вклейке его начало ставится на from − lead, а не на from
+// (иначе партия опаздывает на такт).
+export function sliceLeadSec(abc, from, padBars = 1) {
+  const secPerBar = secPerBarOf(String(abc))
+  const first = Math.max(0, Math.floor(from / secPerBar + 1e-9) - padBars)
+  return from - first * secPerBar
+}
+
 // инструменты «+ инструмент»: mode overdub = цельный ре-рендер того же плана
 // (ритм совпадает всегда, локализация — фразой в стиле); insert = подклад
 // куском поверх (струнные/колокольчики: сетка им не нужна)

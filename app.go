@@ -6,13 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"yue-studio/internal/config"
 	"yue-studio/internal/dsp"
+	"yue-studio/internal/studio"
 	"yue-studio/internal/yue"
 )
 
@@ -77,22 +77,7 @@ func (a *App) readAudioFile(title string) ([]byte, string, error) {
 
 // fetchTempFile скачивает артефакт джобы в новый temp-файл; удаление — на вызывающем (defer).
 func (a *App) fetchTempFile(id int64, file, pattern string) (string, error) {
-	body, _, err := a.yue.FetchAudio(a.ctx, id, file)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = body.Close() }()
-	tmp, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", err
-	}
-	_, cpErr := io.Copy(tmp, body)
-	tmp.Close()
-	if cpErr != nil {
-		os.Remove(tmp.Name())
-		return "", cpErr
-	}
-	return tmp.Name(), nil
+	return studio.FetchTemp(a.ctx, a.yue, id, file, "", pattern)
 }
 
 func (a *App) YueStatus() (*yue.HealthInfo, error) {
@@ -221,46 +206,12 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	return a.yue.UploadDsp(a.ctx, jobID, fname, data)
 }
 
-// YueMixInstrument — вклеить партию (джоба-рендер) в трек джобы на секунду
-// fromSec с гейном: короткий рендер куска + ffmpeg-микс = инструмент слышен
-// ровно в выбранном месте. Результат кладётся как overdub-inst-<id>.flac.
-func (a *App) YueMixInstrument(parentID, childID int64, fromSec, durSec, gain float64) (*yue.DspVariant, error) {
-	// база — последняя вклейка (накопительно: новый инструмент поверх всех
-	// предыдущих, итог = самая свежая строка «Эффектов»), иначе оригинал трека
-	base := "audio.flac"
-	if vs, err := a.yue.JobDspVariants(a.ctx, parentID); err == nil {
-		for _, v := range vs { // список от воркера уже по свежести
-			if strings.HasPrefix(v.File, "overdub-inst-") {
-				base = v.File
-				break
-			}
-		}
-	}
-	parent, err := a.fetchTempFile(parentID, base, fmt.Sprintf("yue-mix-%d-in-*.flac", parentID))
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(parent)
-	child, err := a.fetchTempFile(childID, "audio.flac", fmt.Sprintf("yue-mix-%d-party-*.flac", childID))
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(child)
-	out, err := os.CreateTemp("", fmt.Sprintf("yue-mix-%d-out-*.flac", parentID))
-	if err != nil {
-		return nil, err
-	}
-	out.Close()
-	defer os.Remove(out.Name())
-	if err := dsp.RunTwoInputs(parent, child, out.Name(), dsp.MixUnderGraph(fromSec, durSec, gain)); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(out.Name())
-	if err != nil {
-		return nil, err
-	}
-	fname := fmt.Sprintf("overdub-inst-%d.flac", childID)
-	return a.yue.UploadDsp(a.ctx, parentID, fname, data)
+// YueRebuildInserts — пересобрать трек джобы со всеми вклейками инструментов
+// с чистого оригинала: партии встают в ритм по бочке трека (или по плану,
+// если подгонка не уверена), громкость — дБ относительно оригинала.
+// Результат — overdub-inst-<последняя партия>.flac + отчёт по вклейкам.
+func (a *App) YueRebuildInserts(parentID int64, specs []studio.InsertSpec) (*studio.RebuildResult, error) {
+	return studio.RebuildInserts(a.ctx, a.yue, parentID, specs)
 }
 
 // YueMixVocalsOver — родной вокал джобы (stem-vocals) поверх нового

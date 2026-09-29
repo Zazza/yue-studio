@@ -30,6 +30,8 @@
 | `player.go` | встроенный плеер: pw-play + SIGSTOP/SIGCONT (пауза) |
 | `internal/yue/client.go` | HTTP-клиент воркера: jobs, plan, transcribe, corpus, стемы… |
 | `internal/dsp/` | ffmpeg-цепочки эффектов (локальные, на готовом flac) |
+| `internal/studio/` | вклейки инструментов: пересборка трека со всеми вклейками с чистого `audio.flac`, партия ставится в ритм по бочке (стем drums), громкость — дБ к уровню окна |
+| `cmd/yue-align` | замер синхронности вклейки: сдвиг/скорость партии против окна трека, ошибка в мс |
 | `frontend/src/App.vue` | весь UI (один компонент) |
 | `frontend/src/presets.js` | библиотека пресетов стилей |
 | `frontend/src/rack.js` | инструментальная стойка |

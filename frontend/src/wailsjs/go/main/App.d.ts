@@ -3,6 +3,7 @@
 import {yue} from '../models';
 import {main} from '../models';
 import {dsp} from '../models';
+import {studio} from '../models';
 
 export function YueAdaptLyrics(arg1:string,arg2:string):Promise<yue.LyricsResult>;
 
@@ -64,7 +65,6 @@ export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<stri
 
 export function YueMakeStems(arg1:number):Promise<Record<string, any>>;
 
-export function YueMixInstrument(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<yue.DspVariant>;
 
 export function YueMixVocalsOver(arg1:number,arg2:number):Promise<yue.DspVariant>;
 
@@ -79,6 +79,8 @@ export function YuePlan(arg1:yue.PlanParams):Promise<yue.PlanResult>;
 export function YuePlayAudio(arg1:number):Promise<void>;
 
 export function YuePlayFile(arg1:number,arg2:string,arg3:number):Promise<void>;
+
+export function YueRebuildInserts(arg1:number,arg2:Array<studio.InsertSpec>):Promise<studio.RebuildResult>;
 
 export function YueRecognizeLyricsFile():Promise<yue.LyricsResult>;
 

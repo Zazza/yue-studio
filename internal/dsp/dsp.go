@@ -205,25 +205,6 @@ func VocalsOverGraph() string {
 	return "[1:a]volume=1.0[vc];[0:a][vc]amix=inputs=2:duration=longest:normalize=0[out]"
 }
 
-// MixUnderGraph — filter_complex для вклейки партии в оригинал: партия
-// задерживается до atSec, приглушается и подмешивается без нормализации
-// (amix normalize=0 — иначе он делит громкость на число входов).
-// durSec > 0 обрезает партию по окну выделения: рендер куска моделью
-// не останавливается на длине плана и может раздуться на минуты.
-func MixUnderGraph(atSec, durSec, gain float64) string {
-	if atSec < 0 {
-		atSec = 0
-	}
-	ms := int(atSec * 1000)
-	trim := ""
-	if durSec > 0 {
-		trim = fmt.Sprintf("atrim=duration=%.3f,", durSec)
-	}
-	return fmt.Sprintf(
-		"[1:a]%sadelay=%d|%d,volume=%.2f[du];[0:a][du]amix=inputs=2:duration=first:normalize=0[out]",
-		trim, ms, ms, gain)
-}
-
 // RunTwoInputs — ffmpeg с двумя входами (микс партии под оригинал).
 func RunTwoInputs(basePath, partyPath, outPath, filterGraph string) error {
 	args := []string{"-y", "-hide_banner", "-loglevel", "error",

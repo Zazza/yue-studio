@@ -8,7 +8,8 @@ import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
 import { useInserts } from '../composables/useInserts.js'
 import { odPartyChips } from '../slotOptions.js'
-import { applyTrick, pickTargets, sliceAbc, TRICK_INSTRUMENTS, trickStyleSuffix } from '../abcEdit.js'
+import { applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix } from '../abcEdit.js'
+import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import VSelect from '../VSelect.vue'
 
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
@@ -118,7 +119,6 @@ onMounted(async () => {
     if (per.trickV === 2) {
       if (per.trickMarks) sentMarks.value = per.trickMarks      // история версий
       if (per.pendingSpecs) pendingSpecs.value = per.pendingSpecs
-      if (per.instSpecs) instSpecs.value = per.instSpecs
     }
   } catch {}
 })
@@ -137,7 +137,6 @@ function saveStudioState() {
       trickV: 2,
       trickMarks: sentMarks.value,
       pendingSpecs: pendingSpecs.value,
-      instSpecs: instSpecs.value,
     }
     localStorage.setItem(key, JSON.stringify(st))
   } catch {}
@@ -488,13 +487,14 @@ async function addInstrument(instId) {
     }
     sentMarks.value = [...sentMarks.value,
       { kind: 'instrument', label: '+ ' + t('studio.trick.inst.' + inst.id), from: r.from, to: r.to }]
-    instMix = { from: r.from, to: r.to }
-    instSpecs.value = [...instSpecs.value,
-      { childId, instId: inst.id, from: r.from, to: r.to, gain: 0.8 }]
+    // мини-рендер начинается с такта контекста (sliceAbc pad=1): вклейка
+    // ставит его начало на from − lead, иначе партия опаздывает на такт
+    const lead = sliceLeadSec(baseAbc.value, r.from, 1)
+    const beat = 60 / ((rollData.value && rollData.value.tempo_bpm) || 120)
+    const spec = { childId, instId: inst.id, from: r.from, to: r.to, lead, beat, db: INSERT_DEFAULT_DB }
     saveStudioState()
     // микс — на вечном сервисе: студию можно закрыть сразу
-    inserts.register([{ parent: props.job.id, childId, instId: inst.id,
-      from: r.from, to: r.to, gain: 0.8, srcJob: props.job.id }])
+    inserts.register([{ ...spec, parent: props.job.id, srcJob: props.job.id }])
     instJob.value = { id: childId, status: 'queued' }
     startJobPoll()
     pollInst()
@@ -654,26 +654,33 @@ function maybeStopPoll() {
   if (!active) stopFragPoll()
 }
 const pollFragment = watchJob(fragJob, 'f', 'кусок')
-// новая версия трека: по готовности отдаём все вклейки вечному сервису
-// (useInserts) — он микширует независимо от того, закрыта ли студия
+// новая версия трека: по готовности переносим все вклейки (с текущей
+// громкостью) вечному сервису useInserts — он микширует, даже если студия закрыта
 const pollBuild = watchJob(buildJob, 'b', 'новая версия', null, async (j) => {
-  inserts.register(instSpecs.value.map((s) => ({
-    ...s, parent: j.id, srcJob: props.job.id,
-  })))
+  inserts.carryTo(props.job.id, j.id, props.job.id)
 })
 const instJob = ref(null)
 
-// партия инструмента: по готовности дитя вклеиваем его в оригинал (ffmpeg на
-// ПК, точно в секунды выделения) и играем уже смешанный файл
-let instMix = { from: 0, to: 0 }
-// все вклейки сессии: пере-накатываются на пересобранную версию
-const instSpecs = ref([])   // [{childId, instId, from, to, gain}]
-
-// длительность вклейки по журналу (0 = не резать — старые записи без окна)
-const durOf = (ins) => (ins.to && ins.from != null && ins.to > ins.from ? ins.to - ins.from : 0)
+// партия инструмента: по готовности дитя сервис useInserts пересобирает трек
+// со всеми вклейками (ffmpeg на ПК, в ритм по бочке) — играем смешанный файл
+// вклейки этого трека с громкостью и отметкой «в сетке / по плану»
+const appliedInserts = computed(() => inserts.appliedFor(props.job.id))
+const dbBusy = ref(false)
+async function onInsertDb(it, value) {
+  dbBusy.value = true
+  rollErr.value = ''
+  try {
+    const r = await inserts.setDb(props.job.id, it.childId, Number(value))
+    if (r && r.variant) await api.playFile(props.job.id, r.variant.file, props.job.duration_sec)
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    dbBusy.value = false
+  }
+}
 
 // воспроизведение партии: если файл микса ещё не на сервере (автовклейка не
-// успела/не дошла) — вклеить прямо сейчас; кнопка ▶ тем же путём самолечится
+// успела/не дошла) — пересобрать прямо сейчас; кнопка ▶ тем же путём самолечится
 async function playInstrument(j) {
   if (j.restyle) {
     // вокальная перелепка: готовый результат = dsp-with-vocal у ререндера
@@ -689,17 +696,25 @@ async function playInstrument(j) {
     await api.playFile(props.job.id, `overdub-${j.id}.flac`, props.job.duration_sec)
     return
   }
+  // студия могла заметить готовность партии раньше сервиса: сначала сервис
+  // вклеивает готовые партии, потом играем свежий микс (имя — по реестру)
+  j = { ...j, mixing: true }
+  instJob.value = j
   try {
-    await api.playFile(props.job.id, `overdub-inst-${j.id}.flac`, props.job.duration_sec)
-  } catch {
-    j = { ...j, mixing: true }
-    instJob.value = j
+    await inserts.flush()
+    const file = inserts.latestFile(props.job.id)
     try {
-      const v = await api.mixInstrument(props.job.id, j.id, instMix.from, durOf(instMix), 0.5)
-      await api.playFile(props.job.id, v.file, props.job.duration_sec)
-    } finally {
-      instJob.value = { ...j, mixing: false }
+      if (!file) throw new Error('нет микса')
+      await api.playFile(props.job.id, file, props.job.duration_sec)
+    } catch {
+      // файла на воркере нет (пересборка не дошла) — пересобрать сейчас
+      const r = await inserts.rebuild(props.job.id)
+      if (!r || !r.variant) throw new Error(t('studio.trick.inst.notready'))
+      await api.playFile(props.job.id, r.variant.file, props.job.duration_sec)
     }
+  } finally {
+    // пока шла пересборка, могли запустить новую партию — её статус не трогаем
+    if (instJob.value && instJob.value.id === j.id) instJob.value = { ...j, mixing: false }
   }
 }
 const pollInst = watchJob(instJob, 'i', 'инструмент', playInstrument)
@@ -1066,6 +1081,20 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </template>
             <template v-else-if="instJob.status === 'error'">{{ instJob.error }}</template>
           </p>
+          <div v-if="appliedInserts.length" class="insert-list">
+            <span class="muted">{{ t('studio.inserts.title') }}</span>
+            <div v-for="it in appliedInserts" :key="it.childId" class="insert-row">
+              <strong>{{ t('studio.trick.inst.' + it.instId) }}</strong>
+              <span class="muted">{{ fmtDur(it.from) }}–{{ fmtDur(it.to) }}</span>
+              <label class="od-gain">{{ t('studio.inserts.db') }}
+                <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
+                       :disabled="dbBusy" @change="onInsertDb(it, $event.target.value)" />
+                {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
+              </label>
+              <span v-if="it.aligned === true" class="muted" :title="t('studio.inserts.aligned.tip')">✓ {{ t('studio.inserts.aligned') }}</span>
+              <span v-else-if="it.aligned === false" class="error" :title="t('studio.inserts.plan.tip')">⚠ {{ t('studio.inserts.plan') }}</span>
+            </div>
+          </div>
 
           <div class="roll-stems">
             <div class="stems-inline">

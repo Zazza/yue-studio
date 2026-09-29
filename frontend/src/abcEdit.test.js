@@ -1,6 +1,6 @@
 // Тесты приёмов над ABC-планом: разбор/сборка и мутации тактов.
 import { describe, it, expect } from 'vitest'
-import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, TRICK_INSTRUMENTS, trickStyleSuffix } from './abcEdit.js'
+import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix } from './abcEdit.js'
 
 // диалект YuE: та же фикстура, что в worker/test_pure.py
 const ABC = [
@@ -273,5 +273,44 @@ describe('приём «+ инструмент» и стилевые припис
 
   it('все инструменты имеют en-тег', () => {
     for (const i of TRICK_INSTRUMENTS) expect(i.en.trim()).not.toBe('')
+  })
+})
+
+describe('сколько плана звучит до начала окна (sliceLeadSec)', () => {
+  // 4/4, L:1/16, 120 BPM → такт = 16 × 1/16 × 4 × 60/120 = 2 с; 12 тактов
+  const plan = (q) => [
+    'X:1', 'M:4/4', 'L:1/16', ...(q ? [q] : []), 'K:C', 'V:Inst',
+    'c4c4c4c4|d4d4d4d4|e4e4e4e4|f4f4f4f4|',
+    'g4g4g4g4|a4a4a4a4|b4b4b4b4|c4c4c4c4|',
+    'd4d4d4d4|e4e4e4e4|f4f4f4f4|g4g4g4g4|',
+  ].join('\n')
+  const Q120 = plan('Q:1/4=120')
+
+  it('from внутри такта (4–6), контекст 1 такт → от начала такта 2 с', () => {
+    expect(sliceLeadSec(Q120, 5, 1)).toBeCloseTo(3, 6)
+  })
+
+  it('from ровно на границе такта → только такт контекста', () => {
+    expect(sliceLeadSec(Q120, 4, 1)).toBeCloseTo(2, 6)
+  })
+
+  it('контекст раньше начала плана не уходит', () => {
+    expect(sliceLeadSec(Q120, 0.5, 1)).toBeCloseTo(0.5, 6)
+  })
+
+  it('без контекста — от начала своего такта', () => {
+    expect(sliceLeadSec(Q120, 5, 0)).toBeCloseTo(1, 6)
+  })
+
+  it('padBars по умолчанию = 1', () => {
+    expect(sliceLeadSec(Q120, 5)).toBeCloseTo(3, 6)
+  })
+
+  it('темп 60 → такт 4 с: from 5 в такте 4–8, контекст с 0', () => {
+    expect(sliceLeadSec(plan('Q:1/4=60'), 5, 1)).toBeCloseTo(5, 6)
+  })
+
+  it('без Q: — темп по умолчанию 120', () => {
+    expect(sliceLeadSec(plan(null), 5, 1)).toBeCloseTo(3, 6)
   })
 })

@@ -8,7 +8,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus, YueMixVocalsOver,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueMixInstrument, YueDspVariantDelete,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueRebuildInserts, YueDspVariantDelete,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -61,7 +61,8 @@ export const api = {
   voiceCreate: (name, jobId, params, seed) => YueVoiceCreate(name, jobId, params, seed),
   voices: () => YueVoices(),
   voiceDelete: (id) => YueVoiceDelete(id),
-  mixInstrument: (parentId, childId, from, dur, gain) => YueMixInstrument(parentId, childId, from, dur || 0, gain),
+  // все вклейки трека заново с чистого оригинала: [{child_id, from, to, lead, beat_sec, db}]
+  rebuildInserts: (parentId, specs) => YueRebuildInserts(parentId, specs),
   dspVariantDelete: (id, file) => YueDspVariantDelete(id, file),
   variantToTrack: (jobId, file, title) => YueVariantToTrack(jobId, file, title),
   playFile: (id, file, dur) => YuePlayFile(id, file, dur),
