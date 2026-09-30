@@ -279,10 +279,10 @@ SEM_TOK_PER_SEC = 25
 
 
 def _continue_song(pipe, row, request):
-    """ЭКСПЕРИМЕНТ «продолжение с места»: шаги модели родителя до cont_from
-    подаются как уже сыгранные, дальше модель продолжает сама (другой сид,
-    при req_abc — изменённый план). До отметки — тот же дубль, после — тот же
-    тембр и сведение: вклейка без шва на входе. Не проверено на GPU."""
+    """«Продолжение с места»: шаги модели родителя до cont_from подаются как
+    уже сыгранные, дальше модель продолжает сама (другой сид; при req_abc —
+    изменённый план; стиль — строки трека, с припиской). До отметки — то же
+    исполнение, склейки нет (проверено: #195, #196)."""
     import dataclasses
 
     import numpy as np
@@ -293,7 +293,11 @@ def _continue_song(pipe, row, request):
     saved = SymbolicPlan.load(src)
     tokens = [int(t) for t in np.load(src / "semantic.npy")]
     k = max(1, min(len(tokens), round(float(row["cont_from"] or 0) * SEM_TOK_PER_SEC)))
-    req = dataclasses.replace(saved.request, seed=int(request.get("seed") or saved.request.seed),
+    # стиль — из строки нового трека (стиль родителя + приписка «что изменить в
+    # звучании»); раньше брался из плана родителя, и приписка до модели не
+    # доходила (request.json #200 — без неё)
+    req = dataclasses.replace(saved.request, style=request.get("style") or saved.request.style,
+                              seed=int(request.get("seed") or saved.request.seed),
                               cfg_scale=request.get("cfg_scale", saved.request.cfg_scale))
     if request.get("abc"):
         plan = pipe.plan(request=dataclasses.replace(req, abc=request["abc"]))
