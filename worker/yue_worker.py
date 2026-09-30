@@ -278,6 +278,12 @@ def _progress_watcher(job_id: int, counters: dict, t0: float, budget: int = 0):
 SEM_TOK_PER_SEC = 25
 
 
+def _cont_steps(cont_from, n_tokens: int) -> int:
+    """Сколько шагов модели родителя подать как сыгранные: отметка × 25/с,
+    не меньше 1 и не больше, чем есть."""
+    return max(1, min(n_tokens, round(float(cont_from or 0) * SEM_TOK_PER_SEC)))
+
+
 def _continue_song(pipe, row, request):
     """«Продолжение с места»: шаги модели родителя до cont_from подаются как
     уже сыгранные, дальше модель продолжает сама (другой сид; при req_abc —
@@ -292,7 +298,7 @@ def _continue_song(pipe, row, request):
     src = JOBS_DIR / str(row["parent_id"])
     saved = SymbolicPlan.load(src)
     tokens = [int(t) for t in np.load(src / "semantic.npy")]
-    k = max(1, min(len(tokens), round(float(row["cont_from"] or 0) * SEM_TOK_PER_SEC)))
+    k = _cont_steps(row["cont_from"], len(tokens))
     # стиль — из строки нового трека (стиль родителя + приписка «что изменить в
     # звучании»); раньше брался из плана родителя, и приписка до модели не
     # доходила (request.json #200 — без неё)
@@ -657,6 +663,9 @@ def continue_job(job_id: int, req: ContinueIn):
             raise HTTPException(404, "job not found or not done")
         if not (JOBS_DIR / str(job_id) / "semantic.npy").is_file():
             raise HTTPException(422, "no semantic.npy — job cannot be continued")
+        # отметка за концом: модель переиграла бы весь трек без нового куска
+        if row["duration_sec"] and req.from_sec >= row["duration_sec"]:
+            raise HTTPException(422, "from_sec must be inside the track")
         seed = req.seed if req.seed is not None else random.randrange(1, 2**31)
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,cont_from,created_at)"

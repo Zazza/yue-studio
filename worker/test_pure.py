@@ -305,3 +305,273 @@ class TestParseAbcMultiRest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- Спецификация 1.7: продолжение с места, версии песни (head) -------------
+# Воркер импортируется целиком: нужны fastapi/pydantic/numpy (+httpx для
+# TestClient). В CI их нет — классы пропускаются, как TestEncodeMp3.
+try:
+    import fastapi  # noqa: F401
+    import httpx  # noqa: F401
+    import numpy  # noqa: F401
+    _HAS_WORKER_DEPS = True
+except ImportError:
+    _HAS_WORKER_DEPS = False
+
+_SEM_TOK_PER_SEC_SPEC = 25  # спецификация: 25 семантических токенов в секунду
+
+
+def _import_worker(tmp: str):
+    """Импорт воркера с данными во временном каталоге: при импорте он создаёт
+    БД в YUE_DATA_DIR — домашний каталог трогать нельзя."""
+    import os
+    os.environ["YUE_DATA_DIR"] = tmp
+    import yue_worker
+    return yue_worker
+
+
+class _WorkerDbCase(unittest.TestCase):
+    """Каждый тест — своя свежая БД и каталог джоб (DB_PATH/JOBS_DIR
+    подменяются на временные), модель не грузится: startup-события не
+    запускаются, TestClient создаётся без контекст-менеджера."""
+
+    def setUp(self):
+        import tempfile
+        from unittest import mock
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        tmp = Path(self._td.name)
+        self.w = _import_worker(str(tmp))
+        self.db_path = tmp / "yue.db"
+        self.jobs_dir = tmp / "jobs"
+        self.jobs_dir.mkdir(exist_ok=True)  # импорт воркера мог уже создать
+        for name, val in (("DB_PATH", self.db_path), ("JOBS_DIR", self.jobs_dir)):
+            p = mock.patch.object(self.w, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _conn(self):
+        import sqlite3
+        c = sqlite3.connect(self.db_path)
+        c.row_factory = sqlite3.Row
+        return c
+
+    def _cols(self):
+        with self._conn() as c:
+            return {r[1] for r in c.execute("PRAGMA table_info(jobs)")}
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestMigrateContinueColumns(_WorkerDbCase):
+    """_migrate(): добавляет parent_id, role, head_id, cont_from; повторный
+    запуск не падает; старые строки сохраняются."""
+
+    NEW_COLS = {"parent_id", "role", "head_id", "cont_from"}
+
+    def _legacy_db(self):
+        # БД «до 1.7»: таблица jobs без новых колонок, одна готовая песня
+        with self._conn() as c:
+            c.execute("""CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'queued',
+                style TEXT NOT NULL, lyrics TEXT NOT NULL, seed INTEGER,
+                cot TEXT NOT NULL DEFAULT 'full', error TEXT DEFAULT '',
+                duration_sec REAL DEFAULT 0, audio_file TEXT DEFAULT '',
+                abc_file TEXT DEFAULT '', created_at TEXT NOT NULL,
+                finished_at TEXT DEFAULT '')""")
+            c.execute("INSERT INTO jobs (title, status, style, lyrics, seed, created_at) "
+                      "VALUES ('old song', 'done', 'dark rock', '[verse] la', 7, '2026-01-01T00:00:00')")
+
+    def test_adds_new_columns(self):
+        self._legacy_db()
+        self.assertFalse(self.NEW_COLS & self._cols())
+        self.w._migrate()
+        self.assertTrue(self.NEW_COLS <= self._cols(), self.NEW_COLS - self._cols())
+
+    def test_idempotent(self):
+        self._legacy_db()
+        self.w._migrate()
+        cols_once = self._cols()
+        self.w._migrate()  # не должно бросить «duplicate column»
+        self.assertEqual(self._cols(), cols_once)
+
+    def test_old_rows_preserved(self):
+        self._legacy_db()
+        self.w._migrate()
+        self.w._migrate()
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM jobs").fetchall()
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r["title"], r["status"], r["style"], r["lyrics"], r["seed"]),
+                         ("old song", "done", "dark rock", "[verse] la", 7))
+        self.assertIsNone(r["parent_id"])  # старая песня — корень, а не производная
+
+
+class _WorkerApiCase(_WorkerDbCase):
+    def setUp(self):
+        super().setUp()
+        from fastapi.testclient import TestClient
+        self.w.init_db()
+        self.w._migrate()
+        self.client = TestClient(self.w.app, raise_server_exceptions=False)
+
+    def _job(self, style="dark rock", duration=60.0, parent_id=None, role="",
+             semantic=True, status="done"):
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO jobs (title, status, style, lyrics, duration_sec, parent_id, role, created_at) "
+                "VALUES ('t', ?, ?, '[verse] la la', ?, ?, ?, '2026-01-01T00:00:00')",
+                (status, style, duration, parent_id, role))
+            jid = cur.lastrowid
+        if semantic:
+            import numpy as np
+            d = self.jobs_dir / str(jid)
+            d.mkdir(parents=True, exist_ok=True)
+            np.save(d / "semantic.npy",
+                    np.arange(int(duration * _SEM_TOK_PER_SEC_SPEC), dtype=np.int64))
+        return jid
+
+    def _children(self, parent):
+        with self._conn() as c:
+            return c.execute("SELECT * FROM jobs WHERE parent_id=?", (parent,)).fetchall()
+
+    def _row(self, jid):
+        with self._conn() as c:
+            return c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestContinueJob(_WorkerApiCase):
+    """POST /jobs/{id}/continue: новая джоба parent_id=id, role='continue',
+    cont_from=отметка; стиль = стиль родителя + приписка."""
+
+    def test_creates_continuation(self):
+        parent = self._job()
+        r = self.client.post(f"/jobs/{parent}/continue", json={"from_sec": 12.5})
+        self.assertLess(r.status_code, 300, r.text)
+        kids = self._children(parent)
+        self.assertEqual(len(kids), 1)
+        k = kids[0]
+        self.assertEqual(k["role"], "continue")
+        self.assertAlmostEqual(k["cont_from"], 12.5)
+        self.assertNotEqual(k["id"], parent)
+
+    def test_style_add_reaches_new_job_style(self):
+        parent = self._job(style="dark rock, male baritone")
+        r = self.client.post(f"/jobs/{parent}/continue",
+                             json={"from_sec": 10, "style_add": "electric guitar enters and builds"})
+        self.assertLess(r.status_code, 300, r.text)
+        style = self._children(parent)[0]["style"]
+        self.assertIn("dark rock, male baritone", style)
+        self.assertIn("electric guitar enters and builds", style)
+
+    def test_without_style_add_style_is_parents(self):
+        parent = self._job(style="dark rock")
+        self.client.post(f"/jobs/{parent}/continue", json={"from_sec": 10})
+        self.assertEqual(self._children(parent)[0]["style"].strip(), "dark rock")
+
+    def test_parent_not_found_404(self):
+        r = self.client.post("/jobs/9999/continue", json={"from_sec": 10})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self._children(9999), [])
+
+    def test_parent_without_semantic_4xx(self):
+        parent = self._job(semantic=False, status="running")
+        r = self.client.post(f"/jobs/{parent}/continue", json={"from_sec": 10})
+        self.assertTrue(400 <= r.status_code < 500, r.status_code)
+        self.assertEqual(self._children(parent), [])
+
+    def test_mark_zero_or_negative_4xx(self):
+        parent = self._job()
+        for mark in (0, -5):
+            r = self.client.post(f"/jobs/{parent}/continue", json={"from_sec": mark})
+            self.assertTrue(400 <= r.status_code < 500, (mark, r.status_code))
+        self.assertEqual(self._children(parent), [])
+
+    def test_mark_at_or_beyond_length_not_500(self):
+        # спецификация допускает 4xx или обрезку; обрезка — отметка < длины
+        parent = self._job(duration=60.0)
+        for mark in (60.0, 500.0):
+            before = {k["id"] for k in self._children(parent)}
+            r = self.client.post(f"/jobs/{parent}/continue", json={"from_sec": mark})
+            self.assertLess(r.status_code, 500, (mark, r.text))
+            if r.status_code < 300:
+                new = [k for k in self._children(parent) if k["id"] not in before]
+                self.assertEqual(len(new), 1)
+                self.assertGreater(new[0]["cont_from"], 0)
+                self.assertLess(new[0]["cont_from"], 60.0, mark)
+            else:
+                self.assertTrue(400 <= r.status_code < 500, (mark, r.status_code))
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestContSteps(unittest.TestCase):
+    """_cont_steps(cont_from, n_tokens): сыгранных шагов модели =
+    round(cont_from × 25), в пределах [1, n_tokens]. Функцию ещё предстоит
+    выделить из _continue_song — до этого тест красный."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.w = _import_worker(self._td.name)
+
+    def test_rate_constant(self):
+        self.assertEqual(self.w.SEM_TOK_PER_SEC, _SEM_TOK_PER_SEC_SPEC)
+
+    def test_exact_seconds(self):
+        self.assertEqual(self.w._cont_steps(10, 1000), 250)
+
+    def test_rounding(self):
+        self.assertEqual(self.w._cont_steps(2.03, 1000), 51)   # 50.75 → 51
+        self.assertEqual(self.w._cont_steps(2.01, 1000), 50)   # 50.25 → 50
+
+    def test_clamped_to_token_count(self):
+        self.assertEqual(self.w._cont_steps(100, 1000), 1000)
+        self.assertEqual(self.w._cont_steps(40, 1000), 1000)   # ровно 1000
+
+    def test_at_least_one(self):
+        self.assertEqual(self.w._cont_steps(0.001, 1000), 1)
+        self.assertEqual(self.w._cont_steps(0, 1000), 1)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestSetHead(_WorkerApiCase):
+    """POST /jobs/{id}/head: у корня head_id = выбранная версия; версия
+    обязана быть производной этого корня; сброс на сам корень допустим."""
+
+    def test_sets_head_to_derived_version(self):
+        root = self._job()
+        v = self._job(parent_id=root, role="continue")
+        r = self.client.post(f"/jobs/{root}/head", json={"head_id": v})
+        self.assertLess(r.status_code, 300, r.text)
+        self.assertEqual(self._row(root)["head_id"], v)
+
+    def test_foreign_version_rejected(self):
+        root = self._job()
+        other_root = self._job()
+        foreign = self._job(parent_id=other_root, role="continue")
+        for bad in (other_root, foreign):
+            r = self.client.post(f"/jobs/{root}/head", json={"head_id": bad})
+            self.assertTrue(400 <= r.status_code < 500, (bad, r.status_code))
+        self.assertIn(self._row(root)["head_id"], (None, 0, root))
+
+    def test_missing_version_rejected(self):
+        root = self._job()
+        r = self.client.post(f"/jobs/{root}/head", json={"head_id": 9999})
+        self.assertTrue(400 <= r.status_code < 500, r.status_code)
+
+    def test_reset_to_root(self):
+        root = self._job()
+        v = self._job(parent_id=root, role="continue")
+        self.client.post(f"/jobs/{root}/head", json={"head_id": v})
+        for reset in ({"head_id": root}, {"head_id": None}, {"head_id": 0}):
+            self.client.post(f"/jobs/{root}/head", json={"head_id": v})
+            r = self.client.post(f"/jobs/{root}/head", json=reset)
+            self.assertLess(r.status_code, 300, (reset, r.text))
+            self.assertIn(self._row(root)["head_id"], (None, 0, root), reset)
+
+    def test_root_not_found_404(self):
+        r = self.client.post("/jobs/9999/head", json={"head_id": None})
+        self.assertEqual(r.status_code, 404)
