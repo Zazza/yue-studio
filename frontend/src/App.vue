@@ -1208,9 +1208,11 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 /* пиано-ролл */
 .roll-block { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; overflow-x: auto; }
 .roll-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 12px; }
-.studio-page .roll-block { border: none; padding: 0; overflow-x: auto; }
+/* min-width: 0 — иначе минимальная ширина ролл-сетки (сотни тактов) растягивает
+   всю панель студии шире окна вместо прокрутки внутри roll-block */
+.studio-page .roll-block { border: none; padding: 0; overflow-x: auto; min-width: 0; }
 .studio-page, .corpus-page-wide, .settings-wide { justify-content: stretch; }
-.studio-page .panel, .corpus-page-wide .panel, .settings-wide .panel { width: auto; max-width: none; flex: 1; margin: 0 16px; }
+.studio-page .panel, .corpus-page-wide .panel, .settings-wide .panel { width: auto; max-width: none; flex: 1; margin: 0 16px; min-width: 0; }
 .corpus-list { max-width: none; }
 .studio-sec { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--border); }
 .studio-sec summary { cursor: pointer; font-size: 13px; margin-bottom: 6px; }
