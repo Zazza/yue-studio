@@ -14,6 +14,11 @@ const volume = ref(parseFloat(localStorage.getItem('yue_volume') ?? '0.8'))
 const seekPos = ref(0)
 let seeking = false
 
+// «играть выделенное» студии: верхний ▶ при активном выделении гоняет кусок
+// [from, to] артефакта волны — один прогон, стоп в конце (rangeUntil).
+const playRange = ref(null)   // {key, jobId, file, dur, from, to} | null
+const rangeUntil = ref(null)  // {key, to} — идущий прогон, стоп по нему
+
 let refreshCb = null
 // App регистрирует колбэк общего обновления (джобы + плеер)
 function onRefresh(fn) { refreshCb = fn }
@@ -52,6 +57,44 @@ function playBtn(key) {
   return isPlaying(key) ? '■' : '▶'
 }
 
+function setPlayRange(r) {
+  playRange.value = r
+  if (!r) rangeUntil.value = null
+}
+
+// один прогон выделенного куска: ползунок и тайминг шапки — сразу с начала
+async function playRangeOnce(r) {
+  if (playBusy.value[r.key]) return
+  playBusy.value = { ...playBusy.value, [r.key]: true }
+  nowPlaying.value = `кусок ${fmtDur(r.from)}–${fmtDur(r.to)}`
+  try {
+    await api.playFile(r.jobId, r.file, r.dur)
+    nowPlayingKey.value = r.key
+    seekPos.value = r.from
+    await api.seekAudio(r.from)
+    rangeUntil.value = { key: r.key, to: r.to }
+  } catch (e) {
+    nowPlaying.value = `звук: ${String(e)}`
+  } finally {
+    playBusy.value = { ...playBusy.value, [r.key]: false }
+    setTimeout(() => refreshCb && refreshCb(), 300)
+  }
+}
+
+// ▶ шапки: есть выделение в студии — гоняет кусок (пауза внутри куска —
+// продолжение с места паузы, стоп/конец — новый прогон с начала); иначе —
+// обычная пауза/продолжение загруженного
+async function togglePlay() {
+  const r = playRange.value
+  if (!r) return api.toggleAudio()
+  const st = playerState.value
+  if (nowPlayingKey.value === r.key && st.job_id === r.jobId && st.job_id > 0
+      && (st.playing || (st.position_sec > r.from && st.position_sec < r.to))) {
+    return api.toggleAudio()
+  }
+  return playRangeOnce(r)
+}
+
 async function stopAll() {
   await api.stopAudio()
   nowPlayingKey.value = ''
@@ -82,6 +125,7 @@ export function usePlayer() {
     playerState, nowPlaying, playBusy, nowPlayingKey, volume, seekPos,
     refreshPlayer, isPlaying, toggleArtifact, playBtn, stopAll,
     onVolume, onSeekInput, onSeekChange, onRefresh,
+    playRange, rangeUntil, setPlayRange, togglePlay,
   }
 }
 

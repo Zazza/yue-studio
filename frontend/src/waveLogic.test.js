@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { secToPx, pxToSec, snapSec, posEdges, gridMarks, secToPosRange, cursorSec } from './waveLogic.js'
+import { secToPx, pxToSec, snapSec, posEdges, gridMarks, secToPosRange, cursorSec, clampWindow, zoomAt, panWindow, viewSecToPx, viewPxToSec } from './waveLogic.js'
 
 describe('перевод пиксели ↔ секунды', () => {
   it('линейно и с округлением к краям', () => {
@@ -108,5 +108,46 @@ describe('курсор между опросами плеера (cursorSec)', ()
   it('за концом трека прижат к концу, опрос «из прошлого» не уводит назад', () => {
     expect(cursorSec(199.9, 1000, true, 5000, 200)).toBe(200)
     expect(cursorSec(50, 1000, true, 500, 200)).toBe(50)
+  })
+})
+
+describe('окно просмотра волны (зум)', () => {
+  const dur = 200
+
+  it('clampWindow не даёт окну вылезти за трек и сжаться меньше секунды', () => {
+    expect(clampWindow({ t0: -10, span: 500 }, dur)).toEqual({ t0: 0, span: 200 })
+    expect(clampWindow({ t0: 150, span: 100 }, dur)).toEqual({ t0: 100, span: 100 })
+    expect(clampWindow({ t0: 10, span: 0.2 }, dur)).toEqual({ t0: 10, span: 1 })
+  })
+
+  it('зум держит точку под курсором на месте', () => {
+    const win = { t0: 0, span: 200 }
+    const z = zoomAt(win, dur, 50, 4)   // ×4 под 50 с
+    expect(z.span).toBe(50)
+    // 50 с была на 1/4 окна — и осталась на 1/4
+    expect((50 - z.t0) / z.span).toBeCloseTo(0.25, 5)
+  })
+
+  it('зум сильнее окна — клампится в границы', () => {
+    const full = { t0: 0, span: 200 }
+    expect(zoomAt(full, dur, 0, 1000)).toEqual({ t0: 0, span: 1 })
+    const nearEnd = zoomAt(full, dur, 199.9, 1000)
+    expect(nearEnd.span).toBe(1)
+    expect(nearEnd.t0 + nearEnd.span).toBeLessThanOrEqual(dur)   // окно не вылезло за трек
+    expect(zoomAt(full, dur, dur, 1000).t0).toBe(dur - 1)        // якорь на краю — окно к краю
+  })
+
+  it('панорама двигает окно и упирается в края', () => {
+    expect(panWindow({ t0: 0, span: 50 }, dur, 30)).toEqual({ t0: 30, span: 50 })
+    expect(panWindow({ t0: 0, span: 50 }, dur, -30)).toEqual({ t0: 0, span: 50 })
+    expect(panWindow({ t0: 100, span: 50 }, dur, 100)).toEqual({ t0: 150, span: 50 })
+  })
+
+  it('маппинг внутри окна туда-обратно', () => {
+    const win = { t0: 160, span: 8 }
+    expect(viewSecToPx(160, win, 800)).toBe(0)
+    expect(viewSecToPx(168, win, 800)).toBe(800)
+    expect(viewPxToSec(400, win, 800)).toBe(164)
+    expect(viewPxToSec(viewSecToPx(162.5, win, 947), win, 947)).toBeCloseTo(162.5, 5)
   })
 })

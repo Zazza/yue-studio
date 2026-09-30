@@ -78,3 +78,42 @@ export function cursorSec(lastPos, lastTsMs, playing, nowMs, durationSec) {
   if (!(durationSec > 0)) return Math.max(0, pos)
   return Math.min(Math.max(pos, 0), durationSec)
 }
+
+// ---------- окно просмотра (зум волны) ----------
+
+// минимальный охват окна: дальше — доли секунды на экран, клик теряет смысл
+export const WAVE_MIN_SPAN = 1
+
+// окно {t0, span} в мировых секундах: span ограничен [WAVE_MIN_SPAN, длительность],
+// t0 — чтобы окно не вылезало за трек
+export function clampWindow(win, durationSec) {
+  if (!(durationSec > 0)) return { t0: 0, span: 1 }
+  const span = Math.min(Math.max(win.span, WAVE_MIN_SPAN), durationSec)
+  const t0 = Math.min(Math.max(win.t0, 0), durationSec - span)
+  return { t0, span }
+}
+
+// зум колесом: factor > 1 — приблизить; точка anchorSec остаётся на той же
+// доле окна (курсор «стоит на месте»)
+export function zoomAt(win, durationSec, anchorSec, factor) {
+  const span = Math.min(Math.max(win.span / factor, WAVE_MIN_SPAN), durationSec)
+  const frac = Math.min(Math.max((anchorSec - win.t0) / win.span, 0), 1)
+  return clampWindow({ t0: anchorSec - frac * span, span }, durationSec)
+}
+
+// панорама (shift+колесо / горизонтальное колесо) на deltaSec
+export function panWindow(win, durationSec, deltaSec) {
+  return clampWindow({ t0: win.t0 + deltaSec, span: win.span }, durationSec)
+}
+
+// маппинг пиксели ↔ секунды внутри окна (без clamp — сетку рисуем и за краем,
+// клики не выходят за канву физически)
+export function viewSecToPx(sec, win, width) {
+  if (!(win.span > 0) || !(width > 0)) return 0
+  return ((sec - win.t0) / win.span) * width
+}
+
+export function viewPxToSec(px, win, width) {
+  if (!(win.span > 0) || !(width > 0)) return 0
+  return win.t0 + (px / width) * win.span
+}

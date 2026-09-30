@@ -1238,15 +1238,19 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 
 /* волна громкости (первая канва проекта): сетка/выделение/курсор рисует
    canvas, спектрограмма — <img> воркера под ним, ось X у обоих 0..длительность */
-.wave-panel { margin: 0 0 10px; }
+.panel-caption { display: flex; align-items: baseline; gap: 10px; margin: 10px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--muted); }
+.roll-zoom { margin-left: auto; display: inline-flex; gap: 4px; }
+.wave-panel { margin: 0 0 6px; }
+.wave-panel .panel-caption { margin-top: 0; }
 .wave-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; }
 .wave-toolbar .ghost.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .wave-snap { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
-.wave-hint { margin-left: auto; }
+.wave-hint { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .wave-wrap { position: relative; height: 96px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); overflow: hidden; }
-.wave-spectrum { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+.wave-spectrum { position: absolute; top: 0; height: 100%; object-fit: fill; }
 .wave-empty { position: absolute; inset: 0; }
 .wave-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.wave-zoom { position: absolute; top: 4px; right: 6px; display: inline-flex; gap: 4px; align-items: center; font-size: 11px; }
 
 /* овердаб */
 .od-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }

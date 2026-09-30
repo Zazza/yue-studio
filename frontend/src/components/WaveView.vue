@@ -3,9 +3,11 @@
 // протяжка — выделение с прилипанием к тактам. Первая канва в проекте:
 // сетка тактов/секций полупрозрачно поверх, курсор воспроизведения,
 // режим спектра — готовой картинкой воркера под той же канвой
-// (ось X у обоих линейна 0..длительность).
+// (ось X у обоих линейна 0..длительность). Масштаб — окном просмотра:
+// колесо — зум в точке курсора, shift+колесо/горизонтальное — прокрутка,
+// «⟲» — вернуть весь трек в окно.
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { pxToSec, secToPx, snapSec } from '../waveLogic.js'
+import { zoomAt, panWindow, clampWindow, viewSecToPx, viewPxToSec, snapSec } from '../waveLogic.js'
 
 const props = defineProps({
   peaks: { type: Object, required: true },  // {duration_sec, peaks: [[min,max],...]}
@@ -26,20 +28,35 @@ const drag = ref(null)   // {x0, x1, w} — протяжка выделения
 
 const dur = computed(() => props.duration || props.peaks.duration_sec || 0)
 
-// выделение во время протяжки — по пикселям, прилипание только на отпускании
-const activeSel = computed(() => {
-  if (drag.value) {
-    const a = pxToSec(Math.min(drag.value.x0, drag.value.x1), dur.value, drag.value.w)
-    const b = pxToSec(Math.max(drag.value.x0, drag.value.x1), dur.value, drag.value.w)
-    return { from: a, to: b }
-  }
-  return props.selection
-})
+// окно просмотра: {t0, span} в мировых секундах; сбрасывается при смене файла
+const win = ref({ t0: 0, span: 1 })
+watch(() => props.peaks, () => { win.value = { t0: 0, span: dur.value || 1 } })
+const zoomX = computed(() => (win.value.span > 0 ? dur.value / win.value.span : 1))
 
 function cssVar(name, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return v || fallback
 }
+
+// выделение во время протяжки — по пикселям, прилипание только на отпускании
+const activeSel = computed(() => {
+  if (drag.value) {
+    const a = viewPxToSec(Math.min(drag.value.x0, drag.value.x1), win.value, drag.value.w)
+    const b = viewPxToSec(Math.max(drag.value.x0, drag.value.x1), win.value, drag.value.w)
+    return { from: a, to: b }
+  }
+  return props.selection
+})
+
+// спектрограмма растягивается той же осью: ширина/сдвиг — долями контейнера
+const spectrumStyle = computed(() => {
+  const w = win.value
+  if (!(w.span > 0)) return {}
+  return {
+    width: (dur.value / w.span * 100) + '%',
+    left: (-w.t0 / w.span * 100) + '%',
+  }
+})
 
 function draw() {
   const cv = canvasRef.value
@@ -54,49 +71,55 @@ function draw() {
   ctx.clearRect(0, 0, w, h)
   const accent = cssVar('--accent', '#e05d3d')
   const muted = cssVar('--muted', '#8a8f98')
+  const wv = win.value
+  const x = (sec) => viewSecToPx(sec, wv, w)
   const mid = h / 2
 
-  // сетка: такты тонко, границы секций заметнее + подпись
+  // сетка: такты тонко, границы секций заметнее + подпись (только видимые)
   ctx.font = '10px sans-serif'
+  const t0 = wv.t0, t1 = wv.t0 + wv.span
   for (const m of props.marks || []) {
-    const x = Math.round(secToPx(m.sec, dur.value, w)) + 0.5
+    if (m.sec < t0 - 1 || m.sec > t1) continue
+    const mx = Math.round(x(m.sec)) + 0.5
     const strong = !!m.section
     ctx.strokeStyle = strong ? 'rgba(224,93,61,.45)' : 'rgba(128,128,128,.18)'
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, h)
     ctx.lineWidth = strong ? 1.5 : 1
+    ctx.beginPath()
+    ctx.moveTo(mx, 0)
+    ctx.lineTo(mx, h)
     ctx.stroke()
-    if (strong && m.section) {
+    if (strong && m.section && mx > -40) {
       ctx.fillStyle = muted
-      ctx.fillText(m.section, Math.min(x + 3, w - 40), 10)
+      ctx.fillText(m.section, Math.min(mx + 3, w - 40), 10)
     }
   }
 
-  // амплитуда: на пиксель — агрегат накрытых им окон
+  // амплитуда: на пиксель — агрегат накрытых им окон (в координатах окна)
   if (props.mode !== 'spectrum') {
     const peaks = props.peaks.peaks || []
-    if (peaks.length) {
-      const bpp = peaks.length / w
+    if (peaks.length && dur.value > 0) {
+      const secPerPx = wv.span / w
+      const binsPerSec = peaks.length / dur.value
       ctx.strokeStyle = accent
       ctx.lineWidth = 1
       ctx.beginPath()
-      for (let x = 0; x < w; x++) {
-        const i0 = Math.floor(x * bpp)
-        const i1 = Math.max(i0 + 1, Math.floor((x + 1) * bpp))
+      for (let px = 0; px < w; px++) {
+        const s0 = wv.t0 + px * secPerPx
+        const s1 = s0 + secPerPx
+        let i0 = Math.floor(s0 * binsPerSec)
+        let i1 = Math.max(i0 + 1, Math.ceil(s1 * binsPerSec))
         let lo = 1, hi = -1
-        for (let i = i0; i < i1 && i < peaks.length; i++) {
+        for (let i = Math.max(0, i0); i < Math.min(i1, peaks.length); i++) {
           lo = Math.min(lo, peaks[i][0])
           hi = Math.max(hi, peaks[i][1])
         }
         if (hi < lo) continue
         const y0 = mid - Math.max(hi, 0) * mid
         const y1 = mid - Math.min(lo, 0) * mid
-        ctx.moveTo(x + 0.5, Math.max(y0, 1))
-        ctx.lineTo(x + 0.5, Math.min(y1, h - 1))
+        ctx.moveTo(px + 0.5, Math.max(y0, 1))
+        ctx.lineTo(px + 0.5, Math.min(y1, h - 1))
       }
       ctx.stroke()
-      // центральная линия
       ctx.strokeStyle = 'rgba(128,128,128,.25)'
       ctx.beginPath()
       ctx.moveTo(0, mid + 0.5)
@@ -108,24 +131,27 @@ function draw() {
   // выделение
   const sel = activeSel.value
   if (sel && sel.to > sel.from) {
-    const x1 = secToPx(sel.from, dur.value, w)
-    const x2 = secToPx(sel.to, dur.value, w)
-    ctx.fillStyle = 'rgba(224,93,61,.18)'
-    ctx.fillRect(x1, 0, x2 - x1, h)
-    ctx.strokeStyle = 'rgba(224,93,61,.6)'
-    ctx.lineWidth = 1
-    ctx.strokeRect(Math.round(x1) + 0.5, 0.5, Math.max(x2 - x1 - 1, 1), h - 1)
+    const x1 = x(sel.from), x2 = x(sel.to)
+    if (x2 > 0 && x1 < w) {
+      ctx.fillStyle = 'rgba(224,93,61,.18)'
+      ctx.fillRect(x1, 0, x2 - x1, h)
+      ctx.strokeStyle = 'rgba(224,93,61,.6)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(Math.round(x1) + 0.5, 0.5, Math.max(x2 - x1 - 1, 1), h - 1)
+    }
   }
 
   // курсор воспроизведения
   if (props.cursorSec > 0) {
-    const x = Math.round(secToPx(props.cursorSec, dur.value, w)) + 0.5
-    ctx.strokeStyle = accent
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, h)
-    ctx.stroke()
+    const cx = Math.round(x(props.cursorSec)) + 0.5
+    if (cx >= 0 && cx <= w) {
+      ctx.strokeStyle = accent
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(cx, 0)
+      ctx.lineTo(cx, h)
+      ctx.stroke()
+    }
   }
 }
 
@@ -147,31 +173,54 @@ function onUp() {
   if (!d) return
   // короткое движение без протяжки — клик: слушать с этого места
   if (Math.abs(d.x1 - d.x0) < 3) {
-    emit('seek', pxToSec(d.x0, dur.value, d.w))
+    emit('seek', viewPxToSec(d.x0, win.value, d.w))
     return
   }
-  const a = pxToSec(Math.min(d.x0, d.x1), dur.value, d.w)
-  const b = pxToSec(Math.max(d.x0, d.x1), dur.value, d.w)
+  const a = viewPxToSec(Math.min(d.x0, d.x1), win.value, d.w)
+  const b = viewPxToSec(Math.max(d.x0, d.x1), win.value, d.w)
   emit('select', { from: snapSec(a, props.edges, props.snap), to: snapSec(b, props.edges, props.snap) })
+}
+
+// колесо — зум в точке курсора; shift/горизонтальное — прокрутка окна
+function onWheel(e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    const d = (e.shiftKey ? e.deltaY : e.deltaX) * win.value.span / r.width
+    win.value = panWindow(win.value, dur.value, d)
+  } else {
+    const anchor = viewPxToSec(e.clientX - r.left, win.value, r.width)
+    win.value = zoomAt(win.value, dur.value, anchor, e.deltaY < 0 ? 1.3 : 1 / 1.3)
+  }
+}
+
+function fitWindow() {
+  win.value = clampWindow({ t0: 0, span: dur.value || 1 }, dur.value)
 }
 
 let ro = null
 onMounted(() => {
+  fitWindow()
   ro = new ResizeObserver(redraw)
   if (wrapRef.value) ro.observe(wrapRef.value)
   draw()
 })
 onUnmounted(() => { if (ro) ro.disconnect() })
 
-watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, drag.value, props.spectrumUrl], redraw, { deep: false })
+watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, drag.value, props.spectrumUrl, win.value], redraw, { deep: false })
 </script>
 
 <template>
   <div ref="wrapRef" class="wave-wrap">
-    <img v-if="mode === 'spectrum' && spectrumUrl" class="wave-spectrum" :src="spectrumUrl" alt="spectrogram">
+    <img v-if="mode === 'spectrum' && spectrumUrl" class="wave-spectrum" :src="spectrumUrl"
+         :style="spectrumStyle" alt="spectrogram">
     <div v-else-if="mode === 'spectrum'" class="wave-empty"></div>
     <canvas ref="canvasRef" class="wave-canvas"
             @pointerdown.prevent="onDown" @pointermove="onMove"
-            @pointerup="onUp" @pointercancel="onUp"></canvas>
+            @pointerup="onUp" @pointercancel="onUp"
+            @wheel.prevent="onWheel"></canvas>
+    <div class="wave-zoom">
+      <span v-if="zoomX > 1.01" class="muted">×{{ zoomX.toFixed(zoomX < 10 ? 1 : 0) }}</span>
+      <button v-if="zoomX > 1.01" class="ghost small-btn" title="весь трек в окно" @click="fitWindow">⟲</button>
+    </div>
   </div>
 </template>

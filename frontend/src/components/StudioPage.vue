@@ -20,7 +20,7 @@ import WaveView from './WaveView.vue'
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
 const emit = defineEmits(['close', 'open-metrics'])
 
-const { isPlaying, playBusy, playBtn, toggleArtifact, playerState, nowPlayingKey, refreshPlayer } = usePlayer()
+const { isPlaying, playBusy, playBtn, toggleArtifact, playerState, nowPlayingKey, refreshPlayer, setPlayRange, rangeUntil } = usePlayer()
 const { askConfirm } = useConfirm()
 const inserts = useInserts()
 const revoice = useRevoice()
@@ -83,15 +83,6 @@ const voiceBarList = computed(() => {
 })
 const posCount = computed(() => Math.max(0, ...Object.values(voiceBarList.value).map((a) => a.length)))
 
-// такты строками по 32 — иначе сетка шириной в сотни тактов
-const rollChunks = computed(() => {
-  const out = []
-  for (let i = 0; i < posCount.value; i += 32) {
-    out.push(Array.from({ length: Math.min(32, posCount.value - i) }, (_, j) => i + j))
-  }
-  return out
-})
-
 const barAt = (v, pos) => (voiceBarList.value[v] || [])[pos] || null
 
 // границы музыкального момента: min start / max end по голосам в колонке
@@ -128,6 +119,11 @@ const waveFiles = computed(() => {
 })
 
 const waveKey = computed(() => `w${props.job.id}:${waveFile.value || 'main'}`)
+
+// ширина такта ролла (масштаб): ролл — одна прокручиваемая строка
+const rollCellW = ref(16)
+function rollZoom(delta) { rollCellW.value = Math.min(48, Math.max(8, rollCellW.value + delta)) }
+const rollPositions = computed(() => Array.from({ length: posCount.value }, (_, i) => i))
 
 // выделение — единый источник для всех кнопок студии: точные секунды волны
 // переопределяют тактовую сетку (приёмы остаются по тактам через rollSel),
@@ -181,7 +177,7 @@ onMounted(async () => {
   } catch {}
 })
 
-onUnmounted(() => { cancelAnimationFrame(waveRafId); saveStudioState(); stopFragPoll() })
+onUnmounted(() => { cancelAnimationFrame(waveRafId); setPlayRange(null); saveStudioState(); stopFragPoll() })
 
 function saveStudioState() {
   try {
@@ -275,13 +271,26 @@ async function onWaveSeek(sec) {
 }
 
 // курсор: опрос позиции раз в 1 с, между опросами идём вперёд плавно (rAF);
-// позиция относительна артефакту — рисуем только файл волны
+// позиция относительна артефакту — рисуем только файл волны. Прогон
+// выделенного куска (верхний ▶) останавливается в его конце
 watch(() => playerState.value.position_sec, (p) => { waveLastPoll = { pos: p || 0, ts: Date.now() } })
+watch(selRange, (r) => {
+  setPlayRange(r && wavePeaks.value ? {
+    key: waveKey.value, jobId: props.job.id,
+    file: waveFile.value || props.job.audio_file || 'audio.flac',
+    dur: waveDuration.value, from: r.from, to: r.to,
+  } : null)
+})
 function waveCursorLoop() {
   waveRafId = requestAnimationFrame(waveCursorLoop)
   if (nowPlayingKey.value === waveKey.value && playerState.value.job_id === props.job.id) {
     waveCursor.value = cursorInterp(waveLastPoll.pos, waveLastPoll.ts,
       playerState.value.playing && !waveSeekBusy, Date.now(), waveDuration.value)
+    const ru = rangeUntil.value
+    if (ru && ru.key === waveKey.value && playerState.value.playing && waveCursor.value >= ru.to - 0.05) {
+      rangeUntil.value = null
+      api.stopAudio().then(refreshPlayer).catch(() => {})
+    }
   }
 }
 
@@ -1159,8 +1168,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <template v-if="selRange"> · выделено {{ selRange.from.toFixed(0) }}–{{ selRange.to.toFixed(0) }} с</template>
           </p>
           <div class="wave-panel">
+            <div class="panel-caption">
+              <span>{{ t('studio.wave.caption') }}</span>
+              <span class="muted wave-hint">{{ t('studio.wave.hint') }}</span>
+            </div>
             <div class="wave-toolbar">
-              <span class="muted">{{ t('studio.wave.label') }}</span>
               <VSelect v-model="waveFile" :options="waveFiles" style="width:220px" />
               <button class="ghost small-btn" :class="{ on: waveMode === 'amp' }"
                       :title="t('studio.wave.amp.tip')" @click="waveMode = 'amp'">{{ t('studio.wave.amp') }}</button>
@@ -1171,7 +1183,6 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               </label>
               <span v-if="waveBusy" class="muted">{{ t('studio.wave.loading') }}</span>
               <span v-if="waveErr" class="error">{{ waveErr }}</span>
-              <span class="muted wave-hint">{{ t('studio.wave.hint') }}</span>
             </div>
             <WaveView v-if="wavePeaks" :peaks="wavePeaks" :duration="waveDuration"
                       :marks="waveMarks" :edges="waveEdges" :snap="waveSnap"
@@ -1179,26 +1190,32 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       :cursor-sec="waveCursor" :selection="selRange"
                       @seek="onWaveSeek" @select="onWaveSelect" />
           </div>
+          <div class="panel-caption">
+            <span>{{ t('studio.roll.caption') }}</span>
+            <span class="roll-zoom">
+              <button class="ghost small-btn" :title="t('studio.roll.zoom.out')" @click="rollZoom(-4)">−</button>
+              <button class="ghost small-btn" :title="t('studio.roll.zoom.in')" @click="rollZoom(4)">+</button>
+            </span>
+          </div>
+          <div class="roll-grid" :style="{ gridTemplateColumns: `70px repeat(${posCount}, minmax(${rollCellW}px, 1fr))` }">
+            <div></div>
+            <div v-for="pos in rollPositions" :key="'s' + pos" class="roll-sec" :title="posSection(pos)">{{ (posSection(pos) || '').slice(0, 3) }}</div>
+            <template v-for="v in rollData.voice_order" :key="v">
+              <div class="roll-voice">{{ v }}</div>
+              <div v-for="pos in rollPositions" :key="v + pos"
+                   class="roll-cell" :class="['d' + cellDensity(v, pos), { sel: isBarSel(pos), off: cellOff(v, pos), trick: isTrickCell(v, pos), empty: !barAt(v, pos) }]"
+                   :title="cellTitle(v, pos)"
+                   @mousedown.prevent="barSelStart(pos)" @mouseover="barSelOver(pos)"></div>
+            </template>
+            <div class="roll-voice">{{ t('studio.chords') }}</div>
+            <div v-for="pos in rollPositions" :key="'c' + pos" class="roll-chord">{{ posChord(pos) }}</div>
+          </div>
           <div class="trick-row">
             <span class="muted">{{ t('studio.novocal.label') }}</span>
             <button class="primary small" :disabled="!hasVocals || trickBusy"
                     :title="t('studio.novocal.tip')" @click="renderInstrumental">{{ t('studio.novocal') }}</button>
           </div>
 
-          <div v-for="(chunk, ci) in rollChunks" :key="ci" class="roll-grid"
-               :style="{ gridTemplateColumns: `70px repeat(${chunk.length}, minmax(16px, 1fr))` }">
-            <div></div>
-            <div v-for="pos in chunk" :key="'s' + pos" class="roll-sec" :title="posSection(pos)">{{ (posSection(pos) || '').slice(0, 3) }}</div>
-            <template v-for="v in rollData.voice_order" :key="v">
-              <div class="roll-voice">{{ v }}</div>
-              <div v-for="pos in chunk" :key="v + pos"
-                   class="roll-cell" :class="['d' + cellDensity(v, pos), { sel: isBarSel(pos), off: cellOff(v, pos), trick: isTrickCell(v, pos), empty: !barAt(v, pos) }]"
-                   :title="cellTitle(v, pos)"
-                   @mousedown.prevent="barSelStart(pos)" @mouseover="barSelOver(pos)"></div>
-            </template>
-            <div class="roll-voice">{{ t('studio.chords') }}</div>
-            <div v-for="pos in chunk" :key="'c' + pos" class="roll-chord">{{ posChord(pos) }}</div>
-          </div>
           <div class="roll-actions">
             <button class="primary small" :disabled="!selRange || previewBusy" @click="makePreview">
               {{ previewBusy ? t('studio.preview.busy') : t('studio.preview') }}
