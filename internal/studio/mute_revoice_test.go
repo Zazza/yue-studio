@@ -2,6 +2,7 @@ package studio
 
 import (
 	"math"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -337,5 +338,25 @@ func TestRebuildSectionsMuteKeepHigh(t *testing.T) {
 	}
 	if a := toneAmp(out, 6000, 4.5, 7.5); math.Abs(a-0.3) > 0.06 {
 		t.Errorf("6000 Гц (тарелки) в окне %.4f, want ≈ 0.3 — верх должен остаться", a)
+	}
+}
+
+// Импортированный трек: звук лежит как audio.mp3 (#257) — пересборка берёт его,
+// а не падает на отсутствующем audio.flac.
+func TestRebuildSectionsImportedMp3Base(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	pf := parentFiles(t, dir)
+	mp3 := filepath.Join(dir, "base.mp3")
+	if out, err := exec.Command("ffmpeg", "-y", "-loglevel", "error", "-i", pf["audio.flac"], mp3).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	delete(pf, "audio.flac")
+	pf["audio.mp3"] = mp3
+	f := newSecFake()
+	put(f, parentID, pf)
+	run(t, f, muteSpec([]string{"drums"}, -100))
+	if a := toneAmp(uploadedOnly(t, f), 440, 4.5, 7.5); math.Abs(a-amp440) > 0.05 {
+		t.Errorf("440 Гц в окне %.4f, want ≈ %.2f — база из audio.mp3", a, amp440)
 	}
 }

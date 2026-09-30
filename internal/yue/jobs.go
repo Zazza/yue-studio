@@ -194,7 +194,7 @@ func (c *Client) fetchAudioResp(ctx context.Context, id int64, file, rangeHeader
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("yue audio %d/%s: %s: %s", id, file, resp.Status, string(b))
+		return nil, &StatusError{Code: resp.StatusCode, Msg: fmt.Sprintf("yue audio %d/%s: %s: %s", id, file, resp.Status, string(b))}
 	}
 	if ct := resp.Header.Get("Content-Type"); ct == "" || ct == "application/octet-stream" {
 		resp.Header.Set("Content-Type", contentTypeByExt(file))

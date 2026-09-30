@@ -62,7 +62,6 @@ type InsertReport struct {
 }
 
 const (
-	baseFile = "audio.flac"
 	// defaultBeatSec — доля при 120 BPM, если план не передал темп
 	defaultBeatSec = 0.5
 	// gainRate — частота анализа уровня (RMS) дорожек
@@ -102,7 +101,7 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	base, err := FetchTemp(ctx, svc, parentID, baseFile, dir, tmpPattern)
+	base, err := FetchBase(ctx, svc, parentID, dir)
 	if err != nil {
 		return nil, fmt.Errorf("оригинал #%d: %w", parentID, err)
 	}

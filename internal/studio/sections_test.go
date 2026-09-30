@@ -57,7 +57,7 @@ func (f *secFake) FetchAudio(_ context.Context, id int64, file string) (io.ReadC
 	f.fetched = append(f.fetched, k)
 	p, ok := f.files[k]
 	if !ok {
-		return nil, "", errors.New("404 not found: " + k)
+		return nil, "", &yue.StatusError{Code: 404, Msg: "404 not found: " + k}
 	}
 	r, err := os.Open(p)
 	if err != nil {

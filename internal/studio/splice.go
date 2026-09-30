@@ -51,7 +51,7 @@ func Splice(ctx context.Context, svc yue.Service, baseID int64, parts []SplicePa
 	for _, p := range parts {
 		f, ok := files[p.JobID]
 		if !ok {
-			if f, err = FetchTemp(ctx, svc, p.JobID, baseFile, dir, tmpPattern); err != nil {
+			if f, err = FetchBase(ctx, svc, p.JobID, dir); err != nil {
 				return nil, fmt.Errorf("трек #%d: %w", p.JobID, err)
 			}
 			files[p.JobID] = f
