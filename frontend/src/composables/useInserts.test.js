@@ -493,3 +493,98 @@ describe('keepHighHz вклейки доходит до api (keep_high_hz)', () 
     expect(c).toMatchObject({ keepHighHz: 6000 })
   })
 })
+
+describe('addMutes — громкость дорожек без рендера', () => {
+  const mute = (from, to, db, stems = ['other']) => ({ instId: 'drumsolo', from, to, stems, db })
+  const lastCall = () => apiMock.rebuildSections.mock.calls.at(-1)[1]
+
+  it('записи в реестре с уникальными отрицательными childId, сразу одна пересборка', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addMutes('P', [mute(0, 5, -100), mute(10, 15, -100)])
+    await flush()
+    const reg = ins.appliedFor('P')
+    const mutes = reg.filter(x => x.childId <= 0)
+    expect(mutes.length).toBe(2)
+    for (const m of mutes) expect(m.childId).toBeLessThan(0)
+    expect(new Set(mutes.map(x => x.childId)).size).toBe(2)
+    expect(reg.some(x => x.childId === 1)).toBe(true)   // вклейка A не потерялась
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    expect(lastCall().length).toBe(3)
+  })
+
+  it('два вызова подряд (время не сдвигается) — childId всё равно не совпадают', async () => {
+    const ins = await load({})
+    await ins.addMutes('P', [mute(0, 5, -100)])
+    await ins.addMutes('P', [mute(10, 15, -100)])
+    await flush()
+    const ids = ins.appliedFor('P').map(x => x.childId)
+    expect(ids.length).toBe(2)
+    expect(new Set(ids).size).toBe(2)
+    for (const id of ids) expect(id).toBeLessThan(0)
+  })
+
+  it('в api у записи громкости child_id = 0, окно и дорожки доходят', async () => {
+    const ins = await load({})
+    await ins.addMutes('P', [mute(8, 16, -100, ['other', 'bass'])])
+    await flush()
+    const s = lastCall()[0]
+    expect(s.child_id).toBe(0)
+    expect(s).toMatchObject({ from: 8, to: 16, stems: ['other', 'bass'] })
+  })
+
+  it('db у записей громкости не зажимается: 0 / −60 / −100 уходят как есть', async () => {
+    const ins = await load({})
+    await ins.addMutes('P', [mute(0, 2, 0), mute(4, 6, -60), mute(8, 10, -100)])
+    await flush()
+    const byFrom = Object.fromEntries(lastCall().map(s => [s.from, s.db]))
+    expect(byFrom).toEqual({ 0: 0, 4: -60, 8: -100 })
+    const reg = Object.fromEntries(ins.appliedFor('P').map(x => [x.from, x.db]))
+    expect(reg).toEqual({ 0: 0, 4: -60, 8: -100 })
+  })
+
+  it('в той же пересборке обычная вклейка (childId > 0) зажимается в −24…+12', async () => {
+    const ins = await load({ applied: { P: [{ ...A, db: -60 }] } })
+    await ins.addMutes('P', [mute(20, 25, -60)])
+    await flush()
+    const call = lastCall()
+    expect(call.find(s => s.child_id === 1).db).toBe(-24)
+    expect(call.find(s => s.child_id === 0).db).toBe(-60)
+  })
+
+  it('latestFile не именует файл по записи громкости', async () => {
+    const ins = await load({ applied: { P: [{ ...A, childId: 2 }] } })
+    await ins.addMutes('P', [mute(0, 5, -100)])
+    await flush()
+    expect(ins.latestFile('P')).toBe('overdub-inst-2.flac')
+  })
+
+  it('в реестре только записи громкости → latestFile = null', async () => {
+    const ins = await load({})
+    await ins.addMutes('P', [mute(0, 5, -100)])
+    await flush()
+    expect(ins.latestFile('P')).toBeNull()
+  })
+})
+
+describe('selectAlt — другой вариант вклейки', () => {
+  it('запись меняет childId на выбранный вариант, трек пересобирается с ним', async () => {
+    const ins = await load({ applied: { P: [{ ...A, alts: [7] }] } })
+    await ins.selectAlt('P', 1, 7)
+    await flush()
+    const reg = ins.appliedFor('P')
+    expect(reg.length).toBe(1)
+    expect(reg[0].childId).toBe(7)
+    expect(reg[0]).toMatchObject({ instId: 'i-a', from: 0, to: 10 })
+    expect(apiMock.rebuildSections).toHaveBeenCalled()
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[1].map(s => s.child_id)).toEqual([7])
+    expect(ins.latestFile('P')).toBe('overdub-inst-7.flac')
+  })
+
+  it('вклейки нет в реестре → реестр не меняется, пересборки нет', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.selectAlt('P', 99, 7)
+    await flush()
+    expect(childIds(ins.appliedFor('P'))).toEqual([1])
+    expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+  })
+})

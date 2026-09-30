@@ -1,6 +1,6 @@
 // Тесты фильтров и пейджера списка треков — по спецификации отбора.
 import { describe, it, expect } from 'vitest'
-import { defaultJobFilter, filterJobs, pageJobs, pageCount, QUEUE_PAGE_SIZE } from './jobFilter.js'
+import { defaultJobFilter, filterJobs, pageJobs, pageCount, QUEUE_PAGE_SIZE, groupJobs } from './jobFilter.js'
 
 const NOW = Date.parse('2026-09-28T12:00:00Z')
 const j = (over = {}) => ({
@@ -86,5 +86,67 @@ describe('пейджер', () => {
   it('число страниц: 45 → 3, 0 → 1', () => {
     expect(pageCount(45)).toBe(3)
     expect(pageCount(0)).toBe(1)
+  })
+})
+
+describe('группировка по версиям (groupJobs)', () => {
+  // все треки результата: верхний уровень + вложенные, каждый ровно один раз
+  const allIds = g => [...g.top, ...Object.values(g.children).flat()].map(x => x.id).sort((a, b) => a - b)
+
+  it('пустой список → пустые группы', () => {
+    expect(groupJobs([])).toEqual({ top: [], children: {} })
+  })
+
+  it('производные (parent_id + role) — под корнем, корень с head_id — наверху', () => {
+    const jobs = [j({ id: 1, head_id: 3 }),
+      j({ id: 2, parent_id: 1, role: 'section' }),
+      j({ id: 3, parent_id: 1, role: 'rebuild' }),
+      j({ id: 4, parent_id: 1, role: 'variant' })]
+    const g = groupJobs(jobs)
+    expect(g.top.map(x => x.id)).toEqual([1])
+    expect(g.children[1].map(x => x.id).sort()).toEqual([2, 3, 4])
+  })
+
+  it('внук по цепочке parent_id попадает в группу корня', () => {
+    const jobs = [j({ id: 1 }), j({ id: 2, parent_id: 1, role: 'rebuild' }),
+      j({ id: 3, parent_id: 2, role: 'continue' }), j({ id: 4, parent_id: 3, role: 'fragment' })]
+    const g = groupJobs(jobs)
+    expect(g.top.map(x => x.id)).toEqual([1])
+    expect(g.children[1].map(x => x.id).sort()).toEqual([2, 3, 4])
+    expect(g.children[2]).toBeUndefined()
+    expect(g.children[3]).toBeUndefined()
+  })
+
+  it('overdub_of трактуется как родитель', () => {
+    const g = groupJobs([j({ id: 1 }), j({ id: 2, overdub_of: 1 })])
+    expect(g.top.map(x => x.id)).toEqual([1])
+    expect(g.children[1].map(x => x.id)).toEqual([2])
+  })
+
+  it('родителя нет в списке (удалён) → трек своей группой наверху, не теряется', () => {
+    const g = groupJobs([j({ id: 5, parent_id: 999, role: 'variant' }), j({ id: 6, parent_id: 5, role: 'section' })])
+    expect(g.top.map(x => x.id)).toEqual([5])
+    expect(g.children[5].map(x => x.id)).toEqual([6])
+  })
+
+  it('цикл parent_id (A→B→A) — не зависает, оба трека в результате ровно по разу', () => {
+    const g = groupJobs([j({ id: 1, parent_id: 2 }), j({ id: 2, parent_id: 1 })])
+    expect(allIds(g)).toEqual([1, 2])
+  })
+
+  it('группы по последней активности: свежая версия поднимает старую песню наверх', () => {
+    const jobs = [
+      j({ id: 1, created_at: '2026-09-20T10:00:00Z' }),                     // старая песня
+      j({ id: 2, created_at: '2026-09-27T10:00:00Z' }),                     // новее как корень
+      j({ id: 3, parent_id: 1, role: 'rebuild', created_at: '2026-09-28T10:00:00Z' }), // но у старой свежая версия
+      j({ id: 4, created_at: '2026-09-25T10:00:00Z' }),
+    ]
+    expect(groupJobs(jobs).top.map(x => x.id)).toEqual([1, 2, 4])
+  })
+
+  it('без производных — просто от свежего к старому', () => {
+    const jobs = [j({ id: 1, created_at: '2026-09-20T10:00:00Z' }), j({ id: 2, created_at: '2026-09-28T10:00:00Z' }),
+      j({ id: 3, created_at: '2026-09-24T10:00:00Z' })]
+    expect(groupJobs(jobs).top.map(x => x.id)).toEqual([2, 3, 1])
   })
 })

@@ -1,6 +1,6 @@
 // Тесты приёмов над ABC-планом: разбор/сборка и мутации тактов.
 import { describe, it, expect } from 'vitest'
-import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix, expandMultiRests, sectionStyle, SOFT_MOOD_WORDS } from './abcEdit.js'
+import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix, expandMultiRests, sectionStyle, SOFT_MOOD_WORDS, sectionWindows, TRICK_MUTES } from './abcEdit.js'
 
 // диалект YuE: та же фикстура, что в worker/test_pure.py
 const ABC = [
@@ -566,5 +566,46 @@ describe('мягкие слова настроения и energetic-инстру
 
   it('energetic, стиль только из мягких слов → только en', () => {
     expect(sectionStyle('calm, quiet, ', loud)).toBe('loud riff')
+  })
+})
+
+describe('sectionWindows — окна секции в голосе', () => {
+  // такт таймлайна ролла: секция, окно в секундах, голоса такта
+  const bar = (section, start, end, voices = { Vocal: {}, Ins: {} }) => ({ section, start_sec: start, end_sec: end, voices })
+  const bars = [
+    bar('intro', 0, 2),
+    bar('verse', 2, 4), bar('verse', 4, 6),
+    bar('chorus', 6, 8),
+    bar('verse', 8, 10), bar('verse', 10, 12),
+    bar('outro', 12, 14),
+  ]
+
+  it('все куплеты: подряд идущие такты сливаются в одно окно, между куплетами — разрыв', () => {
+    expect(sectionWindows(bars, 'Vocal', 'verse')).toEqual([{ from: 2, to: 6 }, { from: 8, to: 12 }])
+  })
+
+  it('одиночный такт секции — окно ровно в такт', () => {
+    expect(sectionWindows(bars, 'Ins', 'chorus')).toEqual([{ from: 6, to: 8 }])
+  })
+
+  it('такты, где голоса нет, в окна не попадают', () => {
+    const b = [bar('verse', 0, 2, { Ins: {} }), bar('verse', 2, 4, { Vocal: {}, Ins: {} })]
+    expect(sectionWindows(b, 'Vocal', 'verse')).toEqual([{ from: 2, to: 4 }])
+  })
+
+  it('пусто / нет такой секции / нет такого голоса → []', () => {
+    expect(sectionWindows([], 'Vocal', 'verse')).toEqual([])
+    expect(sectionWindows(null, 'Vocal', 'verse')).toEqual([])
+    expect(sectionWindows(bars, 'Vocal', 'bridge')).toEqual([])
+    expect(sectionWindows(bars, 'Нет', 'verse')).toEqual([])
+  })
+
+  it('TRICK_MUTES — приёмы громкости без рендера: у каждого id, дорожки и db', () => {
+    expect(TRICK_MUTES.length).toBeGreaterThan(0)
+    for (const t of TRICK_MUTES) {
+      expect(typeof t.id).toBe('string')
+      expect(Array.isArray(t.mute) && t.mute.length > 0).toBe(true)
+      expect(typeof t.db).toBe('number')
+    }
   })
 })
