@@ -462,6 +462,16 @@
     "style": "Instrumental, no vocals, dark post-punk, interlocking minor-key arpeggiated guitars carrying the melody, deep propulsive bass, metronomic drums, doomed urban night, 130 BPM"
    },
    {
+    "id": "cold-bass-postpunk",
+    "name": "Холодный пост-панк с мелодичным басом (Joy Division-вайб)",
+    "style": "English, dark post-punk, cold 1979 minimalism, melodic high-register bass guitar playing the lead melody, mechanical tight drums with cavernous reverb, sparse thin trebly guitar, icy string synth pads, deep deadpan baritone male vocals, bleak isolation, 140 BPM"
+   },
+   {
+    "id": "cold-bass-postpunk-instr",
+    "name": "Холодный пост-панк с мелодичным басом (без слов)",
+    "style": "Instrumental, no vocals, dark post-punk, cold 1979 minimalism, melodic high-register bass guitar carrying the melody, mechanical tight drums with cavernous reverb, sparse thin trebly guitar, icy string synth pads, bleak isolation, 140 BPM"
+   },
+   {
     "id": "art-rock-chords",
     "name": "Арт-рок с необычными аккордами (Radiohead-вайб)",
     "style": "English, art rock, unusual guitar harmony with sus2 and add9 colors, clean delayed arpeggios, paranoid melancholy, quiet-loud dynamics, occasional 5/4 passage, anxious high male vocals, 110 BPM"

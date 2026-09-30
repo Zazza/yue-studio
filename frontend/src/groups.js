@@ -405,8 +405,8 @@ export const groups = [
     ],
   },
   // Альт-рок с «умной» гитарной гармонией: интерлок-арпеджио, sus/add9-аккорды,
-  // chorus-стены, слайд в открытом строе. Вайбы Interpol / Radiohead / Placebo /
-  // White Stripes без прямых цитат; каждый стиль — с вокалом и «без слов».
+  // chorus-стены, слайд в открытом строе. Вайбы Interpol / Joy Division / Radiohead /
+  // Placebo / White Stripes без прямых цитат; каждый стиль — с вокалом и «без слов».
   {
     id: 'alt-rock', name: 'Альт-рок / гитарная гармония',
     items: [
@@ -419,6 +419,19 @@ export const groups = [
         id: 'dark-arpeggio-postpunk-instr', name: 'Тёмный пост-панк с арпеджио (без слов)',
         style: 'Instrumental, no vocals, dark post-punk, interlocking minor-key arpeggiated guitars carrying the melody, deep propulsive bass, metronomic drums, doomed urban night, 130 BPM',
         slots: instr({ genre: 'instrumental post-punk', rhythm: 'metronomic driving', guitars: 'interlocking minor arpeggios, melodic leads', keys: '', mood: 'doomed urban night', production: 'dry tight modern' }), bpm: 130, lyrics: '[Instrumental]',
+      },
+      // Joy Division: первоисточник (1979) — мелодию ведёт высокий бас, гитара
+      // скупая и тонкая, механические барабаны в гулкой реверберации, ледяные
+      // струнные синты (поздние вещи), глубокий баритон; холод и пустота, не грязь
+      {
+        id: 'cold-bass-postpunk', name: 'Холодный пост-панк с мелодичным басом (Joy Division-вайб)',
+        style: 'English, dark post-punk, cold 1979 minimalism, melodic high-register bass guitar playing the lead melody, mechanical tight drums with cavernous reverb, sparse thin trebly guitar, icy string synth pads, deep deadpan baritone male vocals, bleak isolation, 140 BPM',
+        slots: { language: 'English', genre: 'post-punk, cold wave', rhythm: 'mechanical tight, cavernous', guitars: 'sparse thin trebly, bass carries the melody', keys: 'icy string synth pads', vocals: 'deep deadpan baritone male', mood: 'bleak isolation, despair', production: 'cavernous reverb, spacious raw 1979' }, bpm: 140,
+      },
+      {
+        id: 'cold-bass-postpunk-instr', name: 'Холодный пост-панк с мелодичным басом (без слов)',
+        style: 'Instrumental, no vocals, dark post-punk, cold 1979 minimalism, melodic high-register bass guitar carrying the melody, mechanical tight drums with cavernous reverb, sparse thin trebly guitar, icy string synth pads, bleak isolation, 140 BPM',
+        slots: instr({ genre: 'instrumental post-punk, cold wave', rhythm: 'mechanical tight, cavernous', guitars: 'sparse thin trebly, bass melody leads', keys: 'icy string synth pads', mood: 'bleak isolation', production: 'cavernous reverb, spacious raw 1979' }), bpm: 140, lyrics: '[Instrumental]',
       },
       {
         id: 'art-rock-chords', name: 'Арт-рок с необычными аккордами (Radiohead-вайб)',
