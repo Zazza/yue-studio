@@ -26,6 +26,10 @@
 5. Запуск: `~/yue/.venv/bin/python ~/yue-studio/yue_worker.py` (порт 8091);
    для автозапуска — systemd-юнит из `deploy/units/` или другой способ
    (Task Scheduler, launchd, окно терминала).
+6. Опционально: `ffmpeg` в PATH — только для спектрограммы в студии
+   (`GET /jobs/{id}/spectrum.png`, готовой картинкой showspectrumpic).
+   Нет бинарника — режим «спектр» честно откажет (503), волна громкости
+   работает и без ffmpeg: `sudo apt install ffmpeg`.
 
 ### Автоматический деплой
 

@@ -28,6 +28,7 @@ import urllib.request
 import arc
 import llm
 import media
+import waveform
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -1150,6 +1151,79 @@ def _rms_sections(audio_path: Path, bars: list[dict]) -> list[dict]:
     return out
 
 
+# ---------- Волна громкости и спектрограмма (выбор места правки по звуку) ----------
+
+@app.get("/jobs/{job_id}/peaks")
+def job_peaks(job_id: int, file: str | None = None, bins: int | None = None):
+    """Огибающая громкости артефакта: [min, max] по окнам (амплитуды [-1,1]).
+    Кэш-сайдикар <файл>.peaks.json с mtime-гейтом и _v (как score.json);
+    кэшируется только канонический bins (по длительности), явный другой
+    считается мимо кэша, чтобы селектор разрешений не затирал кэш."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    fname = file or row["audio_file"]
+    if not fname or "/" in fname or ".." in fname:
+        raise HTTPException(400, "bad filename")
+    src = JOBS_DIR / str(job_id) / fname
+    if not src.is_file():
+        raise HTTPException(404, "file not found")
+    duration = _audio_duration(src)
+    if duration <= 0:
+        raise HTTPException(422, "cannot read audio")
+    canonical = bins is None
+    n = waveform.default_bins(duration) if canonical else waveform.clamp_bins(bins)
+    cache = src.parent / (src.name + ".peaks.json")
+    if canonical and cache.is_file() and cache.stat().st_mtime >= src.stat().st_mtime:
+        try:
+            cached = json.loads(cache.read_text())
+            if cached.get("_v") == waveform.PEAKS_V and cached.get("bins") == n \
+                    and cached.get("file") == fname:
+                return cached
+        except Exception:  # noqa: BLE001 — битый кэш просто перегенерим
+            pass
+    try:
+        out = waveform.compute_peaks(src, n)
+    except Exception as e:  # noqa: BLE001 — битый/нечитаемый аудио
+        raise HTTPException(422, f"cannot compute peaks: {e}") from e
+    if canonical:
+        cache.write_text(json.dumps(out))
+    return out
+
+
+@app.get("/jobs/{job_id}/spectrum.png")
+def job_spectrum(job_id: int, file: str | None = None):
+    """Спектрограмма артефакта готовой картинкой ffmpeg showspectrumpic:
+    ось X линейна 0..длительность — та же шкала времени, что у волны.
+    Кэш <файл>.spectrum.png + метаданные <файл>.spectrum.json (mtime-гейт).
+    ffmpeg на воркере опционален: нет бинарника — 503, волна работает."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    fname = file or row["audio_file"]
+    if not fname or "/" in fname or ".." in fname:
+        raise HTTPException(400, "bad filename")
+    src = JOBS_DIR / str(job_id) / fname
+    if not src.is_file():
+        raise HTTPException(404, "file not found")
+    png = src.parent / (src.name + ".spectrum.png")
+    meta = src.parent / (src.name + ".spectrum.json")
+    if png.is_file() and png.stat().st_mtime >= src.stat().st_mtime and meta.is_file():
+        try:
+            if json.loads(meta.read_text()).get("_v") == waveform.SPECTRUM_V:
+                return FileResponse(png, media_type="image/png")
+        except Exception:  # noqa: BLE001 — битые метаданные перегенерим
+            pass
+    try:
+        m = waveform.render_spectrum_png(src, png)
+    except FileNotFoundError as e:
+        raise HTTPException(503, str(e)) from e
+    except Exception as e:  # noqa: BLE001 — ffmpeg отказал/битый аудио
+        raise HTTPException(422, f"cannot render spectrum: {e}") from e
+    meta.write_text(json.dumps(m))
+    return FileResponse(png, media_type="image/png")
+
+
 # ---------- Фрагментное превью: VAE-decode куска латентов ----------
 
 LATENT_HZ = 25.0  # латенты YuE2 — 25 кадров/сек (замерено: 1556 кадров = 62.2 с)
@@ -1781,9 +1855,11 @@ def dsp_variant_delete(job_id: int, fname: str):
     if not f.is_file():
         raise HTTPException(404, "variant not found")
     f.unlink()
-    mp = d / f"{fname}.metrics.json"
-    if mp.is_file():
-        mp.unlink()
+    for side in (f"{fname}.metrics.json", f"{fname}.peaks.json",
+                 f"{fname}.spectrum.json", f"{fname}.spectrum.png"):
+        p = d / side
+        if p.is_file():
+            p.unlink()
     log.info("job %s: variant %s deleted", job_id, fname)
     return {"deleted": True}
 

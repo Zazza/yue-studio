@@ -152,6 +152,56 @@ func RegisterStudioTools(s *Server) {
 		},
 	})
 
+	s.Register(Tool{
+		Name: "job_peaks",
+		Description: "Огибающая громкости артефакта джобы (волна студии): [min, max] амплитуды " +
+			"по окнам, ~10 окон/с — найти провалы, тишину, вступления числами, выбрать место " +
+			"правки. file пусто = основной трек; bins пусто = каноническое разрешение (кэш воркера).",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы", "integer"),
+			"file":   prop("аудио-артефакт: audio.flac / dsp-*.flac / overdub-*.flac / stem-*.flac (пусто = основной трек)", "string"),
+			"bins":   prop("число окон огибающей (пусто = каноническое ~10/с)", "integer"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			out, err := s.client.JobPeaks(context.Background(), argInt(args, "job_id"),
+				argString(args, "file"), int(argInt(args, "bins")))
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "job_spectrum",
+		Description: "Спектрограмма артефакта джобы PNG (ось X — 0..длительность, та же шкала " +
+			"времени, что волна студии): скачать в каталог загрузок, вернуть путь. Нужен ffmpeg " +
+			"на воркере; нет — 503 (волна громкости job_peaks работает и без него).",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы", "integer"),
+			"file":   prop("аудио-артефакт (пусто = основной трек)", "string"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			id := argInt(args, "job_id")
+			label := argString(args, "file")
+			if label == "" {
+				label = "audio"
+			}
+			b, err := s.client.JobSpectrum(context.Background(), id, argString(args, "file"))
+			if err != nil {
+				return "", err
+			}
+			if err := os.MkdirAll(s.downloadDir, 0o755); err != nil {
+				return "", err
+			}
+			path := filepath.Join(s.downloadDir, fmt.Sprintf("yue-%d-%s.spectrum.png", id, label))
+			if err := os.WriteFile(path, b, 0o644); err != nil {
+				return "", err
+			}
+			return "сохранено: " + path, nil
+		},
+	})
+
 	// ---------- стемы / минус / овердаб / импорт ----------
 
 	s.Register(Tool{

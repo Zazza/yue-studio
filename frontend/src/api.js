@@ -5,6 +5,7 @@ import {
   YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueDspPreview, YueDspVariants,
   YueCopilot,
   YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
+  YueJobPeaks, YueJobSpectrumPNG,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
@@ -42,6 +43,10 @@ export const api = {
   importTrack: () => YueImportTrack(),
   ensureMp3: (id) => YueEnsureMp3(id),
   jobScore: (id) => YueJobScore(id),
+  // волна громкости: file '' — основной трек, bins 0 — каноническое разрешение
+  jobPeaks: (id, file, bins) => YueJobPeaks(id, file || '', bins || 0),
+  // спектрограмма PNG (base64 от воркера) — data-URL для <img>
+  jobSpectrumPNG: (id, file) => YueJobSpectrumPNG(id, file || ''),
   jobAbcText: (id, file) => YueJobAbcText(id, file),
   jobPreview: (id, from, to) => YueJobPreview(id, from, to),
   submitOverdub: (id, style, lyrics, gain, abc, seed) => YueSubmitOverdub(id, style, lyrics, gain, abc || '', seed || 0),

@@ -55,9 +55,13 @@ export function YueJobAbcText(arg1:number,arg2:string):Promise<string>;
 
 export function YueJobLyrics(arg1:number):Promise<yue.LyricsResult>;
 
+export function YueJobPeaks(arg1:number,arg2:string,arg3:number):Promise<Record<string, any>>;
+
 export function YueJobPreview(arg1:number,arg2:number,arg3:number):Promise<Record<string, any>>;
 
 export function YueJobScore(arg1:number):Promise<Record<string, any>>;
+
+export function YueJobSpectrumPNG(arg1:number,arg2:string):Promise<Array<number>>;
 
 export function YueJobStems(arg1:number):Promise<Array<Record<string, any>>>;
 

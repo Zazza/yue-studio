@@ -1236,6 +1236,18 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .roll-chord { font-size: 9px; color: var(--muted); text-align: center; overflow: hidden; }
 .roll-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; }
 
+/* волна громкости (первая канва проекта): сетка/выделение/курсор рисует
+   canvas, спектрограмма — <img> воркера под ним, ось X у обоих 0..длительность */
+.wave-panel { margin: 0 0 10px; }
+.wave-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; }
+.wave-toolbar .ghost.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.wave-snap { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+.wave-hint { margin-left: auto; }
+.wave-wrap { position: relative; height: 96px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); overflow: hidden; }
+.wave-spectrum { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+.wave-empty { position: absolute; inset: 0; }
+.wave-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+
 /* овердаб */
 .od-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .od-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

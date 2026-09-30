@@ -63,7 +63,9 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 голоса по тактам — спето ли по плану, не выше ли потолка).
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
-`dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики).
+`dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики) ·
+`job_peaks` (огибающая громкости числами — найти провал/вступление, выбрать место правки) ·
+`job_spectrum` (спектрограмма PNG в загрузки; нужен ffmpeg на воркере).
 
 **Профили исполнителей**: `corpus_list` / `corpus_create` / `corpus_add_tracks` /
 `corpus_build` / `corpus_get`.

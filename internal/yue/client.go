@@ -128,6 +128,28 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	return c.call(ctx, http.MethodGet, path, requestTimeout, nil, out)
 }
 
+// getBytes — GET бинарного артефакта (PNG спектрограммы) целиком в память;
+// конвенции те же, что у call: таймаут, статус, тело ошибки в сообщении.
+func (c *Client) getBytes(ctx context.Context, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.GetURL()+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyLimit))
+		return nil, fmt.Errorf("yue GET %s: %s: %s", path, resp.Status, string(b))
+	}
+	// спектрограмма 1600×320 — сотни КБ; потолок как у текстовых артефактов
+	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, body any, timeout time.Duration, out any) error {
 	return c.call(ctx, http.MethodPost, path, timeout, jsonReq(body), out)
 }

@@ -430,6 +430,18 @@ func (a *App) YueJobScore(id int64) (map[string]any, error) {
 	return a.yue.JobScore(a.ctx, id)
 }
 
+// YueJobPeaks — огибающая громкости артефакта (волна в студии): file "" —
+// основной трек, bins 0 — каноническое разрешение воркера.
+func (a *App) YueJobPeaks(id int64, file string, bins int) (map[string]any, error) {
+	return a.yue.JobPeaks(a.ctx, id, file, bins)
+}
+
+// YueJobSpectrumPNG — спектрограмма артефакта PNG; []byte уходит в JS
+// как base64 (картинка для <img> с той же шкалой времени, что волна).
+func (a *App) YueJobSpectrumPNG(id int64, file string) ([]byte, error) {
+	return a.yue.JobSpectrum(a.ctx, id, file)
+}
+
 func (a *App) YueJobPreview(id int64, fromSec, toSec float64) (map[string]any, error) {
 	return a.yue.JobPreview(a.ctx, id, fromSec, toSec)
 }

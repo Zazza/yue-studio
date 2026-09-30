@@ -25,6 +25,12 @@ type Service interface {
 	UploadDsp(ctx context.Context, id int64, fname string, data []byte) (*DspVariant, error)
 	Transcribe(ctx context.Context, name string, data []byte) (*TranscribeResult, error)
 	JobScore(ctx context.Context, id int64) (map[string]any, error)
+	// JobPeaks — огибающая громкости артефакта (волна в студии): file "" —
+	// основной трек, bins 0 — каноническое разрешение воркера (кэшируемое)
+	JobPeaks(ctx context.Context, id int64, file string, bins int) (map[string]any, error)
+	// JobSpectrum — спектрограмма артефакта PNG; ось X — 0..длительность,
+	// та же шкала времени, что у волны
+	JobSpectrum(ctx context.Context, id int64, file string) ([]byte, error)
 	JobPreview(ctx context.Context, id int64, fromSec, toSec float64) (map[string]any, error)
 	SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64, abc string, seed int64) (int64, error)
 	MakeStems(ctx context.Context, id int64) (map[string]any, error)

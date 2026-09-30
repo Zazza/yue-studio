@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 )
 
@@ -69,6 +70,43 @@ func (c *Client) JobScore(ctx context.Context, id int64) (map[string]any, error)
 		return nil, err
 	}
 	return out, nil
+}
+
+// JobPeaks — огибающая громкости артефакта для волны в студии: [min, max] по
+// окнам. file "" — основной трек джобы, bins 0 — каноническое разрешение
+// воркера (только оно кэшируется на его стороне).
+func (c *Client) JobPeaks(ctx context.Context, id int64, file string, bins int) (map[string]any, error) {
+	if file != "" && !validFile(file) {
+		return nil, fmt.Errorf("yue: bad artifact name %q", file)
+	}
+	path := fmt.Sprintf("/jobs/%d/peaks", id)
+	q := neturl.Values{}
+	if file != "" {
+		q.Set("file", file)
+	}
+	if bins > 0 {
+		q.Set("bins", strconv.Itoa(bins))
+	}
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var out map[string]any
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// JobSpectrum — спектрограмма артефакта готовой картинкой PNG с воркера.
+func (c *Client) JobSpectrum(ctx context.Context, id int64, file string) ([]byte, error) {
+	if file != "" && !validFile(file) {
+		return nil, fmt.Errorf("yue: bad artifact name %q", file)
+	}
+	path := fmt.Sprintf("/jobs/%d/spectrum.png", id)
+	if file != "" {
+		path += "?file=" + neturl.QueryEscape(file)
+	}
+	return c.getBytes(ctx, path)
 }
 
 // JobPreview — превью фрагмента: VAE-decode куска латентов, десятки секунд.

@@ -102,12 +102,20 @@ export function YueJobLyrics(arg1) {
   return window['go']['main']['App']['YueJobLyrics'](arg1);
 }
 
+export function YueJobPeaks(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueJobPeaks'](arg1, arg2, arg3);
+}
+
 export function YueJobPreview(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueJobPreview'](arg1, arg2, arg3);
 }
 
 export function YueJobScore(arg1) {
   return window['go']['main']['App']['YueJobScore'](arg1);
+}
+
+export function YueJobSpectrumPNG(arg1, arg2) {
+  return window['go']['main']['App']['YueJobSpectrumPNG'](arg1, arg2);
 }
 
 export function YueJobStems(arg1) {

@@ -90,7 +90,9 @@
 - Ollama — только через `llm.ollama_chat` (+ `llm.strip_md`); дублировать
   urllib-вызовы — запрещено. `keep_alive=0` обязателен (VRAM делится с YuE2).
 - Конвертации — через `media.encode_mp3` и soundfile; ffmpeg на GPU-машине
-  не предполагается.
+  не предполагается (единственное исключение — спектрограмма студии:
+  `waveform.render_spectrum_png` использует ffmpeg, если он есть в PATH;
+  нет — эндпоинт спектра отвечает 503, волна громкости работает).
 - Env-переменные: чтение в одном месте при старте (`YUE_DATA_DIR`, `YUE_OLLAMA_URL`,
   `YUE_OLLAMA_MODEL`, `YUE_WHISPER_PY`); новую переменную — в `worker.env.example`
   и таблицу в `docs/deployment.md`.

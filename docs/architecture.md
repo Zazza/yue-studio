@@ -46,12 +46,19 @@
 | `sheetsage.py` | SheetSage2 (транскрипция трека → ABC, m-a-p/SheetSage2, 57M) |
 | `stems.py` | demucs htdemucs (разделение на стемы, грузится на вызов) |
 | `abcparse.py` | парсер score.abc → таймлайн для пиано-ролла |
+| `waveform.py` | волна громкости (пики soundfile+numpy) и спектрограмма (ffmpeg showspectrumpic — опционален) |
 | `whisper_run.py` | скрипт текста песни; запускается `~/whisper-venv`-интерпретатором |
 
 Данные: `~/yue-studio/data/jobs/<id>/` — audio.flac/mp3/wav, score.abc,
 request.abc, latent.npy (25 кадров/с — для превью фрагментов), semantic.npy,
 metrics.json, dsp-*/overdub-*/preview-*/stem-*.flac. Профили корпусов —
 `data/corpus/<id>/`.
+
+Волна студии (выбор места правки по звуку): пики и спектрограмма считаются
+воркером и кэшируются сайдикарами рядом с аудио — `<файл>.peaks.json`
+(mtime-гейт + `_v`, как score.json) и `<файл>.spectrum.png` + `.spectrum.json`.
+Повторное открытие мгновенно; амплитуде ffmpeg не нужен, спектру — нужен
+(нет бинарника → эндпоинт спектра отвечает 503, волна работает).
 
 ## Конвейер генерации YuE2
 

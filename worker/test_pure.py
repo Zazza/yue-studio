@@ -38,6 +38,14 @@ try:
 except ImportError:
     _HAS_MP3_DEPS = False
 
+# numpy отдельно: он есть и в CI (fastapi httpx numpy) — чистая математика
+# волн должна гоняться там всегда.
+try:
+    import numpy  # noqa: F401
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
 
 @unittest.skipUnless(_HAS_MP3_DEPS, "нужны numpy/soundfile/lameenc (GPU-окружение)")
 class TestEncodeMp3(unittest.TestCase):
@@ -972,3 +980,175 @@ class TestVocalContourRange(_WorkerApiCase):
         for q in ("from=60", "from=500", "from=-1", "from=10&to=5", "from=nan", "to=inf"):
             r = self.client.get(f"/jobs/{jid}/vocal_contour?{q}")
             self.assertEqual(r.status_code, 422, q)
+
+
+# ---------- Волна громкости и спектрограмма ----------
+
+@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (в CI ставится всегда)")
+class TestWaveformPeaks(unittest.TestCase):
+    """Спецификация waveform.peaks_from_samples: [min, max] по окнам без
+    нормализации (тихое окно тихим и остаётся, файлы сравнимы между собой);
+    хвост короче окна паддится, а не теряется."""
+
+    def test_windows_min_max(self):
+        import numpy as np
+        from waveform import peaks_from_samples
+        sr = 1000
+        t = np.arange(sr) / sr
+        y = np.concatenate([
+            0.5 * np.sin(2 * np.pi * 10 * t),    # окно 1: тон ±0.5
+            np.zeros(sr),                         # окно 2: тишина
+            1.0 * np.sin(2 * np.pi * 10 * t),     # окно 3: тон ±1.0
+        ])
+        peaks = peaks_from_samples(y, 3)
+        self.assertEqual(len(peaks), 3)
+        self.assertAlmostEqual(peaks[0][0], -0.5, delta=0.01)
+        self.assertAlmostEqual(peaks[0][1], 0.5, delta=0.01)
+        self.assertEqual(peaks[1], [0.0, 0.0])
+        self.assertAlmostEqual(peaks[2][0], -1.0, delta=0.01)
+        self.assertAlmostEqual(peaks[2][1], 1.0, delta=0.01)
+
+    def test_tail_padded_not_lost(self):
+        import numpy as np
+        from waveform import peaks_from_samples
+        y = np.concatenate([np.zeros(100), np.ones(51)])   # 151 сэмпл
+        peaks = peaks_from_samples(y, 2)                    # окна по 76 + паддинг
+        self.assertEqual(len(peaks), 2)
+        self.assertEqual(peaks[0], [0.0, 0.0])
+        self.assertEqual(peaks[1], [0.0, 1.0])
+
+    def test_bins_bounds(self):
+        from waveform import clamp_bins, default_bins
+        self.assertEqual(clamp_bins(5), 100)
+        self.assertEqual(clamp_bins(99999), 12000)
+        self.assertEqual(default_bins(10), 500)     # короткий трек → минимум
+        self.assertEqual(default_bins(240), 2400)   # 4 минуты → 10 окон/с
+        self.assertEqual(default_bins(2400), 8000)  # длинный → максимум
+
+
+def _ffmpeg_available() -> bool:
+    import shutil
+    return shutil.which("ffmpeg") is not None
+
+
+@unittest.skipUnless(_HAS_MP3_DEPS, "нужны numpy/soundfile (GPU-окружение)")
+class TestWaveApi(_WorkerApiCase):
+    """Спецификация GET /jobs/{id}/peaks: канонический bins кэшируется в
+    <файл>.peaks.json (mtime-гейт), явный другой — считается мимо кэша;
+    плохое имя файла → 400, нет джобы/файла → 404."""
+
+    def _audio_job(self, seconds=3.0):
+        import numpy as np
+        import soundfile as sf
+        jid = self._job(duration=seconds, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        sr = 24000
+        t = np.arange(int(sr * seconds)) / sr
+        sf.write(str(d / "audio.flac"), (0.5 * np.sin(2 * np.pi * 440 * t)).astype("float32"), sr)
+        return jid
+
+    def test_peaks_canonical(self):
+        jid = self._audio_job()
+        r = self.client.get(f"/jobs/{jid}/peaks", params={"file": "audio.flac"})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["_v"], 1)
+        self.assertEqual(body["file"], "audio.flac")
+        self.assertEqual(body["bins"], 500)             # 3 с → минимум 500
+        self.assertAlmostEqual(body["duration_sec"], 3.0, places=2)
+        self.assertEqual(len(body["peaks"]), 500)
+        lo, hi = body["peaks"][0]                       # синус ±0.5 без нормировки
+        self.assertGreater(lo, -0.6)
+        self.assertLess(lo, -0.4)
+        self.assertGreater(hi, 0.4)
+        self.assertLess(hi, 0.6)
+
+    def test_canonical_cached_and_reused(self):
+        from unittest import mock
+        jid = self._audio_job()
+        r = self.client.get(f"/jobs/{jid}/peaks", params={"file": "audio.flac"})
+        self.assertEqual(r.status_code, 200, r.text)
+        cache = self.jobs_dir / str(jid) / "audio.flac.peaks.json"
+        self.assertTrue(cache.is_file())
+        with mock.patch.object(self.w.waveform, "compute_peaks",
+                               side_effect=AssertionError("кэш не используется")):
+            r2 = self.client.get(f"/jobs/{jid}/peaks", params={"file": "audio.flac"})
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json(), r.json())
+
+    def test_explicit_bins_not_cached(self):
+        jid = self._audio_job()
+        r = self.client.get(f"/jobs/{jid}/peaks", params={"file": "audio.flac", "bins": 300})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["bins"], 300)
+        self.assertEqual(len(r.json()["peaks"]), 300)
+        self.assertFalse((self.jobs_dir / str(jid) / "audio.flac.peaks.json").is_file())
+
+    def test_errors(self):
+        jid = self._audio_job()
+        for query, code in (
+            ({"file": "../x"}, 400),
+            ({"file": "a/b.flac"}, 400),
+            ({"file": "missing.flac"}, 404),
+            ({}, 400),                                   # audio_file в БД пуст
+        ):
+            with self.subTest(query=query):
+                r = self.client.get(f"/jobs/{jid}/peaks", params=query)
+                self.assertEqual(r.status_code, code, r.text)
+        r = self.client.get("/jobs/9999/peaks")
+        self.assertEqual(r.status_code, 404, r.text)
+
+
+@unittest.skipUnless(_HAS_MP3_DEPS, "нужны numpy/soundfile (GPU-окружение)")
+class TestSpectrumApi(_WorkerApiCase):
+    """Спецификация GET /jobs/{id}/spectrum.png: PNG с линейной осью времени,
+    кэш-сайдикары <файл>.spectrum.png/.json; нет ffmpeg → 503 (волна громкости
+    при этом работает — ffmpeg на воркере опционален)."""
+
+    def _job_with_file(self, real_audio: bool):
+        jid = self._job(duration=3.0, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        if real_audio:
+            import numpy as np
+            import soundfile as sf
+            sr = 24000
+            t = np.arange(sr * 3) / sr
+            sf.write(str(d / "audio.flac"), (0.5 * np.sin(2 * np.pi * 440 * t)).astype("float32"), sr)
+        else:
+            (d / "audio.flac").write_bytes(b"x")
+        return jid
+
+    def test_no_ffmpeg_503(self):
+        from unittest import mock
+        jid = self._job_with_file(real_audio=False)
+        with mock.patch("shutil.which", return_value=None):
+            r = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "audio.flac"})
+        self.assertEqual(r.status_code, 503, r.text)
+
+    def test_errors(self):
+        jid = self._job_with_file(real_audio=False)
+        r = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "../x"})
+        self.assertEqual(r.status_code, 400, r.text)
+        r = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "missing.flac"})
+        self.assertEqual(r.status_code, 404, r.text)
+        r = self.client.get("/jobs/9999/spectrum.png")
+        self.assertEqual(r.status_code, 404, r.text)
+
+    @unittest.skipUnless(_ffmpeg_available(), "нужен ffmpeg в PATH")
+    def test_png_and_cache(self):
+        from unittest import mock
+        jid = self._job_with_file(real_audio=True)
+        r = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "audio.flac"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.headers["content-type"], "image/png")
+        self.assertTrue(r.content.startswith(b"\x89PNG"), "не PNG-байты")
+        d = self.jobs_dir / str(jid)
+        self.assertTrue((d / "audio.flac.spectrum.png").is_file())
+        self.assertTrue((d / "audio.flac.spectrum.json").is_file())
+        with mock.patch.object(self.w.waveform, "render_spectrum_png",
+                               side_effect=AssertionError("кэш не используется")):
+            r2 = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "audio.flac"})
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.content, r.content)

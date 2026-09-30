@@ -163,3 +163,81 @@ func TestAudioURL(t *testing.T) {
 		t.Fatalf("AudioURL = %q, want %q", got, want)
 	}
 }
+
+func TestJobPeaks(t *testing.T) {
+	// spec: канонический вызов — /jobs/{id}/peaks без query; file/bins идут
+	// query-параметрами; ответ — JSON воркера как есть
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/jobs/135/peaks" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"_v":1,"file":"audio.flac","bins":1500,"duration_sec":210.0,"peaks":[[0,0]]}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+
+	out, err := c.JobPeaks(context.Background(), 135, "", 0)
+	if err != nil {
+		t.Fatalf("JobPeaks: %v", err)
+	}
+	if out["file"] != "audio.flac" || out["bins"].(float64) != 1500 {
+		t.Fatalf("decoded %+v", out)
+	}
+	if gotQuery != "" {
+		t.Fatalf("canonical call should be query-less, got %q", gotQuery)
+	}
+
+	if _, err := c.JobPeaks(context.Background(), 135, "dsp-grim.flac", 777); err != nil {
+		t.Fatalf("JobPeaks with file: %v", err)
+	}
+	if want := "bins=777&file=dsp-grim.flac"; gotQuery != want {
+		t.Fatalf("query = %q, want %q", gotQuery, want)
+	}
+
+	// spec: имя артефакта с обходом пути не уходит на воркер вообще
+	if _, err := c.JobPeaks(context.Background(), 135, "../x.flac", 0); err == nil {
+		t.Fatal("expected error for path traversal")
+	}
+}
+
+func TestJobSpectrum(t *testing.T) {
+	png := []byte("\x89PNG-fake-bytes")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/jobs/135/spectrum.png" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("file") != "audio.flac" {
+			t.Errorf("file = %q", r.URL.Query().Get("file"))
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+
+	got, err := c.JobSpectrum(context.Background(), 135, "audio.flac")
+	if err != nil {
+		t.Fatalf("JobSpectrum: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Fatalf("bytes round-trip failed: %q", got)
+	}
+}
+
+func TestJobSpectrumErrorCarriesStatusAndBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "ffmpeg not available on worker", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+
+	_, err := c.JobSpectrum(context.Background(), 1, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), "ffmpeg not available") {
+		t.Fatalf("error should carry status and body: %v", err)
+	}
+}

@@ -1,6 +1,6 @@
 <script setup>
 // Студия трека: пиано-ролл партитуры, минус по стемам, овердаб, DSP-цепочки.
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../i18n/index.js'
 const { t } = useI18n()
 import { api } from '../api.js'
@@ -13,12 +13,14 @@ import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { mixLabel } from '../insertLabels.js'
+import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
+import WaveView from './WaveView.vue'
 
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
 const emit = defineEmits(['close', 'open-metrics'])
 
-const { isPlaying, playBusy, playBtn, toggleArtifact } = usePlayer()
+const { isPlaying, playBusy, playBtn, toggleArtifact, playerState, nowPlayingKey, refreshPlayer } = usePlayer()
 const { askConfirm } = useConfirm()
 const inserts = useInserts()
 const revoice = useRevoice()
@@ -49,6 +51,23 @@ const allJobs = ref([])
 const jobMetrics = ref(null)   // метрики исходника (для инлайн-дельт)
 
 const curChain = computed(() => dspChains.value.find((c) => c.id === dspSel.value) || null)
+
+// волна громкости («как в плеере»): выбор места правки по звуку
+const waveFile = ref('')            // '' = основной трек версии
+const wavePeaks = ref(null)         // {duration_sec, peaks: [[min,max],...]}
+const waveBusy = ref(false)
+const waveErr = ref('')
+const waveMode = ref('amp')         // 'amp' | 'spectrum'
+const waveSnap = ref(true)          // прилипание границ выделения к тактам
+const waveSelPrecise = ref(null)    // {from, to} — точные секунды выделения по волне
+const waveCursor = ref(0)           // позиция воспроизведения по артефакту волны
+const minusReady = ref(false)       // минус.flac уже собран — доступен в селекторе волны
+const spectrumUrl = ref('')
+const spectrumCache = new Map()     // file → data:URL
+let waveSeekBusy = false            // перемотка = ffmpeg-перекодировка на ПК
+let waveLastClickMs = 0
+let waveRafId = 0
+let waveLastPoll = { pos: 0, ts: 0 }
 
 // Позиционная сетка: колонка = музыкальный такт (позиция внутри голоса),
 // голоса в одной колонке звучат одновременно. Плоский поток из score.json
@@ -87,7 +106,37 @@ function posTime(pos) {
   return { from, to }
 }
 
+// волна: колонки ролла как [{sec, section}], границы тактов и сетка,
+// обрезанная по длине аудио (трек бывает короче плана)
+const posTimes = computed(() => Array.from({ length: posCount.value }, (_, i) => posTime(i)))
+const waveDuration = computed(() => (wavePeaks.value && wavePeaks.value.duration_sec) || props.job.duration_sec || 0)
+const waveEdges = computed(() => posEdges(posTimes.value))
+const waveColumns = computed(() => posTimes.value.map((tm, i) => ({ sec: tm.from, section: posSection(i) })))
+const waveMarks = computed(() => gridMarks(waveColumns.value, waveDuration.value))
+
+// селектор файла волны: все артефакты джобы (трек, эффекты, вклейки, стемы, минус)
+const waveFiles = computed(() => {
+  const out = [{ value: '', label: t('studio.wave.file.main') }]
+  const seen = new Set([''])
+  const add = (file, label) => {
+    if (file && !seen.has(file)) { seen.add(file); out.push({ value: file, label: label || file }) }
+  }
+  for (const v of dspVariants.value) add(v.file, chainLabel(v.file))
+  for (const s of stemsList.value) add(s.file, t('studio.wave.stem', { name: s.name || s.file }))
+  if (minusReady.value) add('minus.flac', t('studio.wave.minus'))
+  return out
+})
+
+const waveKey = computed(() => `w${props.job.id}:${waveFile.value || 'main'}`)
+
+// выделение — единый источник для всех кнопок студии: точные секунды волны
+// переопределяют тактовую сетку (приёмы остаются по тактам через rollSel),
+// протяжка по роллу — наоборот, отбрасывает точность волны
 const selRange = computed(() => {
+  if (waveSelPrecise.value) {
+    const cappedTo = Math.min(waveSelPrecise.value.to, waveDuration.value || waveSelPrecise.value.to)
+    return { from: Math.min(waveSelPrecise.value.from, Math.max(0, cappedTo - 1)), to: cappedTo }
+  }
   const s = rollSel.value
   if (!s || !posCount.value) return null
   const lo = Math.max(0, Math.min(s.a, s.b)), hi = Math.min(posCount.value - 1, Math.max(s.a, s.b))
@@ -104,6 +153,8 @@ const selRange = computed(() => {
 })
 
 onMounted(async () => {
+  waveRafId = requestAnimationFrame(waveCursorLoop)
+  loadWave()
   await openRoll()
   try { stemsList.value = (await api.jobStems(props.job.id)) || [] } catch {}
   try { dspChains.value = (await api.dspChains()) || [] } catch {}
@@ -130,7 +181,7 @@ onMounted(async () => {
   } catch {}
 })
 
-onUnmounted(() => { saveStudioState(); stopFragPoll() })
+onUnmounted(() => { cancelAnimationFrame(waveRafId); saveStudioState(); stopFragPoll() })
 
 function saveStudioState() {
   try {
@@ -158,6 +209,80 @@ async function openRoll() {
   } catch (e) {
     rollErr.value = String(e)
   } finally { rollBusy.value = false }
+}
+
+// ---------- волна громкости ----------
+
+async function loadWave() {
+  waveBusy.value = true
+  waveErr.value = ''
+  try {
+    wavePeaks.value = await api.jobPeaks(props.job.id, waveFile.value, 0)
+  } catch (e) {
+    wavePeaks.value = null
+    waveErr.value = String(e)
+  } finally { waveBusy.value = false }
+}
+
+async function loadSpectrum() {
+  const key = waveFile.value || ''
+  if (spectrumCache.has(key)) { spectrumUrl.value = spectrumCache.get(key); return }
+  waveBusy.value = true
+  try {
+    const b64 = await api.jobSpectrumPNG(props.job.id, waveFile.value)
+    spectrumUrl.value = `data:image/png;base64,${b64}`
+    spectrumCache.set(key, spectrumUrl.value)
+  } catch (e) {
+    spectrumUrl.value = ''
+    waveErr.value = String(e)   // чаще всего «ffmpeg not available on worker»
+  } finally { waveBusy.value = false }
+}
+
+watch(waveFile, () => {
+  spectrumUrl.value = spectrumCache.get(waveFile.value || '') || ''
+  waveSelPrecise.value = null
+  loadWave()
+})
+watch(waveMode, (m) => { if (m === 'spectrum' && !spectrumUrl.value) loadSpectrum() })
+
+// выделение по волне — единый источник для кнопок: точные секунды в приоритете,
+// колонки ролла синхронизируются (приёмы плана остаются тактовыми)
+function onWaveSelect(sel) {
+  waveSelPrecise.value = sel
+  const p = secToPosRange(sel.from, sel.to, posTimes.value)
+  if (p) rollSel.value = { a: p.lo, b: p.hi }
+}
+
+// клик по волне — слушать с этого места. Перемотка = ffmpeg-перекодировка
+// хвоста на ПК: не чаще раза в 300 мс и не параллельно самой себе
+async function onWaveSeek(sec) {
+  const now = Date.now()
+  if (waveSeekBusy || now - waveLastClickMs < 300) return
+  waveLastClickMs = now
+  waveSeekBusy = true
+  try {
+    if (nowPlayingKey.value === waveKey.value && playerState.value.job_id === props.job.id) {
+      await api.seekAudio(sec)
+    } else {
+      await api.playFile(props.job.id, waveFile.value || props.job.audio_file || 'audio.flac', waveDuration.value)
+      nowPlayingKey.value = waveKey.value
+      await api.seekAudio(sec)
+    }
+    refreshPlayer()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally { setTimeout(() => { waveSeekBusy = false }, 200) }
+}
+
+// курсор: опрос позиции раз в 1 с, между опросами идём вперёд плавно (rAF);
+// позиция относительна артефакту — рисуем только файл волны
+watch(() => playerState.value.position_sec, (p) => { waveLastPoll = { pos: p || 0, ts: Date.now() } })
+function waveCursorLoop() {
+  waveRafId = requestAnimationFrame(waveCursorLoop)
+  if (nowPlayingKey.value === waveKey.value && playerState.value.job_id === props.job.id) {
+    waveCursor.value = cursorInterp(waveLastPoll.pos, waveLastPoll.ts,
+      playerState.value.playing && !waveSeekBusy, Date.now(), waveDuration.value)
+  }
 }
 
 function barDensity(bar, voice) {
@@ -201,6 +326,7 @@ function cellTitle(v, pos) {
 
 function barSelStart(idx) {
   rollDrag = true
+  waveSelPrecise.value = null   // выделение теперь по тактам, точность волны не нужна
   rollSel.value = { a: idx, b: idx }
 }
 
@@ -449,18 +575,10 @@ async function addSection(instId) {
   }
 }
 
-// время выделенного диапазона позиций (для меток, мини-рендера и превью)
+// время выделенного диапазона: делегирует в selRange — тот уже знает про
+// точные секунды волны и кап по длине звука
 function selTimeRange() {
-  const p = selPos.value
-  if (!p) return null
-  let from = Infinity, to = -Infinity
-  for (let pos = p.lo; pos <= p.hi; pos++) {
-    const t = posTime(pos)
-    if (!isFinite(t.from)) continue
-    from = Math.min(from, t.from)
-    to = Math.max(to, t.to)
-  }
-  return isFinite(from) ? { from, to } : null
+  return selRange.value
 }
 
 const pickableCount = computed(() => {
@@ -843,6 +961,7 @@ async function makeMinus() {
   try {
     const r = await api.makeMinus(props.job.id, exclude)
     if (r && r.file) {
+      minusReady.value = true
       toggleArtifact(`m${props.job.id}:minus`, `минус (−${exclude.join(', ')}) · #${props.job.id}`,
         () => api.playFile(props.job.id, r.file, props.job.duration_sec))
     }
@@ -1039,6 +1158,27 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             {{ posCount }} тактов · ~{{ fmtDur(rollData.duration_sec) }}
             <template v-if="selRange"> · выделено {{ selRange.from.toFixed(0) }}–{{ selRange.to.toFixed(0) }} с</template>
           </p>
+          <div class="wave-panel">
+            <div class="wave-toolbar">
+              <span class="muted">{{ t('studio.wave.label') }}</span>
+              <VSelect v-model="waveFile" :options="waveFiles" style="width:220px" />
+              <button class="ghost small-btn" :class="{ on: waveMode === 'amp' }"
+                      :title="t('studio.wave.amp.tip')" @click="waveMode = 'amp'">{{ t('studio.wave.amp') }}</button>
+              <button class="ghost small-btn" :class="{ on: waveMode === 'spectrum' }"
+                      :title="t('studio.wave.spectrum.tip')" @click="waveMode = 'spectrum'">{{ t('studio.wave.spectrum') }}</button>
+              <label class="wave-snap" :title="t('studio.wave.snap.tip')">
+                <input type="checkbox" v-model="waveSnap">{{ t('studio.wave.snap') }}
+              </label>
+              <span v-if="waveBusy" class="muted">{{ t('studio.wave.loading') }}</span>
+              <span v-if="waveErr" class="error">{{ waveErr }}</span>
+              <span class="muted wave-hint">{{ t('studio.wave.hint') }}</span>
+            </div>
+            <WaveView v-if="wavePeaks" :peaks="wavePeaks" :duration="waveDuration"
+                      :marks="waveMarks" :edges="waveEdges" :snap="waveSnap"
+                      :mode="waveMode" :spectrum-url="spectrumUrl"
+                      :cursor-sec="waveCursor" :selection="selRange"
+                      @seek="onWaveSeek" @select="onWaveSelect" />
+          </div>
           <div class="trick-row">
             <span class="muted">{{ t('studio.novocal.label') }}</span>
             <button class="primary small" :disabled="!hasVocals || trickBusy"

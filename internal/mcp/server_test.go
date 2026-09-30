@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,6 +37,10 @@ type fakeService struct {
 
 	// VariantToTrack: записанные вызовы
 	promoted []promoteCall
+
+	// Волна студии: настраиваемые ответы job_peaks / job_spectrum
+	peaksOut    map[string]any
+	spectrumOut []byte
 }
 
 type promoteCall struct {
@@ -107,6 +112,14 @@ func (f *fakeService) VocalContour(ctx context.Context, id int64, from, to float
 }
 
 func (f *fakeService) SetHead(ctx context.Context, jobID, headID int64) error { return nil }
+
+func (f *fakeService) JobPeaks(ctx context.Context, id int64, file string, bins int) (map[string]any, error) {
+	return f.peaksOut, nil
+}
+
+func (f *fakeService) JobSpectrum(ctx context.Context, id int64, file string) ([]byte, error) {
+	return f.spectrumOut, nil
+}
 
 func (f *fakeService) DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error) {
 	return true, nil
@@ -377,6 +390,7 @@ func TestProtocolHandshakeAndToolsList(t *testing.T) {
 		"transcribe", "job_score", "job_preview",
 		"config_get", "config_set", "dsp_chains", "dsp_apply", "dsp_preview", "dsp_variants",
 		"analyze_job", "make_stems", "make_minus", "overdub", "import_track",
+		"job_peaks", "job_spectrum",
 		"variant_track", "dsp_variant_delete",
 		"corpus_list", "corpus_create", "corpus_add_tracks", "corpus_build", "corpus_get",
 		"voices_list", "voice_create", "voice_delete",
@@ -462,5 +476,40 @@ func TestPromoteVersion(t *testing.T) {
 	want := []promoteCall{{214, "overdub-inst-243.flac", "по умолчанию", 243}, {214, "overdub-inst-5.flac", "моё", 0}}
 	if !reflect.DeepEqual(f.promoted, want) {
 		t.Errorf("вызовы %+v, want %+v", f.promoted, want)
+	}
+}
+
+// Волна студии: job_peaks отдаёт JSON воркера как есть (агент ищет провалы
+// числами), job_spectrum кладёт PNG в каталог загрузок и возвращает путь.
+func TestJobPeaksTool(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.peaksOut = map[string]any{"_v": 1, "file": "audio.flac", "bins": 2400,
+		"duration_sec": 210.0, "peaks": [][]float64{{-0.5, 0.5}}}
+	out, ok := call(t, s, "job_peaks", map[string]any{"job_id": 204})
+	if !ok {
+		t.Fatalf("job_peaks: %s", out)
+	}
+	if !strings.Contains(out, `"bins"`) || !strings.Contains(out, `"duration_sec"`) {
+		t.Fatalf("job_peaks должен вернуть bins/duration_sec: %s", out)
+	}
+}
+
+func TestJobSpectrumToolSavesPNG(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.spectrumOut = []byte("\x89PNG-fake")
+	out, ok := call(t, s, "job_spectrum", map[string]any{"job_id": 204})
+	if !ok {
+		t.Fatalf("job_spectrum: %s", out)
+	}
+	if !strings.Contains(out, "сохранено: ") {
+		t.Fatalf("job_spectrum должен вернуть путь: %s", out)
+	}
+	path := strings.TrimPrefix(out, "сохранено: ")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(b) != "\x89PNG-fake" {
+		t.Fatalf("png round-trip: %q", b)
 	}
 }
