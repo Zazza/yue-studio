@@ -18,7 +18,8 @@ if [[ "$CMD" == "worker" ]]; then
 # YUE_OLLAMA_MODEL=qwen2.5-chat-ru:latest
 EOF'
   scp -q worker/yue_worker.py worker/arc.py worker/dsp.py worker/sheetsage.py worker/stems.py \
-        worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py "$HOST:~/yue-studio/"
+        worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py worker/waveform.py \
+        "$HOST:~/yue-studio/"
   scp -q deploy/units/yue-worker.service "$HOST:~/yue-studio/units/"
   ssh "$HOST" '
 set -e
