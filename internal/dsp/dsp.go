@@ -285,20 +285,23 @@ func init() {
 	}
 }
 
-// withFrom — граф цепочки (вход [0:a], выход [out]) применяется только с
-// отметки from; стык — acrossfade, длина трека сохраняется.
+// withFrom — граф цепочки (вход [0:a], выход [out]) звучит только с отметки
+// from: цепочка считается по всему треку, а на отметке сухой сигнал сменяется
+// обработанным (линейный переход fromXfade по времени). Без обрезки: отметка за
+// концом трека (или за концом фрагмента превью) оставляет звук нетронутым, а не
+// роняет ffmpeg пустой веткой. Длина — по сухому сигналу.
 func withFrom(graph string, from float64) string {
 	if from <= 0 {
 		return graph
 	}
 	half := fromXfade / 2
 	wet := strings.Replace(graph, "[0:a]", "[from_b]", 1)
-	wet = strings.TrimSuffix(wet, "[out]") + "[from_wet]"
-	return fmt.Sprintf("[0:a]asplit=2[from_a][from_b0];"+
-		"[from_a]atrim=0:%[1]g,asetpts=PTS-STARTPTS[from_pre];"+
-		"[from_b0]atrim=start=%[2]g,asetpts=PTS-STARTPTS[from_b];"+
-		"%[3]s;[from_pre][from_wet]acrossfade=d=%[4]g[out]",
-		from+half, from-half, wet, fromXfade)
+	wet = strings.TrimSuffix(wet, "[out]") + "[from_wet0]"
+	return fmt.Sprintf("[0:a]asplit=2[from_dry0][from_b];%[1]s;"+
+		"[from_dry0]volume='clip((%[2]g-t)/%[4]g,0,1)':eval=frame[from_dry];"+
+		"[from_wet0]volume='clip((t-%[3]g)/%[4]g,0,1)':eval=frame[from_wet];"+
+		"[from_dry][from_wet]amix=inputs=2:duration=first:normalize=0[out]",
+		wet, from+half, from-half, fromXfade)
 }
 
 // Defaults — карта параметров по умолчанию (для UI).
