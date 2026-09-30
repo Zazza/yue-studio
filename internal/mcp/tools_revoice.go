@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"yue-studio/internal/studio"
@@ -21,6 +22,7 @@ const (
 
 func registerRevoiceTools(s *Server) {
 	registerToneTools(s)
+	registerPlanTools(s)
 	s.Register(Tool{
 		Name: "rebuild_sections",
 		Description: "Пересборка дорожек трека с чистого оригинала (как студия): вклейки куском (child_id — рендер " +
@@ -108,6 +110,11 @@ func registerRevoiceTools(s *Server) {
 				return "", fmt.Errorf("источник голоса трека #%d не найден", job.ID)
 			}
 			from, abc := argFloat(args, "from"), argString(args, "abc")
+			// план правится для источника голоса — проверяем против его плана
+			note, err := planNote(s, src, abc, from)
+			if err != nil {
+				return "", err
+			}
 			ids := make([]string, 0, takes)
 			for k := int64(0); k < takes; k++ {
 				id, err := s.client.ContinueJob(ctx, src, from, 0, abc, "")
@@ -117,7 +124,7 @@ func registerRevoiceTools(s *Server) {
 				ids = append(ids, fmt.Sprintf("#%d", id))
 			}
 			return fmt.Sprintf("источник голоса #%d; дубли %s (с %.2f с). Когда done — revoice_apply {job_id: %d, "+
-				"take_id, from: %g, to: %g}", src, strings.Join(ids, ", "), from, job.ID, from, argFloat(args, "to")), nil
+				"take_id, from: %g, to: %g}", src, strings.Join(ids, ", "), from, job.ID, from, argFloat(args, "to")) + note, nil
 		},
 	})
 
@@ -192,6 +199,67 @@ func registerRevoiceTools(s *Server) {
 			return b.String(), nil
 		},
 	})
+}
+
+// ---------- проверка изменённого плана ----------
+
+func registerPlanTools(s *Server) {
+	s.Register(Tool{
+		Name: "plan_check",
+		Description: "Проверить изменённый план (ABC) до генерации: что изменилось относительно плана трека " +
+			"(такты по голосам, время), потолок голоса (верх мелодии + 2 ступени — выше модель пищит), " +
+			"правки до отметки from (продолжение их не сыграет). То же делают continue_job/revoice_start с abc.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека, чей план правится (для revoice — источник голоса)", "integer"),
+			"abc":    prop("изменённый план", "string"),
+			"from":   prop("отметка продолжения, с (необязательно)", "number"),
+		}, "job_id", "abc"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			pc, err := s.client.PlanCheck(context.Background(), argInt(args, "job_id"), argString(args, "abc"), argFloat(args, "from"))
+			if err != nil {
+				return "", err
+			}
+			return formatPlanCheck(pc), nil
+		},
+	})
+}
+
+// planNote — проверка плана перед продолжением: пустой abc — без проверки;
+// ошибка (битый план) — не ставим; иначе — сводка в конец ответа.
+func planNote(s *Server, jobID int64, abc string, from float64) (string, error) {
+	if strings.TrimSpace(abc) == "" {
+		return "", nil
+	}
+	pc, err := s.client.PlanCheck(context.Background(), jobID, abc, from)
+	if err != nil {
+		return "", fmt.Errorf("проверка плана: %w", err)
+	}
+	return "\n" + formatPlanCheck(pc), nil
+}
+
+// formatPlanCheck — сводка проверки плана для человека/агента.
+func formatPlanCheck(pc *yue.PlanCheck) string {
+	var b strings.Builder
+	voices := make([]string, 0, len(pc.Bars))
+	for v := range pc.Bars {
+		voices = append(voices, v)
+	}
+	sort.Strings(voices)
+	parts := make([]string, 0, len(voices))
+	for _, v := range voices {
+		n := pc.Bars[v]
+		parts = append(parts, fmt.Sprintf("%s %d→%d", v, n[0], n[1]))
+	}
+	fmt.Fprintf(&b, "такты: %s; длина плана %.1f→%.1f с\n", strings.Join(parts, ", "), pc.Duration[0], pc.Duration[1])
+	fmt.Fprintf(&b, "голос: верх было %s, потолок %s, верх стало %s\n", pc.Ceiling.Top, pc.Ceiling.Ceiling, pc.Ceiling.NewTop)
+	fmt.Fprintf(&b, "изменено тактов: %d\n", pc.ChangedTotal)
+	for _, c := range pc.Changed {
+		fmt.Fprintf(&b, "  %7.2f с  %s такт %d: %s → %s\n", c.Start, c.Voice, c.Bar, c.Before, c.After)
+	}
+	for _, w := range pc.Warnings {
+		fmt.Fprintf(&b, "⚠ %s\n", w)
+	}
+	return b.String()
 }
 
 // ---------- «Убрать свист» ----------

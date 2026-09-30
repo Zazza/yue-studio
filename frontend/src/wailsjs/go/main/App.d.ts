@@ -67,6 +67,8 @@ export function YueJobStems(arg1:number):Promise<Array<Record<string, any>>>;
 
 export function YueJobTones(arg1:number,arg2:number,arg3:number,arg4:string):Promise<Array<yue.Tone>>;
 
+export function YuePlanCheck(arg1:number,arg2:string,arg3:number):Promise<yue.PlanCheck>;
+
 export function YueJobs():Promise<Array<yue.Job>>;
 
 export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<string, any>>;

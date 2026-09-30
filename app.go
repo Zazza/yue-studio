@@ -572,6 +572,11 @@ func (a *App) YueVocalContour(jobID int64, from, to float64) (*yue.VocalContour,
 	return a.yue.VocalContour(a.ctx, jobID, from, to)
 }
 
+// YuePlanCheck — что изменилось в плане и где проблемы (потолок голоса и т.п.).
+func (a *App) YuePlanCheck(jobID int64, abc string, fromSec float64) (*yue.PlanCheck, error) {
+	return a.yue.PlanCheck(a.ctx, jobID, abc, fromSec)
+}
+
 // YueJobTones — узкие тона («свист») в окне трека — частота для «Убрать свист».
 // stem — дорожка (vocals/drums/bass/other), пусто — весь микс.
 func (a *App) YueJobTones(jobID int64, from, to float64, stem string) ([]yue.Tone, error) {

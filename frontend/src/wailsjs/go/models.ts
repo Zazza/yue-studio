@@ -359,6 +359,84 @@ export namespace yue {
 	        this.seconds = source["seconds"];
 	    }
 	}
+	export class PlanCeiling {
+	    top: string;
+	    ceiling: string;
+	    new_top: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanCeiling(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.top = source["top"];
+	        this.ceiling = source["ceiling"];
+	        this.new_top = source["new_top"];
+	    }
+	}
+	export class PlanChange {
+	    voice: string;
+	    bar: number;
+	    start: number;
+	    end: number;
+	    before: string;
+	    after: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.voice = source["voice"];
+	        this.bar = source["bar"];
+	        this.start = source["start"];
+	        this.end = source["end"];
+	        this.before = source["before"];
+	        this.after = source["after"];
+	    }
+	}
+	export class PlanCheck {
+	    bars: Record<string, number[]>;
+	    duration: number[];
+	    changed: PlanChange[];
+	    changed_total: number;
+	    ceiling: PlanCeiling;
+	    warnings: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PlanCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bars = source["bars"];
+	        this.duration = source["duration"];
+	        this.changed = this.convertValues(source["changed"], PlanChange);
+	        this.changed_total = source["changed_total"];
+	        this.ceiling = this.convertValues(source["ceiling"], PlanCeiling);
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class PlanParams {
 	    style: string;
 	    lyrics: string;

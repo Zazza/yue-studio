@@ -36,6 +36,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from abcparse import parse_abc
+from plancheck import plan_diff
 from dsp import analyze_file
 from sheetsage import transcribe as ss_transcribe
 from stems import separate as demucs_separate
@@ -1007,6 +1008,29 @@ def job_lyrics(job_id: int):
 # версия формата/расчёта score.json: 2 — per-voice таймлайн тактов; 3 — мультипауза
 # Z<n> = n тактов и время по темпу заголовка (без смены версии кэш отдавал старое)
 SCORE_V = 3
+
+
+class PlanCheckIn(BaseModel):
+    abc: str = ""
+    from_sec: float | None = None
+
+
+@app.post("/jobs/{job_id}/plan_check")
+def plan_check(job_id: int, req: PlanCheckIn):
+    """Что изменилось в плане abc относительно плана джобы и где проблемы
+    (потолок голоса, правки до отметки, сдвиг тактов) — для MCP."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    abc_path = JOBS_DIR / str(job_id) / (row["abc_file"] or "score.abc")
+    if not abc_path.is_file():
+        raise HTTPException(404, "no score.abc for this job")
+    if not req.abc.strip():
+        raise HTTPException(422, "abc is empty")
+    try:
+        return plan_diff(abc_path.read_text(), req.abc, req.from_sec)
+    except ValueError as e:   # нот/тактов не разобрать
+        raise HTTPException(422, f"abc: {e}") from None
 
 
 @app.get("/jobs/{job_id}/score")

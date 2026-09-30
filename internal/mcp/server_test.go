@@ -48,6 +48,17 @@ type fakeService struct {
 
 	// UploadDsp: загруженные варианты (эффект на дорожку идёт через пересборку)
 	uploads map[string][]byte
+
+	// PlanCheck: настраиваемый ответ/ошибка и записанные аргументы
+	planCheckOut   *yue.PlanCheck
+	planCheckErr   error
+	planCheckCalls []planCheckCall
+}
+
+type planCheckCall struct {
+	ID   int64
+	Abc  string
+	From float64
 }
 
 type tonesCall struct {
@@ -122,6 +133,17 @@ func (f *fakeService) VocalContour(ctx context.Context, id int64, from, to float
 		return nil, f.contourErr
 	}
 	return f.contour, nil
+}
+
+func (f *fakeService) PlanCheck(ctx context.Context, id int64, abc string, fromSec float64) (*yue.PlanCheck, error) {
+	f.planCheckCalls = append(f.planCheckCalls, planCheckCall{id, abc, fromSec})
+	if f.planCheckErr != nil {
+		return nil, f.planCheckErr
+	}
+	if f.planCheckOut == nil {
+		return &yue.PlanCheck{}, nil
+	}
+	return f.planCheckOut, nil
 }
 
 func (f *fakeService) JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]yue.Tone, error) {

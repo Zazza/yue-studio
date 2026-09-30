@@ -1371,3 +1371,62 @@ class TestTonesStemParam(TestTonesEndpoint):
         jid = self._audio_job(duration=60.0)
         r = self.client.get(f"/jobs/{jid}/tones?from=10&to=5")
         self.assertEqual(r.status_code, 422, r.text)
+
+
+# ---------- Проверка изменённого плана (карточка internal-plan-check) ----------
+
+_PLAN_OLD = ("X:1\nM:4/4\nL:1/16\nQ:1/4=120\nK:C\n% verse\n"
+             "V: Vocal\n\"C\"c4B4A4G4|\"G\"B4B4G4G4|\nV: Ins\nC16|G16|\n")
+_PLAN_NEW = ("X:1\nM:4/4\nL:1/16\nQ:1/4=120\nK:C\n% verse\n"
+             "V: Vocal\n\"C\"c4B4A4G4|\"G\"c'4B4G4G4|\nV: Ins\nC16|G16|\n")
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestPlanCheckEndpoint(_WorkerApiCase):
+    """POST /jobs/{id}/plan_check {abc, from_sec?}: нет джобы / нет плана → 404,
+    пустой abc → 422, иначе ответ = plancheck.plan_diff(план джобы, abc, from_sec)."""
+
+    def _job_with_plan(self, abc=_PLAN_OLD):
+        jid = self._job(semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "score.abc").write_text(abc)
+        return jid
+
+    def test_missing_job_404(self):
+        r = self.client.post("/jobs/9999/plan_check", json={"abc": _PLAN_NEW})
+        self.assertEqual(r.status_code, 404, r.text)
+
+    def test_no_plan_404(self):
+        jid = self._job(semantic=False)
+        r = self.client.post(f"/jobs/{jid}/plan_check", json={"abc": _PLAN_NEW})
+        self.assertEqual(r.status_code, 404, r.text)
+
+    def test_empty_abc_422(self):
+        jid = self._job_with_plan()
+        for abc in ("", "   \n"):
+            r = self.client.post(f"/jobs/{jid}/plan_check", json={"abc": abc})
+            self.assertEqual(r.status_code, 422, repr(abc))
+
+    def test_missing_abc_422(self):
+        jid = self._job_with_plan()
+        r = self.client.post(f"/jobs/{jid}/plan_check", json={})
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_response_is_plan_diff(self):
+        import plancheck
+        jid = self._job_with_plan()
+        r = self.client.post(f"/jobs/{jid}/plan_check", json={"abc": _PLAN_NEW})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json(), plancheck.plan_diff(_PLAN_OLD, _PLAN_NEW, None))
+        self.assertEqual(r.json()["changed_total"], 1)
+
+    def test_from_sec_passed_through(self):
+        import plancheck
+        jid = self._job_with_plan()
+        r = self.client.post(f"/jobs/{jid}/plan_check",
+                             json={"abc": _PLAN_NEW, "from_sec": 5.0})
+        self.assertEqual(r.status_code, 200, r.text)
+        expected = plancheck.plan_diff(_PLAN_OLD, _PLAN_NEW, 5.0)
+        self.assertEqual(r.json(), expected)
+        self.assertTrue(any("до отметки" in w for w in r.json()["warnings"]))

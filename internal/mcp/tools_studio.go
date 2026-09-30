@@ -283,12 +283,17 @@ func RegisterStudioTools(s *Server) {
 		}, "job_id", "from_sec"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			from, _ := args["from_sec"].(float64)
+			// изменённый план — сначала проверка: битый — ошибка, предупреждения — в ответ
+			note, err := planNote(s, argInt(args, "job_id"), argString(args, "abc"), from)
+			if err != nil {
+				return "", err
+			}
 			id, err := s.client.ContinueJob(context.Background(), argInt(args, "job_id"), from,
 				argInt(args, "seed"), argString(args, "abc"), argString(args, "style_add"))
 			if err != nil {
 				return "", err
 			}
-			return fmt.Sprintf("продолжение поставлено: #%d", id), nil
+			return fmt.Sprintf("продолжение поставлено: #%d", id) + note, nil
 		},
 	})
 

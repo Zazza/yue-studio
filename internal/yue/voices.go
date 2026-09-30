@@ -80,6 +80,20 @@ func (c *Client) JobTones(ctx context.Context, id int64, from, to float64, stem 
 	return out, nil
 }
 
+// PlanCheck — что изменилось в плане abc относительно плана джобы и где
+// проблемы (POST /jobs/{id}/plan_check); fromSec > 0 — отметка продолжения.
+func (c *Client) PlanCheck(ctx context.Context, id int64, abc string, fromSec float64) (*PlanCheck, error) {
+	var out PlanCheck
+	body := map[string]any{"abc": abc}
+	if fromSec > 0 {
+		body["from_sec"] = fromSec
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/plan_check", id), body, requestTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ContinueJob — «продолжение с места» (POST /jobs/{id}/continue).
 func (c *Client) ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
 	var out struct {
