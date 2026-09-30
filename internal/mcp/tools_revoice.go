@@ -20,6 +20,7 @@ const (
 )
 
 func registerRevoiceTools(s *Server) {
+	registerToneTools(s)
 	s.Register(Tool{
 		Name: "rebuild_sections",
 		Description: "Пересборка дорожек трека с чистого оригинала (как студия): вклейки куском (child_id — рендер " +
@@ -187,6 +188,35 @@ func registerRevoiceTools(s *Server) {
 			fmt.Fprintf(&b, "голос: медиана %.1f Гц, диапазон %.1f–%.1f Гц\n", c.MedianHz, c.LowHz, c.HighHz)
 			for _, bar := range c.Bars {
 				fmt.Fprintf(&b, "%6.1f с  такт %d: %s\n", bar.Start, bar.Index, strings.Join(bar.Notes, " "))
+			}
+			return b.String(), nil
+		},
+	})
+}
+
+// ---------- «Убрать свист» ----------
+
+func registerToneTools(s *Server) {
+	s.Register(Tool{
+		Name: "find_tones",
+		Description: "Узкие устойчивые тона («свист», писк) в миксе трека в окне [from, to): частота и насколько " +
+			"выше окрестности, дБ; самый заметный первым. Частоты — в dsp_apply chain «dewhistle» (freq, freq2, freq3, start, end).",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека", "integer"),
+			"from":   prop("с какой секунды (по умолчанию 0)", "number"),
+			"to":     prop("до какой секунды (0 — до конца)", "number"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			tones, err := s.client.JobTones(context.Background(), argInt(args, "job_id"), argFloat(args, "from"), argFloat(args, "to"))
+			if err != nil {
+				return "", err
+			}
+			if len(tones) == 0 {
+				return "узких тонов не найдено", nil
+			}
+			var b strings.Builder
+			for _, t := range tones {
+				fmt.Fprintf(&b, "%.1f Гц — на %.1f дБ выше окрестности\n", t.Hz, t.ProminenceDb)
 			}
 			return b.String(), nil
 		},

@@ -60,7 +60,8 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 (вариант → версия-трек, `voice_src`) · `rebuild_sections` (вклейки куском, громкость дорожек /
 заглушить, «перепеть» — замена голоса) · `revoice_start` → `revoice_apply` («перепеть с места»
 по частям: дубли от источника голоса, голос только в окне части) · `vocal_contour` (высота
-голоса по тактам — спето ли по плану, не выше ли потолка).
+голоса по тактам — спето ли по плану, не выше ли потолка) · `find_tones` (узкий «свист» в
+окне: частота для эффекта `dewhistle` — «Убрать свист» в `dsp_apply`).
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики) ·

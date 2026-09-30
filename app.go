@@ -572,6 +572,11 @@ func (a *App) YueVocalContour(jobID int64, from, to float64) (*yue.VocalContour,
 	return a.yue.VocalContour(a.ctx, jobID, from, to)
 }
 
+// YueJobTones — узкие тона («свист») в окне трека — частота для «Убрать свист».
+func (a *App) YueJobTones(jobID int64, from, to float64) ([]yue.Tone, error) {
+	return a.yue.JobTones(a.ctx, jobID, from, to)
+}
+
 // YueVariantToTrack — вариант DSP-эффекта отдельным треком с подписью эффекта.
 // voiceSrc > 0 — версия с подставленным голосом этого рендера.
 func (a *App) YueVariantToTrack(jobID int64, file, title string, voiceSrc int64) (int64, error) {

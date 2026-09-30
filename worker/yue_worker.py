@@ -1123,6 +1123,66 @@ def vocal_contour(job_id: int, from_: float = Query(0.0, alias="from"), to: floa
     return {"bars": _contour_bars(f0, hop / sr, bars, from_, to_s), **_contour_summary(f0)}
 
 
+# ---------- «Найти свист»: узкие устойчивые тона в миксе ----------
+_TONE_NEIGH_HZ = 300    # окрестность пика для медианы фона, Гц
+_TONE_GUARD_BINS = 2    # сам пик (± бины) в медиану фона не входит
+
+
+def _tonal_peaks(power, freqs, min_hz=1000, max_hz=18000, min_prom_db=12, top=5) -> list[dict]:
+    """Узкие пики среднего спектра мощности: на сколько дБ бин выше медианы
+    окрестности (±300 Гц без самого пика). Локальные максимумы в [min_hz, max_hz]
+    с prominence ≥ min_prom_db, самые заметные первыми. Широкий горб — не тон."""
+    import numpy as np
+    power = np.asarray(power, dtype=float)
+    freqs = np.asarray(freqs, dtype=float)
+    if len(freqs) < 3:
+        return []
+    step = float(freqs[1] - freqs[0]) or 1.0
+    half = max(_TONE_GUARD_BINS + 2, int(round(_TONE_NEIGH_HZ / step)))
+    out = []
+    for i in range(1, len(power) - 1):
+        if not (min_hz <= freqs[i] <= max_hz):
+            continue
+        if not (power[i] >= power[i - 1] and power[i] > power[i + 1]):
+            continue
+        lo, hi = max(0, i - half), min(len(power), i + half + 1)
+        neigh = np.concatenate([power[lo:max(lo, i - _TONE_GUARD_BINS)], power[i + _TONE_GUARD_BINS + 1:hi]])
+        if not len(neigh):
+            continue
+        prom = 10 * np.log10(power[i] / max(float(np.median(neigh)), 1e-30))
+        if prom >= min_prom_db:
+            out.append({"hz": round(float(freqs[i]), 1), "prominence_db": round(float(prom), 1)})
+    out.sort(key=lambda x: -x["prominence_db"])
+    return out[:top]
+
+
+def _check_window(from_: float, to: float, dur: float):
+    """Окно анализа внутри трека, иначе 422 (а не 500 из librosa)."""
+    import math
+    if not (math.isfinite(from_) and math.isfinite(to)) or from_ < 0 or (dur and from_ >= dur) \
+            or (to > 0 and to <= from_):
+        raise HTTPException(422, "from/to outside the track")
+
+
+@app.get("/jobs/{job_id}/tones")
+def job_tones(job_id: int, from_: float = Query(0.0, alias="from"), to: float = 0.0):
+    """Узкие тона («свист») в миксе трека в окне [from, to); to = 0 — до конца."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    audio = JOBS_DIR / str(job_id) / (row["audio_file"] or "audio.flac")
+    if not audio.is_file():
+        raise HTTPException(404, "no audio for this job")
+    dur = float(row["duration_sec"] or 0)
+    _check_window(from_, to, dur)
+    import librosa
+    import numpy as np
+    to_s = to if to > 0 else (dur or 1e9)
+    y, sr = librosa.load(str(audio), sr=44100, mono=True, offset=from_, duration=max(0.1, to_s - from_))
+    S = np.abs(librosa.stft(y, n_fft=8192, hop_length=2048)) ** 2
+    return _tonal_peaks(S.mean(axis=1), librosa.fft_frequencies(sr=sr, n_fft=8192))
+
+
 def _rms_sections(audio_path: Path, bars: list[dict]) -> list[dict]:
     """Средняя RMS-громкость (дБ) по секциям, границы берём из тактов."""
     try:

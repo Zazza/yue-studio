@@ -1053,7 +1053,7 @@ class TestWaveApi(_WorkerApiCase):
         r = self.client.get(f"/jobs/{jid}/peaks", params={"file": "audio.flac"})
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
-        self.assertEqual(body["_v"], 1)
+        self.assertEqual(body["_v"], 2)             # v2 — 60 окон/с
         self.assertEqual(body["file"], "audio.flac")
         self.assertEqual(body["bins"], 500)             # 3 с → минимум 500
         self.assertAlmostEqual(body["duration_sec"], 3.0, places=2)
@@ -1152,3 +1152,156 @@ class TestSpectrumApi(_WorkerApiCase):
             r2 = self.client.get(f"/jobs/{jid}/spectrum.png", params={"file": "audio.flac"})
         self.assertEqual(r2.status_code, 200, r2.text)
         self.assertEqual(r2.content, r.content)
+
+
+# --- Спецификация: «найти свист» — узкие тональные пики в спектре ----------
+# Чистая функция живёт в воркере (импорт требует fastapi/numpy), librosa не
+# нужна: спектр мощности собирается прямо в numpy.
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestTonalPeaks(unittest.TestCase):
+    """_tonal_peaks(power, freqs, min_hz=1000, max_hz=18000, min_prom_db=12,
+    top=5): узкие пики — бин выше медианы окрестности ±~300 Гц (без самого
+    пика ±~2 бина) на prominence_db ≥ min_prom_db, в [min_hz, max_hz];
+    соседние бины одного пика — один результат; [{"hz", "prominence_db"}]
+    по убыванию prominence, не больше top."""
+
+    SR = 48000
+    N_BINS = 4097  # шаг ≈ 5.86 Гц: окрестность ±300 Гц ≈ ±51 бин
+
+    def setUp(self):
+        import tempfile
+        import numpy as np
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.w = _import_worker(self._td.name)
+        self.freqs = np.linspace(0, self.SR / 2, self.N_BINS)
+        self.rng = np.random.default_rng(12345)
+
+    def _flat_db(self):
+        # ровный спектр 0 дБ с шумом ±1 дБ
+        return self.rng.uniform(-1.0, 1.0, self.N_BINS)
+
+    def _add_peak(self, db, hz, gain_db):
+        # узкий пик: центральный бин +gain, соседи −6 дБ от него (один тон
+        # размазывается на пару бинов — это всё ещё ОДИН результат)
+        import numpy as np
+        i = int(np.argmin(np.abs(self.freqs - hz)))
+        db[i] += gain_db
+        db[i - 1] += gain_db - 6
+        db[i + 1] += gain_db - 6
+        return db
+
+    @staticmethod
+    def _power(db):
+        return 10.0 ** (db / 10.0)
+
+    def _run(self, db, **kw):
+        return self.w._tonal_peaks(self._power(db), self.freqs, **kw)
+
+    def test_flat_noise_no_peaks(self):
+        self.assertEqual(self._run(self._flat_db()), [])
+
+    def test_single_peak_found_once(self):
+        res = self._run(self._add_peak(self._flat_db(), 5265, 30))
+        self.assertEqual(len(res), 1, res)
+        self.assertAlmostEqual(res[0]["hz"], 5265, delta=15)
+        self.assertGreaterEqual(res[0]["prominence_db"], 26)
+        self.assertLessEqual(res[0]["prominence_db"], 34)
+
+    def test_result_shape_and_rounding(self):
+        res = self._run(self._add_peak(self._flat_db(), 5265, 30))
+        self.assertEqual(set(res[0].keys()), {"hz", "prominence_db"})
+        for k in ("hz", "prominence_db"):
+            v = res[0][k]
+            self.assertEqual(round(float(v), 1), float(v), f"{k}={v} не округлено")
+
+    def test_two_peaks_sorted_by_prominence(self):
+        db = self._add_peak(self._flat_db(), 9000, 20)
+        db = self._add_peak(db, 5265, 30)
+        res = self._run(db)
+        self.assertEqual(len(res), 2, res)
+        self.assertAlmostEqual(res[0]["hz"], 5265, delta=15)
+        self.assertAlmostEqual(res[1]["hz"], 9000, delta=15)
+        self.assertGreater(res[0]["prominence_db"], res[1]["prominence_db"])
+
+    def test_weak_peak_below_threshold(self):
+        self.assertEqual(self._run(self._add_peak(self._flat_db(), 5265, 8)), [])
+
+    def test_peak_below_min_hz_ignored(self):
+        self.assertEqual(self._run(self._add_peak(self._flat_db(), 500, 30)), [])
+
+    def test_peak_above_max_hz_ignored(self):
+        self.assertEqual(self._run(self._add_peak(self._flat_db(), 20000, 30)), [])
+
+    def test_seven_peaks_top_five_strongest(self):
+        db = self._flat_db()
+        gains = (14, 16, 18, 20, 22, 24, 26)
+        hzs = (2000, 4000, 6000, 8000, 10000, 12000, 14000)
+        for hz, g in zip(hzs, gains, strict=True):
+            db = self._add_peak(db, hz, g)
+        res = self._run(db)
+        self.assertEqual(len(res), 5, res)
+        proms = [r["prominence_db"] for r in res]
+        self.assertEqual(proms, sorted(proms, reverse=True))
+        # пять сильнейших: 14000..6000; 2000 (+14) и 4000 (+16) отсечены
+        for r, hz in zip(res, (14000, 12000, 10000, 8000, 6000), strict=True):
+            self.assertAlmostEqual(r["hz"], hz, delta=15)
+
+    def test_top_and_threshold_params(self):
+        db = self._add_peak(self._flat_db(), 9000, 20)
+        db = self._add_peak(db, 5265, 30)
+        res = self._run(db, top=1)
+        self.assertEqual(len(res), 1, res)
+        self.assertAlmostEqual(res[0]["hz"], 5265, delta=15)
+        res = self._run(db, min_prom_db=25)
+        self.assertEqual(len(res), 1, res)
+        self.assertAlmostEqual(res[0]["hz"], 5265, delta=15)
+
+    def test_wide_hump_is_not_tone(self):
+        import numpy as np
+        db = self._flat_db()
+        # плавный горб +15 дБ шириной 2 кГц вокруг 8 кГц (форма Ханна в дБ)
+        x = (self.freqs - 8000) / 1000.0
+        hump = np.where(np.abs(x) <= 1, 15 * 0.5 * (1 + np.cos(np.pi * x)), 0.0)
+        self.assertEqual(self._run(db + hump), [])
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestTonesEndpoint(_WorkerApiCase):
+    """GET /jobs/{id}/tones?from=&to=: нет джобы → 404 («not found»);
+    отметки вне трека → 422. Анализ аудио здесь не вызывается."""
+
+    def _audio_job(self, duration=60.0):
+        jid = self._job(duration=duration, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "audio.flac").write_bytes(b"x")
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid
+
+    def _assert_job_404(self, r):
+        detail = r.json().get("detail", "")
+        self.assertIn("not found", detail.lower())
+        # «Not Found» — ответ FastAPI на несуществующий маршрут: 404 должен
+        # идти от обработчика tones («нет джобы»), а не от отсутствия роута
+        self.assertNotEqual(detail, "Not Found", "маршрута /tones нет")
+
+    def test_missing_job_404(self):
+        r = self.client.get("/jobs/9999/tones", params={"from": 0, "to": 10})
+        self.assertEqual(r.status_code, 404, r.text)
+        self._assert_job_404(r)
+
+    def test_missing_job_404_without_range(self):
+        r = self.client.get("/jobs/9999/tones")
+        self.assertEqual(r.status_code, 404, r.text)
+        self._assert_job_404(r)
+
+    def test_bad_ranges_422(self):
+        jid = self._audio_job(duration=60.0)
+        for q in ("from=60", "from=500", "from=-1", "from=10&to=5", "from=10&to=10",
+                  "from=nan", "from=inf", "to=nan", "to=inf"):
+            with self.subTest(q=q):
+                r = self.client.get(f"/jobs/{jid}/tones?{q}")
+                self.assertEqual(r.status_code, 422, f"{q}: {r.text}")

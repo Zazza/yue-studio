@@ -1102,6 +1102,34 @@ async function previewDsp() {
   } finally { dspBusy.value = false }
 }
 
+// «найти свист»: узкие тона в миксе (воркер) — окно = выделение на ролле/волне
+// или крутилки start/end цепочки; самый заметный тон → частота выреза
+const toneMsg = ref('')
+const toneBusy = ref(false)
+async function findWhistle() {
+  const sel = selTimeRange()
+  const p = dspParams.value || {}
+  const from = sel ? sel.from : Number(p.start) || 0
+  const to = sel ? sel.to : Number(p.end) || 0
+  toneBusy.value = true
+  toneMsg.value = ''
+  try {
+    const tones = (await api.jobTones(props.job.id, from, to)) || []
+    if (!tones.length) { toneMsg.value = t('studio.dsp.tones.none'); return }
+    // до трёх тонов за проход: самый заметный — freq, следующие — freq2/freq3
+    const hz = (i) => (tones[i] ? Math.round(tones[i].hz / 5) * 5 : 0)
+    const next = { ...p, freq: hz(0), freq2: hz(1), freq3: hz(2) }
+    if (sel) Object.assign(next, { start: Math.floor(sel.from * 2) / 2, end: Math.ceil(sel.to * 2) / 2 })
+    dspParams.value = next
+    toneMsg.value = t('studio.dsp.tones.found', {
+      list: tones.map((x) => `${Math.round(x.hz)} Гц (+${Math.round(x.prominence_db)} дБ)`).join(', ') })
+  } catch (e) {
+    toneMsg.value = String(e)
+  } finally {
+    toneBusy.value = false
+  }
+}
+
 async function applyDsp() {
   const c = curChain.value
   if (!c) return
@@ -1424,6 +1452,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="ghost" @click="emit('open-metrics', job, null)">{{ t('studio.dsp.metrics') }}</button>
             </div>
             <p v-if="curChain" class="muted dsp-note">{{ curChain.note }}</p>
+            <div v-if="dspSel === 'dewhistle'" class="dsp-row">
+              <button class="ghost small-btn" :disabled="toneBusy || dspBusy" :title="t('studio.dsp.tones.tip')"
+                      @click="findWhistle">{{ toneBusy ? '…' : t('studio.dsp.tones') }}</button>
+              <span v-if="toneMsg" class="muted">{{ toneMsg }}</span>
+            </div>
             <div v-if="curChain" class="dsp-params">
               <label v-for="p in curChain.params" :key="p.id">
                 <span class="dsp-plabel">{{ p.label }}</span>

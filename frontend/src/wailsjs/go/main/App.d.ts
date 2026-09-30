@@ -65,6 +65,8 @@ export function YueJobSpectrumPNG(arg1:number,arg2:string):Promise<Array<number>
 
 export function YueJobStems(arg1:number):Promise<Array<Record<string, any>>>;
 
+export function YueJobTones(arg1:number,arg2:number,arg3:number):Promise<Array<yue.Tone>>;
+
 export function YueJobs():Promise<Array<yue.Job>>;
 
 export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<string, any>>;

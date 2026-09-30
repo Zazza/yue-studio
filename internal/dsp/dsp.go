@@ -3,6 +3,7 @@ package dsp
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -169,6 +170,57 @@ func warpGraph(p map[string]float64) string {
 		p["wow"], p["flutter"], p["cut"]*1000) // cut — кГц
 }
 
+var dewhistleParams = []Param{
+	{ID: "freq", Label: "частота свиста, Гц (найти — «найти свист»)", Min: 1000, Max: 16000, Step: 5, Default: 5000},
+	{ID: "freq2", Label: "ещё тон, Гц (0 — нет)", Min: 0, Max: 16000, Step: 5, Default: 0},
+	{ID: "freq3", Label: "ещё тон, Гц (0 — нет)", Min: 0, Max: 16000, Step: 5, Default: 0},
+	{ID: "depth", Label: "глубина выреза, дБ", Min: 6, Max: 40, Step: 1, Default: 30},
+	{ID: "width", Label: "ширина выреза, Гц", Min: 10, Max: 400, Step: 5, Default: 60},
+	{ID: "harmonics", Label: "гармоники (1 — только сам тон)", Min: 1, Max: 3, Step: 1, Default: 1},
+	{ID: "start", Label: "с какой секунды", Min: 0, Max: 600, Step: 0.5, Default: 0},
+	{ID: "end", Label: "по какую секунду (0 — до конца)", Min: 0, Max: 600, Step: 0.5, Default: 0},
+}
+
+// dewhistleXfade — переход сухой↔вырезанный на краях окна, с (без щелчка)
+const dewhistleXfade = 0.1
+
+// dewhistleGraph — «Убрать свист»: узкие вырезы (equalizer, ширина в Гц) на
+// частоте тона и его гармониках ниже 20 кГц; только в окне start…end — вне окна
+// звук сухой, переход по времени (как withFrom). Модель иногда рождает узкий
+// «свист» в гитарах/синтах (#245: 5265 Гц, до +40 дБ над соседями в стеме).
+func dewhistleGraph(p map[string]float64) string {
+	// свист бывает не один (#252: после 5265 Гц остались 3526 и 4430) — до трёх
+	// тонов за проход; 0 — тон не задан
+	var notch []string
+	for _, base := range []float64{p["freq"], p["freq2"], p["freq3"]} {
+		if base <= 0 {
+			continue
+		}
+		for k := 1; k <= int(math.Round(p["harmonics"])); k++ {
+			if f := base * float64(k); f < 20000 {
+				notch = append(notch, fmt.Sprintf("equalizer=f=%g:t=h:w=%g:g=%g", f, p["width"], -p["depth"]))
+			}
+		}
+	}
+	chain := strings.Join(notch, ",")
+	start, end := p["start"], p["end"]
+	if start <= 0 && end <= 0 {
+		return "[0:a]" + chain + "[out]"
+	}
+	half := dewhistleXfade / 2
+	// доля вырезанного сигнала: 0 → 1 на start, 1 → 0 на end (end 0 — до конца)
+	gate := fmt.Sprintf("clip((t-%g)/%g,0,1)", start-half, dewhistleXfade)
+	if start <= 0 {
+		gate = "1"
+	}
+	if end > 0 {
+		gate = fmt.Sprintf("min(%s,clip((%g-t)/%g,0,1))", gate, end+half, dewhistleXfade)
+	}
+	return fmt.Sprintf("[0:a]asplit=2[dw_dry0][dw_wet0];[dw_wet0]%[1]s,volume='%[2]s':eval=frame[dw_wet];"+
+		"[dw_dry0]volume='1-%[2]s':eval=frame[dw_dry];"+
+		"[dw_dry][dw_wet]amix=inputs=2:duration=first:normalize=0[out]", chain, gate)
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -219,6 +271,12 @@ var chains = []Chain{
 		ID: "cresc", Name: "Громкость к концу",
 		Note:   "Плавный подъём громкости с выбранной секунды — финал звучит крупнее; лимитер держит пики.",
 		Params: crescParams, graph: crescGraph,
+	},
+	{
+		ID: "dewhistle", Name: "Убрать свист",
+		Note: "Узкий вырез частоты свиста/писка (и гармоник) в выбранном окне — музыка рядом почти не меняется. " +
+			"Частоту подскажет «найти свист».",
+		Params: dewhistleParams, graph: dewhistleGraph,
 	},
 	{
 		ID: "warp", Name: "Варп-лента",

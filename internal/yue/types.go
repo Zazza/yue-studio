@@ -49,6 +49,7 @@ type Service interface {
 	VoiceDelete(ctx context.Context, id int64) (bool, error)
 	VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error)
 	VocalContour(ctx context.Context, id int64, from, to float64) (*VocalContour, error)
+	JobTones(ctx context.Context, id int64, from, to float64) ([]Tone, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
 	// styleAdd — что изменить в звучании с этого места)
@@ -224,4 +225,11 @@ type ContourBar struct {
 	Start float64  `json:"start"`
 	End   float64  `json:"end"`
 	Notes []string `json:"notes"`
+}
+
+// Tone — узкий устойчивый пик спектра («свист»): частота и насколько он
+// выше окрестности, дБ. Для эффекта «Убрать свист».
+type Tone struct {
+	Hz           float64 `json:"hz"`
+	ProminenceDb float64 `json:"prominence_db"`
 }

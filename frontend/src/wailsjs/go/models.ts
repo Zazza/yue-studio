@@ -443,6 +443,20 @@ export namespace yue {
 	        this.role = source["role"];
 	    }
 	}
+	export class Tone {
+	    hz: number;
+	    prominence_db: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Tone(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hz = source["hz"];
+	        this.prominence_db = source["prominence_db"];
+	    }
+	}
 	export class TranscribeResult {
 	    id: string;
 	    abc: string;

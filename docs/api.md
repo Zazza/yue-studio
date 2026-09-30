@@ -63,6 +63,9 @@ POST /jobs/{id}/continue {from_sec, seed?, abc?, style_add?} — «продол�
                        (другой сид; abc — изменённый план; style_add — приписка к стилю исходника
                        «что изменить в звучании»). parent_id = исходник, role = continue, cont_from.
                        422: нет semantic.npy или from_sec за концом трека
+GET  /jobs/{id}/tones?from=&to=  узкие устойчивые тона («свист», писк) в миксе в окне:
+                       [{hz, prominence_db}] — самый заметный первым, ≥ 12 дБ над окрестностью
+                       ±300 Гц, не больше 5; to=0 — до конца; 422 — окно вне трека
 GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по тактам плана (стем vocals, pyin):
                        {bars:[{index,start,end,notes[4]}], median_hz, low_hz, high_hz}; ноты по
                        четвертям такта («D4», «·» — нет голоса); to=0 — до конца. 409 — нет стема

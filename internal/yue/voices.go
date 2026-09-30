@@ -65,6 +65,17 @@ func (c *Client) VocalContour(ctx context.Context, id int64, from, to float64) (
 	return &out, nil
 }
 
+// JobTones — узкие тона («свист») в миксе трека (GET /jobs/{id}/tones);
+// to ≤ 0 — до конца трека. Самый заметный — первым.
+func (c *Client) JobTones(ctx context.Context, id int64, from, to float64) ([]Tone, error) {
+	var out []Tone
+	path := fmt.Sprintf("/jobs/%d/tones?from=%g&to=%g", id, from, to)
+	if err := c.call(ctx, http.MethodGet, path, planTimeout, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContinueJob — «продолжение с места» (POST /jobs/{id}/continue).
 func (c *Client) ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
 	var out struct {
