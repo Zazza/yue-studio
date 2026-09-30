@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -32,6 +33,15 @@ type fakeService struct {
 	contour      *yue.VocalContour
 	contourErr   error
 	contourCalls []contourCall
+
+	// VariantToTrack: записанные вызовы
+	promoted []promoteCall
+}
+
+type promoteCall struct {
+	jobID       int64
+	file, title string
+	voiceSrc    int64
 }
 
 type continueCall struct {
@@ -79,6 +89,7 @@ func (f *fakeService) VoiceDelete(ctx context.Context, id int64) (bool, error) {
 }
 
 func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error) {
+	f.promoted = append(f.promoted, promoteCall{jobID, file, title, voiceSrc})
 	return 77, nil
 }
 
@@ -435,5 +446,21 @@ func TestToolSchemasHaveObjectProperties(t *testing.T) {
 		if sc.Type != "object" || len(sc.Properties) == 0 || sc.Properties[0] != '{' {
 			t.Errorf("%s: схема %s — нужен type object и properties-объект", name, raw)
 		}
+	}
+}
+
+// Версия после «перепеть»/пересборки: файл варианта, название (своё или по
+// умолчанию) и источник голоса доходят до VariantToTrack как есть.
+func TestPromoteVersion(t *testing.T) {
+	f := &fakeService{}
+	if id, err := promoteVersion(f, 214, "overdub-inst-243.flac", "", "по умолчанию", 243); err != nil || id != 77 {
+		t.Fatalf("id=%d err=%v", id, err)
+	}
+	if _, err := promoteVersion(f, 214, "overdub-inst-5.flac", "моё", "по умолчанию", 0); err != nil {
+		t.Fatal(err)
+	}
+	want := []promoteCall{{214, "overdub-inst-243.flac", "по умолчанию", 243}, {214, "overdub-inst-5.flac", "моё", 0}}
+	if !reflect.DeepEqual(f.promoted, want) {
+		t.Errorf("вызовы %+v, want %+v", f.promoted, want)
 	}
 }

@@ -57,11 +57,8 @@ func registerRevoiceTools(s *Server) {
 				fmt.Fprintf(&b, "  #%d: с %.2f с, %s (score %.2f, gain %.2f)\n", r.ChildID, r.StartSec, how, r.Score, r.Gain)
 			}
 			if argBool(args, "as_track") {
-				title := argString(args, "title")
-				if title == "" {
-					title = fmt.Sprintf("версия #%d · пересборка", jobID)
-				}
-				id, err := s.client.VariantToTrack(context.Background(), jobID, res.Variant.File, title, argInt(args, "voice_src"))
+				id, err := promoteVersion(s.client, jobID, res.Variant.File, argString(args, "title"),
+					fmt.Sprintf("версия #%d · пересборка", jobID), argInt(args, "voice_src"))
 				if err != nil {
 					return "", err
 				}
@@ -160,11 +157,9 @@ func registerRevoiceTools(s *Server) {
 			if err != nil {
 				return "", err
 			}
-			title := argString(args, "title")
-			if title == "" {
-				title = fmt.Sprintf("версия #%d · голос %.0f–%.0f с (дубль #%d)", jobID, from, to, take)
-			}
-			id, err := s.client.VariantToTrack(ctx, jobID, res.Variant.File, title, take)
+			// источник голоса новой версии — дубль (его голос подставлен)
+			id, err := promoteVersion(s.client, jobID, res.Variant.File, argString(args, "title"),
+				fmt.Sprintf("версия #%d · голос %.0f–%.0f с (дубль #%d)", jobID, from, to, take), take)
 			if err != nil {
 				return "", err
 			}
@@ -196,6 +191,15 @@ func registerRevoiceTools(s *Server) {
 			return b.String(), nil
 		},
 	})
+}
+
+// promoteVersion — вариант пересборки → версия-трек под «📎»; пустое название —
+// dflt; voiceSrc > 0 — чей голос подставлен (для следующих «перепеть»).
+func promoteVersion(c yue.Service, jobID int64, file, title, dflt string, voiceSrc int64) (int64, error) {
+	if title == "" {
+		title = dflt
+	}
+	return c.VariantToTrack(context.Background(), jobID, file, title, voiceSrc)
 }
 
 // parseSectionSpecs — спеки пересборки из JSON-аргументов MCP (числа — float64).

@@ -953,3 +953,22 @@ class TestVocalContourEndpoint(_WorkerApiCase):
         r = self.client.get(f"/jobs/{jid}/vocal_contour")
         self.assertEqual(r.status_code, 409, r.text)
         self.assertIn("make_stems", r.text)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestVocalContourRange(_WorkerApiCase):
+    """Отметка вне трека — понятная 422, а не 500 из анализа."""
+
+    def _with_stem(self):
+        jid = self._job(duration=60.0, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "stem-vocals.flac").write_bytes(b"x")
+        (d / "score.abc").write_text("X:1\nM:4/4\nL:1/16\nK:C\nV: Vocal\nC16|\n")
+        return jid
+
+    def test_bad_ranges_422(self):
+        jid = self._with_stem()
+        for q in ("from=60", "from=500", "from=-1", "from=10&to=5", "from=nan", "to=inf"):
+            r = self.client.get(f"/jobs/{jid}/vocal_contour?{q}")
+            self.assertEqual(r.status_code, 422, q)

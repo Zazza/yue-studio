@@ -1103,6 +1103,11 @@ def vocal_contour(job_id: int, from_: float = Query(0.0, alias="from"), to: floa
     abc_path = job_dir / (row["abc_file"] or "score.abc")
     if not abc_path.is_file():
         raise HTTPException(404, "no score.abc for this job")
+    import math
+    dur = float(row["duration_sec"] or 0)
+    if not (math.isfinite(from_) and math.isfinite(to)) or from_ < 0 or (dur and from_ >= dur) \
+            or (to > 0 and to <= from_):
+        raise HTTPException(422, "from/to outside the track")
     parsed = parse_abc(abc_path.read_text())
     bars = [b for b in parsed["bars"] if any("vocal" in v.lower() for v in (b.get("voices") or {}))]
     import librosa
