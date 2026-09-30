@@ -150,6 +150,7 @@ export namespace studio {
 	    db: number;
 	    fade_in: number;
 	    fade_out: number;
+	    revoice: boolean;
 	    keep_high_hz: number;
 	
 	    static createFrom(source: any = {}) {
@@ -167,6 +168,7 @@ export namespace studio {
 	        this.db = source["db"];
 	        this.fade_in = source["fade_in"];
 	        this.fade_out = source["fade_out"];
+	        this.revoice = source["revoice"];
 	        this.keep_high_hz = source["keep_high_hz"];
 	    }
 	}
