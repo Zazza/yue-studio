@@ -3,6 +3,7 @@
 Запуск: python3 -m unittest worker.test_pure (из корня репозитория)
 или: cd worker && python3 -m unittest test_pure
 """
+import time
 import unittest
 from pathlib import Path
 
@@ -575,3 +576,67 @@ class TestSetHead(_WorkerApiCase):
     def test_root_not_found_404(self):
         r = self.client.post("/jobs/9999/head", json={"head_id": None})
         self.assertEqual(r.status_code, 404)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestContinueOnlyViaEndpoint(_WorkerApiCase):
+    """role=continue создаёт только POST /jobs/{id}/continue: обычный POST /jobs
+    с такой ролью обошёл бы проверки semantic.npy и отметки."""
+
+    def test_post_jobs_rejects_continue_role(self):
+        parent = self._job()
+        r = self.client.post("/jobs", json={"style": "rock", "lyrics": "[verse] la",
+                                            "parent_id": parent, "role": "continue"})
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(self._children(parent), [])
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestCopyFailureRollsBack(_WorkerApiCase):
+    """Сбой копирования файла не оставляет запись без аудио."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        p = mock.patch.object(self.w, "VOICES_DIR", Path(self._td.name) / "voices")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _fail_copy(self):
+        from unittest import mock
+        return mock.patch("shutil.copy2", side_effect=OSError("disk full"))
+
+    def test_variant_track(self):
+        parent = self._job()
+        (self.jobs_dir / str(parent) / "dsp-wall.flac").write_bytes(b"x")
+        with self._fail_copy():
+            r = self.client.post(f"/jobs/{parent}/variant_track", json={"file": "dsp-wall.flac"})
+        self.assertGreaterEqual(r.status_code, 500)
+        self.assertEqual(self._children(parent), [])
+
+    def test_voice_create(self):
+        job = self._job()
+        (self.jobs_dir / str(job) / "audio.flac").write_bytes(b"x")
+        with self._fail_copy():
+            r = self.client.post("/voices", json={"name": "v", "job_id": job})
+        self.assertGreaterEqual(r.status_code, 500)
+        with self._conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM voices").fetchone()[0], 0)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestProgressFinalize(_WorkerDbCase):
+    """Стадия «сохранение…» (finalize) не затирается сторожем прогресса: он
+    берёт стадию из counters, а не держит «semantic»/«decode»."""
+
+    def test_watcher_keeps_finalize(self):
+        counters = {"phase": "finalize", "tokens": 500, "plan_end": 100}
+        stop = self.w._progress_watcher(777, counters, 0.0)
+        try:
+            for _ in range(50):
+                if 777 in self.w._progress:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(self.w._progress[777]["stage"], "finalize")
+        finally:
+            stop.set()

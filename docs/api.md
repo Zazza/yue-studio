@@ -10,8 +10,8 @@ POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max
                        max_tokens — жёсткий потолок длины (~25 т/с: 3000 ≈ 1–2 мин), 0 = бюджет воркера;
                        arc: драматургия поверх плана (build|wave|burst: дуга темпа по секциям,
                        burst — голос на октаву выше в финале; с abc несовместим);
-                       parent_id?, role? — производный трек (section | rebuild | fragment |
-                       variant | continue): в списке приложения прячется под родителем («📎 N»)
+                       parent_id?, role? — производный трек (section | rebuild | fragment | variant;
+                       continue — только через /continue): в списке приложения прячется под родителем («📎 N»)
 POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
 POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации

@@ -380,6 +380,9 @@ def _run_job(job_id: int):
                 try:
                     song = (_continue_song(pipe, row, request) if row["role"] == "continue"
                             else pipe(**request))
+                    # через counters: сторож прогресса раз в 2 с пишет стадию оттуда
+                    # и затёр бы прямую запись в _progress
+                    counters["phase"] = "finalize"
                     with _state_lock:
                         _progress.setdefault(job_id, {})["stage"] = "finalize"
                 except TypeError as te:
@@ -469,8 +472,9 @@ def _shutdown():
 
 # роли производных треков: section — рендер куска для вклейки, rebuild —
 # пересборка с приёмами, fragment — «проверить кусок», variant — вариант
-# эффекта, ставший треком
-JOB_ROLE_PATTERN = "^(|section|rebuild|fragment|variant|continue)$"
+# эффекта, ставший треком. continue сюда не входит: продолжение создаёт только
+# POST /jobs/{id}/continue (проверки semantic.npy и отметки)
+JOB_ROLE_PATTERN = "^(|section|rebuild|fragment|variant)$"
 
 
 class JobIn(BaseModel):
@@ -1181,13 +1185,21 @@ def job_variant_track(job_id: int, req: VariantTrackIn):
              time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
         jid = cur.lastrowid
     jdir = JOBS_DIR / str(jid)
-    jdir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, jdir / "audio.flac")
-    if row["abc_file"] and (JOBS_DIR / str(job_id) / row["abc_file"]).is_file():
-        shutil.copy2(JOBS_DIR / str(job_id) / row["abc_file"], jdir / "score.abc")
-        abc = "score.abc"
-    else:
-        abc = ""
+    try:
+        jdir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, jdir / "audio.flac")
+        if row["abc_file"] and (JOBS_DIR / str(job_id) / row["abc_file"]).is_file():
+            shutil.copy2(JOBS_DIR / str(job_id) / row["abc_file"], jdir / "score.abc")
+            abc = "score.abc"
+        else:
+            abc = ""
+    except OSError:
+        # иначе в списке остаётся готовый трек без аудио
+        log.exception("variant %s of job %s: copy failed, job %s rolled back", req.file, job_id, jid)
+        with db_lock, db() as conn:
+            conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
+        shutil.rmtree(jdir, ignore_errors=True)
+        raise
     with db_lock, db() as conn:
         conn.execute(
             "UPDATE jobs SET duration_sec=?, audio_file=?, abc_file=? WHERE id=?",
@@ -1587,10 +1599,18 @@ def voice_create(req: VoiceIn):
              time.strftime("%Y-%m-%dT%H:%M:%S")))
         vid = cur.lastrowid
     d = _voice_dir(vid)
-    d.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(job_dir / "audio.flac", d / "audio.flac")
-    if (job_dir / "audio.mp3").is_file():
-        shutil.copy2(job_dir / "audio.mp3", d / "audio.mp3")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(job_dir / "audio.flac", d / "audio.flac")
+        if (job_dir / "audio.mp3").is_file():
+            shutil.copy2(job_dir / "audio.mp3", d / "audio.mp3")
+    except OSError:
+        # иначе в примерочной остаётся голос без образца
+        log.exception("voice #%s from job %s: copy failed, rolled back", vid, req.job_id)
+        with db_lock, db() as conn:
+            conn.execute("DELETE FROM voices WHERE id=?", (vid,))
+        shutil.rmtree(d, ignore_errors=True)
+        raise
     log.info("voice #%s saved from job %s", vid, req.job_id)
     return {"id": vid}
 
