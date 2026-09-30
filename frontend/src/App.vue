@@ -1251,6 +1251,14 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .wave-empty { position: absolute; inset: 0; }
 .wave-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
 .wave-zoom { position: absolute; top: 4px; right: 6px; display: inline-flex; gap: 4px; align-items: center; font-size: 11px; }
+.wave-scroll { position: relative; height: 10px; margin-top: 3px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); cursor: grab; user-select: none; touch-action: none; }
+.wave-thumb { position: absolute; top: 1px; bottom: 1px; border-radius: 4px; background: var(--accent); opacity: .55; }
+.wave-scroll:active .wave-thumb, .wave-scroll:hover .wave-thumb { opacity: .85; }
+
+/* прокрутка ролла: нативный скроллбар webkit тонет в тёмной теме — явный */
+.roll-block::-webkit-scrollbar { height: 10px; }
+.roll-block::-webkit-scrollbar-track { background: var(--panel); border-radius: 5px; }
+.roll-block::-webkit-scrollbar-thumb { background: var(--accent); opacity: .6; border-radius: 5px; }
 
 /* овердаб */
 .od-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }

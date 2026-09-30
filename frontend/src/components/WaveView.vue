@@ -193,6 +193,38 @@ function onWheel(e) {
   }
 }
 
+// полоса прокрутки-миникарта под волной: клик мимо ползунка — прыжок центром
+// окна, перетаскивание ползунка — панорама
+const thumbStyle = computed(() => {
+  if (!(dur.value > 0)) return { display: 'none' }
+  const w = win.value
+  const full = Math.max(w.span / dur.value, 0.02)   // ползунок не тоньше 2%
+  const left = Math.min(Math.max(w.t0 / dur.value, 0), 1 - full)
+  return { left: (left * 100) + '%', width: (full * 100) + '%' }
+})
+const scrollDrag = ref(null)   // {x, t0, w}
+
+function onScrollDown(e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  const frac = (e.clientX - r.left) / r.width
+  const wv = win.value
+  const thumbL = wv.t0 / dur.value
+  const thumbW = Math.max(wv.span / dur.value, 0.02)
+  if (frac < thumbL || frac > thumbL + thumbW) {
+    win.value = clampWindow({ t0: frac * dur.value - wv.span / 2, span: wv.span }, dur.value)
+  }
+  scrollDrag.value = { x: e.clientX, t0: win.value.t0, w: r.width }
+  e.currentTarget.setPointerCapture(e.pointerId)
+}
+
+function onScrollMove(e) {
+  if (!scrollDrag.value) return
+  const d = ((e.clientX - scrollDrag.value.x) / scrollDrag.value.w) * dur.value
+  win.value = clampWindow({ t0: scrollDrag.value.t0 + d, span: win.value.span }, dur.value)
+}
+
+function onScrollUp() { scrollDrag.value = null }
+
 function fitWindow() {
   win.value = clampWindow({ t0: 0, span: dur.value || 1 }, dur.value)
 }
@@ -222,5 +254,9 @@ watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.m
       <span v-if="zoomX > 1.01" class="muted">×{{ zoomX.toFixed(zoomX < 10 ? 1 : 0) }}</span>
       <button v-if="zoomX > 1.01" class="ghost small-btn" title="весь трек в окно" @click="fitWindow">⟲</button>
     </div>
+  </div>
+  <div class="wave-scroll" @pointerdown.prevent="onScrollDown" @pointermove="onScrollMove"
+       @pointerup="onScrollUp" @pointercancel="onScrollUp">
+    <div class="wave-thumb" :style="thumbStyle"></div>
   </div>
 </template>

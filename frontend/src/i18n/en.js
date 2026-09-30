@@ -184,7 +184,7 @@ export default {
   'studio.wave.snap': 'snap to bars',
   'studio.wave.snap.tip': 'Selection edges snap to the nearest plan bars',
   'studio.wave.loading': 'computing…',
-  'studio.wave.hint': 'click — play from there · drag — select',
+  'studio.wave.hint': 'click — play from there · drag — select · wheel — zoom',
   'studio.preview': '▶ fragment (as it sounds now)',
   'studio.preview.busy': 'decoding…',
   'studio.preview.hint': 'select bars and listen to the original: tricks are not audible in it — changes exist only in new versions ("⟳ rebuild" / "✦ draft")',
