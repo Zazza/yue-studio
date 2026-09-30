@@ -326,3 +326,34 @@ class TestPlanDiffLimit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPlanDiffBroken(unittest.TestCase):
+    """Битый план — ValueError (эндпоинт отдаёт 422), а не 500 и не «0 тактов»."""
+
+    def test_garbage_without_bars(self):
+        with self.assertRaises(ValueError):
+            plancheck.plan_diff(BASE, "garbage")
+
+    def test_zero_meter_or_unit(self):
+        for bad in (BASE.replace("M:4/4", "M:0/0"), BASE.replace("L:1/16", "L:1/0")):
+            with self.assertRaises(ValueError):
+                plancheck.plan_diff(BASE, bad)
+
+
+class TestPlanDiffLimits(unittest.TestCase):
+    """Кривой ввод не съедает память/время воркера: лимиты → ValueError (422)."""
+
+    def test_huge_multirest(self):
+        with self.assertRaises(ValueError):
+            plancheck.plan_diff(BASE, BASE.replace("|\n% chorus", "|Z999999999|\n% chorus", 1))
+
+    def test_too_long_plan(self):
+        with self.assertRaises(ValueError):
+            plancheck.plan_diff(BASE, BASE + "%" + "x" * plancheck.ABC_MAX_CHARS)
+
+    def test_many_accidentals_fast(self):
+        import time
+        t0 = time.time()
+        plancheck.plan_diff(BASE, BASE.replace('"C"c16', '"C"c16' + "=" * 40000, 1))
+        self.assertLess(time.time() - t0, 2.0)

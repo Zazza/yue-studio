@@ -9,7 +9,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -76,6 +76,8 @@ export const api = {
   jobTones: (jobId, from = 0, to = 0, stem = '') => YueJobTones(jobId, from, to, stem),
   // что изменилось в плане и где проблемы (потолок голоса, правки до отметки)
   planCheck: (jobId, abc, fromSec = 0) => YuePlanCheck(jobId, abc, fromSec),
+  // склейка кусков версий [{job_id, from, to, gain_db}] → вариант трека baseId
+  splice: (baseId, parts, crossfade = 0) => YueSplice(baseId, parts, crossfade),
   // трек до fromSec + продолжение моделью (seed 0 — случайный; abc — план; styleAdd — звучание)
   continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
   // основная версия песни: rootId — корень, headId — версия (0 — сам трек)

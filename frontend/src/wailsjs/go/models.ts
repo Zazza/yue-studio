@@ -140,6 +140,24 @@ export namespace studio {
 		    return a;
 		}
 	}
+	export class SplicePart {
+	    job_id: number;
+	    from: number;
+	    to: number;
+	    gain_db: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SplicePart(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.job_id = source["job_id"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.gain_db = source["gain_db"];
+	    }
+	}
 	export class SectionSpec {
 	    child_id: number;
 	    from: number;

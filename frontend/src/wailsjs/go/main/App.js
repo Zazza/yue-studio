@@ -122,6 +122,10 @@ export function YueJobStems(arg1) {
   return window['go']['main']['App']['YueJobStems'](arg1);
 }
 
+export function YueSplice(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueSplice'](arg1, arg2, arg3);
+}
+
 export function YuePlanCheck(arg1, arg2, arg3) {
   return window['go']['main']['App']['YuePlanCheck'](arg1, arg2, arg3);
 }

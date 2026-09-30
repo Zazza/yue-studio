@@ -172,7 +172,7 @@ func TestContinueJobWithAbcChecksPlanAndPrintsWarnings(t *testing.T) {
 
 func TestContinueJobPlanCheckErrorBlocksSubmit(t *testing.T) {
 	s, fake := newTestServer(t)
-	fake.planCheckErr = errors.New("HTTP 422: abc: не разобран")
+	fake.planCheckErr = &yue.StatusError{Code: 422, Msg: "HTTP 422: abc: не разобран"}
 	out, ok := call(t, s, "continue_job", jsonArgs(t, `{"job_id":216,"from_sec":40,"abc":"мусор"}`))
 	if ok {
 		t.Fatalf("ожидалась ошибка, ответ: %s", out)
@@ -232,7 +232,7 @@ func TestRevoiceStartWithAbcChecksPlanOfVoiceSource(t *testing.T) {
 func TestRevoiceStartPlanCheckErrorBlocksSubmit(t *testing.T) {
 	s, fake := newTestServer(t)
 	fake.jobs = []yue.Job{{ID: 7, Status: "done"}}
-	fake.planCheckErr = errors.New("HTTP 422: abc: не разобран")
+	fake.planCheckErr = &yue.StatusError{Code: 422, Msg: "HTTP 422: abc: не разобран"}
 	out, ok := call(t, s, "revoice_start", jsonArgs(t, `{"job_id":7,"from":4,"to":8,"abc":"мусор"}`))
 	if ok {
 		t.Fatalf("ожидалась ошибка, ответ: %s", out)
@@ -278,5 +278,21 @@ func TestPlanCheckJSONTags(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("decoded %+v, want %+v", c, want)
+	}
+}
+
+// Старый воркер без plan_check (404) не блокирует продолжение: джоба ставится,
+// в ответе — «проверка плана недоступна»; 422 (битый план) — блокирует.
+func TestContinueJobPlanCheckUnavailableStillSubmits(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.planCheckErr = &yue.StatusError{Code: 404, Msg: "yue /jobs/5/plan_check: 404 Not Found"}
+	out, ok := call(t, s, "continue_job", jsonArgs(t, `{"job_id":5,"from_sec":10,"abc":"X:1"}`))
+	if !ok || len(fake.continued) != 1 || !strings.Contains(out, "проверка плана недоступна") {
+		t.Fatalf("404 проверки: ok=%v continued=%d out=%s", ok, len(fake.continued), out)
+	}
+	fake.continued = nil
+	fake.planCheckErr = &yue.StatusError{Code: 422, Msg: "yue /jobs/5/plan_check: 422: abc"}
+	if out, ok := call(t, s, "continue_job", jsonArgs(t, `{"job_id":5,"from_sec":10,"abc":"X:1"}`)); ok || len(fake.continued) != 0 {
+		t.Fatalf("422 проверки должен блокировать: ok=%v continued=%d out=%s", ok, len(fake.continued), out)
 	}
 }

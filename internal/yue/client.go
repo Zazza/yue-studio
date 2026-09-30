@@ -71,6 +71,15 @@ func (c *Client) GetURL() string {
 
 // call — общий путь HTTP-запроса к API воркера: таймаут, опциональное тело
 // (JSON или сырые байты с X-Filename), проверка статуса, декод JSON в out.
+// StatusError — воркер ответил не 200: код (422 — неверный ввод, 404 — нет
+// ресурса/эндпоинта у старого воркера) и прежний текст ошибки.
+type StatusError struct {
+	Code int
+	Msg  string
+}
+
+func (e *StatusError) Error() string { return e.Msg }
+
 func (c *Client) call(ctx context.Context, method, path string, timeout time.Duration, req *request, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -104,7 +113,7 @@ func (c *Client) call(ctx context.Context, method, path string, timeout time.Dur
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyLimit))
-		return fmt.Errorf("yue %s: %s: %s", path, resp.Status, string(b))
+		return &StatusError{Code: resp.StatusCode, Msg: fmt.Sprintf("yue %s: %s: %s", path, resp.Status, string(b))}
 	}
 	if out == nil {
 		return nil

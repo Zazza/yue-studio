@@ -11,12 +11,17 @@ import re
 from abcparse import parse_abc
 
 _LETTERS = "CDEFGAB"
-_NOTE_RE = re.compile(r"[=_^]*([A-Ga-g])([,']*)")
+# знаков у ноты не больше двух (^^, __): неограниченный повтор перед буквой
+# разбирался квадратично (40 000 «=» — 18 с, ревью безопасности)
+_NOTE_RE = re.compile(r"[=_^]{0,2}([A-Ga-g])([,']{0,4})")
 _CHORD_RE = re.compile(r'"[^"]*"')
 _MULTI_REST_RE = re.compile(r"^\s*Z(\d*)\s*$")
 _VOICE_RE = re.compile(r"^V:\s*(\S+)")
 _HEAD_RE = re.compile(r"^[A-Za-z]:")
 CHANGED_LIMIT = 64
+ABC_MAX_CHARS = 200_000   # реальные планы — единицы-десятки КБ
+MULTI_REST_MAX = 512      # Z<n>: больше — не план, а попытка съесть память воркера
+_ANY_MULTI_REST_RE = re.compile(r"Z(\d+)")
 CEILING_STEPS = 2
 
 
@@ -92,8 +97,18 @@ def _timeline(abc: str) -> dict[str, list[tuple[float, float]]]:
 def plan_diff(old_abc: str, new_abc: str, from_sec=None) -> dict:
     """Сравнение нового плана с планом трека: такты, длина, изменённые такты
     (время по новому плану), потолок голоса, предупреждения."""
+    if len(new_abc) > ABC_MAX_CHARS:
+        raise ValueError(f"план длиннее {ABC_MAX_CHARS} символов")
+    if any(int(n) > MULTI_REST_MAX for n in _ANY_MULTI_REST_RE.findall(new_abc)):
+        raise ValueError(f"мультипауза длиннее {MULTI_REST_MAX} тактов")
     old_b, new_b = voice_bars(old_abc), voice_bars(new_abc)
-    old_t, new_t = _timeline(old_abc), _timeline(new_abc)
+    if not any(new_b.values()):
+        raise ValueError("в плане нет тактов голосов (V: … и такты через |)")
+    try:
+        old_t, new_t = _timeline(old_abc), _timeline(new_abc)
+        old_d, new_d = parse_abc(old_abc)["duration_sec"], parse_abc(new_abc)["duration_sec"]
+    except (ZeroDivisionError, OverflowError, KeyError, IndexError) as e:
+        raise ValueError(f"не разобрать размер/длительности плана (M:, L:, Q:): {e}") from None
     voices = list(dict.fromkeys([*old_b, *new_b]))
     changed, warnings = [], []
     for v in voices:
@@ -122,7 +137,6 @@ def plan_diff(old_abc: str, new_abc: str, from_sec=None) -> dict:
         if early:
             where = ", ".join(f"{c['voice']} такт {c['bar']}" for c in early[:8])
             warnings.append(f"правки до отметки {from_sec} с — продолжение их не сыграет: {where}")
-    old_d, new_d = parse_abc(old_abc)["duration_sec"], parse_abc(new_abc)["duration_sec"]
     return {
         "bars": {v: [len(old_b.get(v, [])), len(new_b.get(v, []))] for v in voices},
         "duration": [round(float(old_d or 0), 1), round(float(new_d or 0), 1)],

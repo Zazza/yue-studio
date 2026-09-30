@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -23,6 +24,7 @@ const (
 func registerRevoiceTools(s *Server) {
 	registerToneTools(s)
 	registerPlanTools(s)
+	registerSpliceTools(s)
 	s.Register(Tool{
 		Name: "rebuild_sections",
 		Description: "Пересборка дорожек трека с чистого оригинала (как студия): вклейки куском (child_id — рендер " +
@@ -201,6 +203,71 @@ func registerRevoiceTools(s *Server) {
 	})
 }
 
+// ---------- склейка кусков версий ----------
+
+func registerSpliceTools(s *Server) {
+	s.Register(Tool{
+		Name: "splice",
+		Description: "Склеить куски версий в новую версию-трек (по порядку, с переходом crossfade): вернуть вырезанный " +
+			"проигрыш, собрать лучшие куски дублей. Резать по границам тактов одного исполнения (job_score) — шва не слышно.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID версии, к которой прикрепить результат (станет её вложением «📎»)", "integer"),
+			"parts": map[string]any{"type": "array", "description": "куски: {job_id, from, to (0 — до конца), gain_db?}",
+				"items": map[string]any{"type": "object"}},
+			"crossfade": prop("переход между кусками, с (по умолчанию 0.05)", "number"),
+			"title":     prop("название версии", "string"),
+		}, "job_id", "parts"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			raw, ok := args["parts"].([]any)
+			if !ok || len(raw) == 0 {
+				return "", errors.New("parts: нужен непустой массив кусков")
+			}
+			parts := make([]studio.SplicePart, 0, len(raw))
+			for i, it := range raw {
+				m, ok := it.(map[string]any)
+				if !ok {
+					return "", fmt.Errorf("parts[%d]: нужен объект", i)
+				}
+				parts = append(parts, studio.SplicePart{JobID: argInt(m, "job_id"), From: argFloat(m, "from"),
+					To: argFloat(m, "to"), GainDb: argFloat(m, "gain_db")})
+			}
+			ctx := context.Background()
+			jobs, err := s.client.Jobs(ctx)
+			if err != nil {
+				return "", err
+			}
+			byID := make(map[int64]yue.Job, len(jobs))
+			for _, j := range jobs {
+				byID[j.ID] = j
+			}
+			baseID := argInt(args, "job_id")
+			base, ok := byID[baseID]
+			if !ok {
+				return "", fmt.Errorf("трек #%d не найден", baseID)
+			}
+			for _, p := range parts {
+				if _, ok := byID[p.JobID]; !ok {
+					return "", fmt.Errorf("трек #%d не найден", p.JobID)
+				}
+			}
+			v, err := studio.Splice(ctx, s.client, baseID, parts, argFloat(args, "crossfade"))
+			if err != nil {
+				return "", err
+			}
+			id, err := promoteVersion(s.client, baseID, v.File, argString(args, "title"),
+				fmt.Sprintf("версия #%d · склейка", baseID), studio.VoiceSource(base, byID))
+			if err != nil {
+				return "", err
+			}
+			dur := 0.0
+			if d, ok := v.Metrics["duration_sec"].(float64); ok {
+				dur = d
+			}
+			return fmt.Sprintf("версия-трек #%d, длина %d:%02d", id, int(dur)/60, int(dur)%60), nil
+		},
+	})
+}
+
 // ---------- проверка изменённого плана ----------
 
 func registerPlanTools(s *Server) {
@@ -231,10 +298,24 @@ func planNote(s *Server, jobID int64, abc string, from float64) (string, error) 
 		return "", nil
 	}
 	pc, err := s.client.PlanCheck(context.Background(), jobID, abc, from)
+	var se *yue.StatusError
+	if errors.As(err, &se) && se.Code == http.StatusUnprocessableEntity {
+		return "", fmt.Errorf("план не принят: %w", err) // битый план — не ставим
+	}
 	if err != nil {
-		return "", fmt.Errorf("проверка плана: %w", err)
+		// проверка недоступна (старый воркер без plan_check, нет плана, сбой) —
+		// продолжение ставим, но честно говорим, что план не проверен
+		return "\n⚠ проверка плана недоступна: " + err.Error(), nil
 	}
 	return "\n" + formatPlanCheck(pc), nil
+}
+
+// dash — «—» вместо пустого значения (нет нот у голоса, такта нет в плане)
+func dash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // formatPlanCheck — сводка проверки плана для человека/агента.
@@ -251,10 +332,15 @@ func formatPlanCheck(pc *yue.PlanCheck) string {
 		parts = append(parts, fmt.Sprintf("%s %d→%d", v, n[0], n[1]))
 	}
 	fmt.Fprintf(&b, "такты: %s; длина плана %.1f→%.1f с\n", strings.Join(parts, ", "), pc.Duration[0], pc.Duration[1])
-	fmt.Fprintf(&b, "голос: верх было %s, потолок %s, верх стало %s\n", pc.Ceiling.Top, pc.Ceiling.Ceiling, pc.Ceiling.NewTop)
+	fmt.Fprintf(&b, "голос: верх было %s, потолок %s, верх стало %s\n",
+		dash(pc.Ceiling.Top), dash(pc.Ceiling.Ceiling), dash(pc.Ceiling.NewTop))
 	fmt.Fprintf(&b, "изменено тактов: %d\n", pc.ChangedTotal)
 	for _, c := range pc.Changed {
-		fmt.Fprintf(&b, "  %7.2f с  %s такт %d: %s → %s\n", c.Start, c.Voice, c.Bar, c.Before, c.After)
+		at := "      —"
+		if c.Start != 0 || c.End != 0 {
+			at = fmt.Sprintf("%7.2f", c.Start)
+		}
+		fmt.Fprintf(&b, "  %s с  %s такт %d: %s → %s\n", at, c.Voice, c.Bar, dash(c.Before), dash(c.After))
 	}
 	for _, w := range pc.Warnings {
 		fmt.Fprintf(&b, "⚠ %s\n", w)

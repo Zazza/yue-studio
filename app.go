@@ -572,6 +572,11 @@ func (a *App) YueVocalContour(jobID int64, from, to float64) (*yue.VocalContour,
 	return a.yue.VocalContour(a.ctx, jobID, from, to)
 }
 
+// YueSplice — склеить куски версий в вариант трека baseID (потом «→ в треки»).
+func (a *App) YueSplice(baseID int64, parts []studio.SplicePart, crossfade float64) (*yue.DspVariant, error) {
+	return studio.Splice(a.ctx, a.yue, baseID, parts, crossfade)
+}
+
 // YuePlanCheck — что изменилось в плане и где проблемы (потолок голоса и т.п.).
 func (a *App) YuePlanCheck(jobID int64, abc string, fromSec float64) (*yue.PlanCheck, error) {
 	return a.yue.PlanCheck(a.ctx, jobID, abc, fromSec)
