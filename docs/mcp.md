@@ -61,7 +61,9 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 заглушить, «перепеть» — замена голоса) · `revoice_start` → `revoice_apply` («перепеть с места»
 по частям: дубли от источника голоса, голос только в окне части) · `vocal_contour` (высота
 голоса по тактам — спето ли по плану, не выше ли потолка) · `find_tones` (узкий «свист» в
-окне: частота для эффекта `dewhistle` — «Убрать свист» в `dsp_apply`).
+окне, в миксе или дорожке `stem`: частоты для эффекта `dewhistle` — «Убрать свист») ·
+эффект на отдельную дорожку: `dsp_apply` со `stem` (+ `from`/`to`) или спека `rebuild_sections`
+с `chain`/`params` — остальные дорожки не меняются (`soften` — «Смягчить звон» голоса).
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики) ·

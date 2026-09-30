@@ -221,6 +221,19 @@ func dewhistleGraph(p map[string]float64) string {
 		"[dw_dry][dw_wet]amix=inputs=2:duration=first:normalize=0[out]", chain, gate)
 }
 
+var softenParams = []Param{
+	{ID: "amount", Label: "сила (0 — выкл, 1 — сильно)", Min: 0, Max: 1, Step: 0.05, Default: 0.5},
+	{ID: "max", Label: "предел ослабления (0–1)", Min: 0, Max: 1, Step: 0.05, Default: 0.5},
+	{ID: "freq", Label: "с каких частот (0 — ниже, 1 — только верх)", Min: 0, Max: 1, Step: 0.05, Default: 0.5},
+}
+
+// softenGraph — «Смягчить звон»: де-эссер ffmpeg — прижимает верх (шипящие,
+// звон) только в моменты, когда он выпирает; тело голоса не трогает. Для
+// дорожки голоса (эффект на дорожку): на общем миксе глушит и тарелки.
+func softenGraph(p map[string]float64) string {
+	return fmt.Sprintf("[0:a]deesser=i=%g:m=%g:f=%g[out]", p["amount"], p["max"], p["freq"])
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -271,6 +284,12 @@ var chains = []Chain{
 		ID: "cresc", Name: "Громкость к концу",
 		Note:   "Плавный подъём громкости с выбранной секунды — финал звучит крупнее; лимитер держит пики.",
 		Params: crescParams, graph: crescGraph,
+	},
+	{
+		ID: "soften", Name: "Смягчить звон",
+		Note: "Де-эссер: прижимает звонкие и шипящие места голоса, тело голоса не трогает. " +
+			"Лучше на дорожку «голос», а не на весь трек (иначе притихнут и тарелки).",
+		Params: softenParams, graph: softenGraph,
 	},
 	{
 		ID: "dewhistle", Name: "Убрать свист",

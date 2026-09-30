@@ -49,7 +49,7 @@ type Service interface {
 	VoiceDelete(ctx context.Context, id int64) (bool, error)
 	VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error)
 	VocalContour(ctx context.Context, id int64, from, to float64) (*VocalContour, error)
-	JobTones(ctx context.Context, id int64, from, to float64) ([]Tone, error)
+	JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]Tone, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
 	// styleAdd — что изменить в звучании с этого места)

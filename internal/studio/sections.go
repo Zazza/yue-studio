@@ -37,6 +37,13 @@ type SectionSpec struct {
 	// KeepHighHz > 0 — старая дорожка вычитается только ниже этой частоты:
 	// у сбивки хэт и тарелки оригинала остаются (прослушка: без этого трек «глохнет»)
 	KeepHighHz float64 `json:"keep_high_hz"`
+	// Chain (+ Params) при ChildID 0 — эффект на дорожку: DSP-цепочка
+	// применяется к дорожкам Stems трека в окне [From, To) (To ≤ 0 — до конца);
+	// в трек добавляется разница «обработанная − исходная» дорожка, поэтому
+	// остальное не меняется даже при утечках demucs (звон голоса на #254:
+	// обработка микса глушила и гитары)
+	Chain  string             `json:"chain,omitempty"`
+	Params map[string]float64 `json:"params,omitempty"`
 }
 
 // RebuildResult — новый вариант трека и отчёт по заменам.
@@ -114,7 +121,16 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	inputs := []string{base}
 	var ins []dsp.Insert
 	reports := make([]InsertReport, 0, len(specs))
-	for _, s := range specs {
+	for i, s := range specs {
+		if s.ChildID == 0 && s.Chain != "" {
+			fx, err := stemFxInserts(s, parent, dir, i, &inputs)
+			if err != nil {
+				return nil, err
+			}
+			ins = append(ins, fx...)
+			reports = append(reports, InsertReport{Aligned: true})
+			continue
+		}
 		if s.ChildID == 0 {
 			ins = append(ins, muteInserts(s, parent, &inputs)...)
 			reports = append(reports, InsertReport{Aligned: true})
@@ -188,6 +204,46 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	}
 	return &RebuildResult{Variant: v, Inserts: reports}, nil
 }
+
+// stemFxInserts — эффект на дорожки трека в окне: дорожка целиком через
+// цепочку (эффекты с памятью — эхо, компрессор — «разогреты» к окну), в трек
+// ложится обработанная дорожка и та же исходная с обратным знаком, с фейдами.
+func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[]string) ([]dsp.Insert, error) {
+	chain := dsp.ByID(s.Chain)
+	if chain == nil {
+		return nil, fmt.Errorf("неизвестный эффект %q", s.Chain)
+	}
+	fadeIn, fadeOut := s.FadeIn, s.FadeOut
+	if fadeIn <= 0 {
+		fadeIn = muteFadeSec
+	}
+	if fadeOut <= 0 {
+		fadeOut = muteFadeSec
+	}
+	var out []dsp.Insert
+	for _, name := range s.Stems {
+		if !slices.Contains(mutable, name) || parent[name] == "" {
+			continue
+		}
+		fx := fmt.Sprintf("%s/fx-%d-%s.flac", dir, idx, name)
+		if err := dsp.Run(parent[name], fx, chain.FilterGraph(s.Params), nil); err != nil {
+			return nil, fmt.Errorf("эффект %s на %s: %w", s.Chain, name, err)
+		}
+		from := math.Max(0, s.From-fadeIn)
+		dur := fxWindowForever
+		if s.To > 0 {
+			dur = s.To + fadeOut - from
+		}
+		*inputs = append(*inputs, fx, parent[name])
+		out = append(out,
+			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: 1, FadeIn: fadeIn, FadeOut: fadeOut},
+			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
+	}
+	return out, nil
+}
+
+// fxWindowForever — «до конца трека» для окна эффекта (длиннее любой песни)
+const fxWindowForever = 3600.0
 
 // muteInserts — громкость дорожек родителя в окне: к треку добавляется сама
 // дорожка с гейном 10^(Db/20)−1 (−1 при Db ≤ −60 — заглушить), края с фейдами.

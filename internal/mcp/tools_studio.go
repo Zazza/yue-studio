@@ -9,6 +9,7 @@ import (
 
 	"yue-studio/internal/config"
 	"yue-studio/internal/dsp"
+	"yue-studio/internal/studio"
 	"yue-studio/internal/yue"
 )
 
@@ -79,15 +80,24 @@ func RegisterStudioTools(s *Server) {
 			"job_id": prop("ID джобы", "integer"),
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
+			"stem": prop("эффект только на дорожку: vocals / drums / bass / other (пусто — весь трек); "+
+				"через пересборку дорожек, остальное не меняется", "string"),
+			"from": prop("со stem: с какой секунды", "number"),
+			"to":   prop("со stem: по какую секунду (0 — до конца)", "number"),
 		}, "job_id", "chain"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
-			params := map[string]float64{}
-			if raw, ok := args["params"].(map[string]any); ok {
-				for k, v := range raw {
-					if f, ok := v.(float64); ok {
-						params[k] = f
-					}
+			params := argNumMap(args, "params")
+			if params == nil {
+				params = map[string]float64{}
+			}
+			if stem := argString(args, "stem"); stem != "" {
+				res, err := studio.RebuildSections(context.Background(), s.client, argInt(args, "job_id"),
+					[]studio.SectionSpec{{Chain: argString(args, "chain"), Params: params, Stems: []string{stem},
+						From: argFloat(args, "from"), To: argFloat(args, "to")}})
+				if err != nil {
+					return "", err
 				}
+				return toJSON(res.Variant), nil
 			}
 			v, err := s.applyDsp(argInt(args, "job_id"), argString(args, "chain"), params, false)
 			if err != nil {

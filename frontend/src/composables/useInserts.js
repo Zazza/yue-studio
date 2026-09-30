@@ -53,6 +53,8 @@ async function doRebuild(parentId) {
     lead: it.lead || 0, beat_sec: it.beat || 0, db: it.childId > 0 ? clampDb(it.db) : it.db,
     stems: it.stems || [], fade_in: it.fadeIn || 0, fade_out: it.fadeOut || 0,
     keep_high_hz: it.keepHighHz || 0,
+    // эффект на дорожку: цепочка и её крутилки
+    ...(it.chain ? { chain: it.chain, params: it.params || {} } : {}),
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -107,6 +109,18 @@ async function addMutes(parentId, items) {
     fadeIn: 0, fadeOut: 0, keepHighHz: 0,
   }))
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), ...added] }
+  save()
+  return rebuild(parentId)
+}
+
+// эффект на дорожку (стем) в окне: запись реестра как у «громкости дорожек»
+// (childId < 0, в api уходит 0) + цепочка; копится вместе с вклейками
+async function addStemFx(parentId, { stem, chain, params, from = 0, to = 0 }) {
+  const item = {
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'fx-' + chain, from, to, lead: 0, beat: 0, db: 0,
+    stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, chain, params: { ...(params || {}) },
+  }
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
   save()
   return rebuild(parentId)
 }
@@ -193,5 +207,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, carryTo, flush, latestFile }
 }

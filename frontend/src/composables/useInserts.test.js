@@ -588,3 +588,107 @@ describe('selectAlt — другой вариант вклейки', () => {
     expect(apiMock.rebuildSections).not.toHaveBeenCalled()
   })
 })
+
+describe('addStemFx — эффект на дорожку через пересборку', () => {
+  const fx = (over = {}) => ({
+    stem: 'vocals', chain: 'soften', params: { strength: 0.6, freq: 6000 }, from: 176, to: 0, ...over,
+  })
+  const lastCall = () => apiMock.rebuildSections.mock.calls.at(-1)[1]
+  const fxSpec = specs => specs.find(s => s.chain)
+
+  it('запись в реестре с отрицательным childId, сразу пересборка', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemFx('P', fx())
+    await flush()
+    const reg = ins.appliedFor('P')
+    const recs = reg.filter(x => x.childId < 0)
+    expect(recs.length).toBe(1)
+    expect(reg.some(x => x.childId === 1)).toBe(true)   // вклейка A не потерялась
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[0]).toBe('P')
+    expect(lastCall().length).toBe(2)
+  })
+
+  it('в api уходит child_id 0, stems [stem], chain, params, окно; to 0 — как есть (до конца)', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx())
+    await flush()
+    const s = lastCall()[0]
+    expect(s.child_id).toBe(0)
+    expect(s.stems).toEqual(['vocals'])
+    expect(s.chain).toBe('soften')
+    expect(s.params).toEqual({ strength: 0.6, freq: 6000 })
+    expect(s.from).toBe(176)
+    expect(s.to).toBe(0)
+  })
+
+  it('окно с концом передаётся без изменений, стем — любой из дорожек', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx({ stem: 'drums', chain: 'dewhistle', params: { freqs: [2638, 3628] }, from: 2, to: 4 }))
+    await flush()
+    expect(lastCall()[0]).toMatchObject({
+      child_id: 0, stems: ['drums'], chain: 'dewhistle', params: { freqs: [2638, 3628] }, from: 2, to: 4,
+    })
+  })
+
+  it('db записи эффекта 0: в api и в реестре (громкость не меняется)', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx())
+    await flush()
+    expect(lastCall()[0].db).toBe(0)
+    expect(ins.appliedFor('P').find(x => x.childId < 0).db).toBe(0)
+  })
+
+  it('два эффекта подряд и заглушка — childId уникальны и отрицательны', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx())
+    await ins.addStemFx('P', fx({ chain: 'dewhistle', params: { freqs: [2638] } }))
+    await ins.addMutes('P', [{ instId: 'm', from: 0, to: 5, stems: ['other'], db: -100 }])
+    await flush()
+    const ids = ins.appliedFor('P').map(x => x.childId)
+    expect(ids.length).toBe(3)
+    expect(new Set(ids).size).toBe(3)
+    for (const id of ids) expect(id).toBeLessThan(0)
+  })
+
+  it('повторная пересборка (addMutes) снова передаёт chain/params эффекта, заглушка — без chain', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx())
+    await flush()
+    await ins.addMutes('P', [{ instId: 'm', from: 10, to: 20, stems: ['other'], db: -100 }])
+    await flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(2)
+    const call = lastCall()
+    expect(call.length).toBe(2)
+    const s = fxSpec(call)
+    expect(s).toMatchObject({ child_id: 0, stems: ['vocals'], chain: 'soften', params: { strength: 0.6, freq: 6000 }, from: 176, to: 0, db: 0 })
+    const mute = call.find(x => x !== s)
+    expect(mute.chain || '').toBe('')
+    expect(mute.db).toBe(-100)
+  })
+
+  it('повторная пересборка через setDb обычной вклейки тоже сохраняет эффект; вклейка зажимается', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemFx('P', fx())
+    await flush()
+    await ins.setDb('P', 1, -40)
+    await flush()
+    const call = lastCall()
+    expect(call.find(s => s.child_id === 1).db).toBe(-24)
+    expect(fxSpec(call)).toMatchObject({ child_id: 0, chain: 'soften', params: { strength: 0.6, freq: 6000 }, db: 0 })
+  })
+
+  it('latestFile не именует файл по записи эффекта', async () => {
+    const ins = await load({ applied: { P: [{ ...A, childId: 2 }] } })
+    await ins.addStemFx('P', fx())
+    await flush()
+    expect(ins.latestFile('P')).toBe('overdub-inst-2.flac')
+  })
+
+  it('в реестре только эффект → latestFile = null', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', fx())
+    await flush()
+    expect(ins.latestFile('P')).toBeNull()
+  })
+})

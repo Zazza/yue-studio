@@ -205,9 +205,11 @@ func registerToneTools(s *Server) {
 			"job_id": prop("ID трека", "integer"),
 			"from":   prop("с какой секунды (по умолчанию 0)", "number"),
 			"to":     prop("до какой секунды (0 — до конца)", "number"),
+			"stem":   prop("дорожка: vocals / drums / bass / other (пусто — весь микс; нужен make_stems)", "string"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
-			tones, err := s.client.JobTones(context.Background(), argInt(args, "job_id"), argFloat(args, "from"), argFloat(args, "to"))
+			tones, err := s.client.JobTones(context.Background(), argInt(args, "job_id"), argFloat(args, "from"),
+				argFloat(args, "to"), argString(args, "stem"))
 			if err != nil {
 				return "", err
 			}
@@ -232,6 +234,21 @@ func promoteVersion(c yue.Service, jobID int64, file, title, dflt string, voiceS
 	return c.VariantToTrack(context.Background(), jobID, file, title, voiceSrc)
 }
 
+// argNumMap — объект чисел из аргументов MCP ({param_id: число}); нет — nil.
+func argNumMap(args map[string]any, key string) map[string]float64 {
+	raw, ok := args[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]float64, len(raw))
+	for k, v := range raw {
+		if f, ok := v.(float64); ok {
+			out[k] = f
+		}
+	}
+	return out
+}
+
 // parseSectionSpecs — спеки пересборки из JSON-аргументов MCP (числа — float64).
 func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 	list, ok := raw.([]any)
@@ -249,6 +266,7 @@ func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 			Lead: argFloat(m, "lead"), BeatSec: argFloat(m, "beat_sec"), Stems: argStringSlice(m, "stems"),
 			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
 			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
+			Chain: argString(m, "chain"), Params: argNumMap(m, "params"),
 		})
 	}
 	return out, nil

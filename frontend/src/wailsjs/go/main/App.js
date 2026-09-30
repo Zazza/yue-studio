@@ -122,8 +122,8 @@ export function YueJobStems(arg1) {
   return window['go']['main']['App']['YueJobStems'](arg1);
 }
 
-export function YueJobTones(arg1, arg2, arg3) {
-  return window['go']['main']['App']['YueJobTones'](arg1, arg2, arg3);
+export function YueJobTones(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['YueJobTones'](arg1, arg2, arg3, arg4);
 }
 
 export function YueJobs() {

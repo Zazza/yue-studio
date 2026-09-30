@@ -41,6 +41,19 @@ type fakeService struct {
 	// Волна студии: настраиваемые ответы job_peaks / job_spectrum
 	peaksOut    map[string]any
 	spectrumOut []byte
+
+	// JobTones («найти свист»): настраиваемый ответ и записанные аргументы (со stem)
+	tonesOut   []yue.Tone
+	tonesCalls []tonesCall
+
+	// UploadDsp: загруженные варианты (эффект на дорожку идёт через пересборку)
+	uploads map[string][]byte
+}
+
+type tonesCall struct {
+	ID       int64
+	From, To float64
+	Stem     string
 }
 
 type promoteCall struct {
@@ -109,6 +122,19 @@ func (f *fakeService) VocalContour(ctx context.Context, id int64, from, to float
 		return nil, f.contourErr
 	}
 	return f.contour, nil
+}
+
+func (f *fakeService) JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]yue.Tone, error) {
+	f.tonesCalls = append(f.tonesCalls, tonesCall{id, from, to, stem})
+	return f.tonesOut, nil
+}
+
+func (f *fakeService) UploadDsp(ctx context.Context, id int64, fname string, data []byte) (*yue.DspVariant, error) {
+	if f.uploads == nil {
+		f.uploads = map[string][]byte{}
+	}
+	f.uploads[fname] = append([]byte(nil), data...)
+	return &yue.DspVariant{File: fname}, nil
 }
 
 func (f *fakeService) SetHead(ctx context.Context, jobID, headID int64) error { return nil }

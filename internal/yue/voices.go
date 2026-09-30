@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // VoiceCreate — карточка голоса из джобы-прослушивания примерочной:
@@ -65,11 +66,14 @@ func (c *Client) VocalContour(ctx context.Context, id int64, from, to float64) (
 	return &out, nil
 }
 
-// JobTones — узкие тона («свист») в миксе трека (GET /jobs/{id}/tones);
-// to ≤ 0 — до конца трека. Самый заметный — первым.
-func (c *Client) JobTones(ctx context.Context, id int64, from, to float64) ([]Tone, error) {
+// JobTones — узкие тона («свист») трека (GET /jobs/{id}/tones); to ≤ 0 — до
+// конца; stem — дорожка (vocals/drums/bass/other), пусто — весь микс.
+func (c *Client) JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]Tone, error) {
 	var out []Tone
 	path := fmt.Sprintf("/jobs/%d/tones?from=%g&to=%g", id, from, to)
+	if stem != "" {
+		path += "&stem=" + url.QueryEscape(stem)
+	}
 	if err := c.call(ctx, http.MethodGet, path, planTimeout, nil, &out); err != nil {
 		return nil, err
 	}

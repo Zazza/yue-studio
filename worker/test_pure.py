@@ -1305,3 +1305,69 @@ class TestTonesEndpoint(_WorkerApiCase):
             with self.subTest(q=q):
                 r = self.client.get(f"/jobs/{jid}/tones?{q}")
                 self.assertEqual(r.status_code, 422, f"{q}: {r.text}")
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestTonesStemParam(TestTonesEndpoint):
+    """GET /jobs/{id}/tones?stem=vocals|drums|bass|other — анализ стема
+    jobs/<id>/stem-<stem>.flac: нет файла → 409 с подсказкой make_stems;
+    неизвестный stem → 422; без stem — как раньше (микс). Анализ аудио здесь
+    не вызывается: проверяются только отказы до него."""
+
+    STEMS = ("vocals", "drums", "bass", "other")
+
+    def test_each_known_stem_without_file_409_make_stems(self):
+        jid = self._audio_job(duration=60.0)
+        for stem in self.STEMS:
+            with self.subTest(stem=stem):
+                r = self.client.get(f"/jobs/{jid}/tones", params={"stem": stem})
+                self.assertEqual(r.status_code, 409, r.text)
+                self.assertIn("make_stems", r.json().get("detail", ""))
+
+    def test_other_stem_present_does_not_count(self):
+        # есть стем барабанов, просят голос → всё равно 409
+        jid = self._audio_job(duration=60.0)
+        (self.jobs_dir / str(jid) / "stem-drums.flac").write_bytes(b"x")
+        r = self.client.get(f"/jobs/{jid}/tones", params={"stem": "vocals"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("make_stems", r.json().get("detail", ""))
+
+    def test_stem_with_range_without_file_409(self):
+        jid = self._audio_job(duration=60.0)
+        r = self.client.get(f"/jobs/{jid}/tones",
+                            params={"stem": "bass", "from": 5, "to": 20})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("make_stems", r.json().get("detail", ""))
+
+    def test_unknown_stem_422(self):
+        jid = self._audio_job(duration=60.0)
+        for stem in ("guitar", "../x", "../../audio", "VOCALS", "vocals/../x", "mix"):
+            with self.subTest(stem=stem):
+                r = self.client.get(f"/jobs/{jid}/tones", params={"stem": stem})
+                self.assertEqual(r.status_code, 422, f"{stem}: {r.text}")
+
+    def test_unknown_stem_422_even_if_such_file_exists(self):
+        # файл с «чужим» именем не делает стем допустимым
+        jid = self._audio_job(duration=60.0)
+        (self.jobs_dir / str(jid) / "stem-guitar.flac").write_bytes(b"x")
+        r = self.client.get(f"/jobs/{jid}/tones", params={"stem": "guitar"})
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_stem_on_missing_job_404(self):
+        r = self.client.get("/jobs/9999/tones", params={"stem": "vocals"})
+        self.assertEqual(r.status_code, 404, r.text)
+        self._assert_job_404(r)
+
+    def test_without_stem_no_audio_as_before(self):
+        # без stem — прежнее поведение микса: нет audio → 404 «no audio»,
+        # а не 409 про стемы
+        jid = self._job(duration=60.0, semantic=False)
+        r = self.client.get(f"/jobs/{jid}/tones")
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertIn("no audio", r.json().get("detail", "").lower())
+        self.assertNotIn("make_stems", r.text)
+
+    def test_without_stem_bad_range_still_422(self):
+        jid = self._audio_job(duration=60.0)
+        r = self.client.get(f"/jobs/{jid}/tones?from=10&to=5")
+        self.assertEqual(r.status_code, 422, r.text)

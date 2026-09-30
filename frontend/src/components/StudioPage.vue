@@ -13,6 +13,7 @@ import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { mixLabel } from '../insertLabels.js'
+import { applyFoundTones } from '../dspTones.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
@@ -1102,8 +1103,14 @@ async function previewDsp() {
   } finally { dspBusy.value = false }
 }
 
-// «найти свист»: узкие тона в миксе (воркер) — окно = выделение на ролле/волне
-// или крутилки start/end цепочки; самый заметный тон → частота выреза
+// на что эффект: '' — весь трек, иначе дорожка (стем) — через пересборку
+// дорожек: остальное не меняется (звон голоса #254 — обработка микса глушила гитары)
+const DSP_TARGETS = ['', 'vocals', 'drums', 'bass', 'other']
+const dspTarget = ref('')
+const dspTargetOptions = computed(() => DSP_TARGETS.map((v) => ({ value: v, label: t('studio.dsp.target.' + (v || 'mix')) })))
+
+// «найти свист»: узкие тона (воркер) в выбранной дорожке или миксе — окно =
+// выделение на ролле/волне или крутилки start/end; до трёх тонов → вырезы
 const toneMsg = ref('')
 const toneBusy = ref(false)
 async function findWhistle() {
@@ -1114,15 +1121,11 @@ async function findWhistle() {
   toneBusy.value = true
   toneMsg.value = ''
   try {
-    const tones = (await api.jobTones(props.job.id, from, to)) || []
+    const tones = (await api.jobTones(props.job.id, from, to, dspTarget.value)) || []
     if (!tones.length) { toneMsg.value = t('studio.dsp.tones.none'); return }
-    // до трёх тонов за проход: самый заметный — freq, следующие — freq2/freq3
-    const hz = (i) => (tones[i] ? Math.round(tones[i].hz / 5) * 5 : 0)
-    const next = { ...p, freq: hz(0), freq2: hz(1), freq3: hz(2) }
-    if (sel) Object.assign(next, { start: Math.floor(sel.from * 2) / 2, end: Math.ceil(sel.to * 2) / 2 })
-    dspParams.value = next
+    dspParams.value = applyFoundTones(p, tones, sel)
     toneMsg.value = t('studio.dsp.tones.found', {
-      list: tones.map((x) => `${Math.round(x.hz)} Гц (+${Math.round(x.prominence_db)} дБ)`).join(', ') })
+      list: tones.map((x) => t('studio.dsp.tones.item', { hz: Math.round(x.hz), db: Math.round(x.prominence_db) })).join(', ') })
   } catch (e) {
     toneMsg.value = String(e)
   } finally {
@@ -1135,6 +1138,15 @@ async function applyDsp() {
   if (!c) return
   dspBusy.value = true
   try {
+    if (dspTarget.value) {
+      // эффект на дорожку: в реестр пересборки (копится со вклейками), окно — выделение
+      const sel = selTimeRange()
+      const res = await inserts.addStemFx(props.job.id, { stem: dspTarget.value, chain: c.id,
+        params: { ...(dspParams.value || {}) }, from: sel ? sel.from : 0, to: sel ? sel.to : 0 })
+      await reloadVariants()
+      if (res && res.variant) await api.playFile(props.job.id, res.variant.file, props.job.duration_sec)
+      return
+    }
     await ensureJobMetrics()
     await api.applyDsp(props.job.id, c.id, dspParams.value || {})
     await reloadVariants()
@@ -1442,10 +1454,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
                        :placeholder="t('studio.dsp.chain')" style="max-width: 220px"
                        @update:model-value="(v) => selChain(v)" />
+              <VSelect v-model="dspTarget" :options="dspTargetOptions" :title="t('studio.dsp.target.tip')" style="max-width: 150px" />
               <button class="primary small" :disabled="!dspSel || dspBusy" @click="applyDsp">
                 {{ dspBusy ? t('studio.dsp.applying') : t('studio.dsp.apply') }}
               </button>
-              <button class="ghost small-btn" :disabled="!dspSel || dspBusy"
+              <button class="ghost small-btn" :disabled="!dspSel || dspBusy || !!dspTarget"
                       :title="t('studio.dsp.preview.tip')" @click="previewDsp">
                 {{ dspBusy ? '…' : t('studio.dsp.preview') }}
               </button>

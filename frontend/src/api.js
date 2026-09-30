@@ -73,7 +73,7 @@ export const api = {
   // высота голоса по тактам плана: {bars:[{index,start,end,notes}], median_hz, low_hz, high_hz}
   vocalContour: (jobId, from = 0, to = 0) => YueVocalContour(jobId, from, to),
   // узкие тона («свист») в окне: [{hz, prominence_db}], самый заметный первым
-  jobTones: (jobId, from = 0, to = 0) => YueJobTones(jobId, from, to),
+  jobTones: (jobId, from = 0, to = 0, stem = '') => YueJobTones(jobId, from, to, stem),
   // трек до fromSec + продолжение моделью (seed 0 — случайный; abc — план; styleAdd — звучание)
   continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
   // основная версия песни: rootId — корень, headId — версия (0 — сам трек)

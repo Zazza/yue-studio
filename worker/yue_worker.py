@@ -1164,15 +1164,26 @@ def _check_window(from_: float, to: float, dur: float):
         raise HTTPException(422, "from/to outside the track")
 
 
+_TONE_STEMS = ("vocals", "drums", "bass", "other")
+
+
 @app.get("/jobs/{job_id}/tones")
-def job_tones(job_id: int, from_: float = Query(0.0, alias="from"), to: float = 0.0):
-    """Узкие тона («свист») в миксе трека в окне [from, to); to = 0 — до конца."""
+def job_tones(job_id: int, from_: float = Query(0.0, alias="from"), to: float = 0.0, stem: str = ""):
+    """Узкие тона («свист») в окне [from, to); to = 0 — до конца. stem —
+    дорожка (vocals/drums/bass/other; нужен make_stems), пусто — весь микс."""
     row = _job_row(job_id)
     if row is None:
         raise HTTPException(404, "job not found")
-    audio = JOBS_DIR / str(job_id) / (row["audio_file"] or "audio.flac")
-    if not audio.is_file():
-        raise HTTPException(404, "no audio for this job")
+    if stem:
+        if stem not in _TONE_STEMS:   # только имена из списка — не путь
+            raise HTTPException(422, f"stem must be one of {', '.join(_TONE_STEMS)}")
+        audio = JOBS_DIR / str(job_id) / f"stem-{stem}.flac"
+        if not audio.is_file():
+            raise HTTPException(409, f"no {stem} stem — run make_stems first")
+    else:
+        audio = JOBS_DIR / str(job_id) / (row["audio_file"] or "audio.flac")
+        if not audio.is_file():
+            raise HTTPException(404, "no audio for this job")
     dur = float(row["duration_sec"] or 0)
     _check_window(from_, to, dur)
     import librosa
