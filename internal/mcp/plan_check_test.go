@@ -296,3 +296,17 @@ func TestContinueJobPlanCheckUnavailableStillSubmits(t *testing.T) {
 		t.Fatalf("422 проверки должен блокировать: ok=%v continued=%d out=%s", ok, len(fake.continued), out)
 	}
 }
+
+// Пустые поля сводки — «—»: у голоса нет нот, такта нет во времени нового плана.
+func TestPlanCheckDashesForEmpty(t *testing.T) {
+	s, fake := newTestServer(t)
+	fake.planCheckOut = &yue.PlanCheck{Bars: map[string][2]int{"Vocal": {4, 3}}, ChangedTotal: 1,
+		Changed: []yue.PlanChange{{Voice: "Vocal", Bar: 4, Before: "c4c4c4c4"}}}
+	out, ok := call(t, s, "plan_check", jsonArgs(t, `{"job_id":1,"abc":"X:1"}`))
+	if !ok {
+		t.Fatal(out)
+	}
+	if !strings.Contains(out, "верх было —, потолок —, верх стало —") || !strings.Contains(out, "— с  Vocal такт 4: c4c4c4c4 → —") {
+		t.Errorf("нужны «—» вместо пустого:\n%s", out)
+	}
+}

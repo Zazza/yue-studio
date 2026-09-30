@@ -20,7 +20,8 @@ _VOICE_RE = re.compile(r"^V:\s*(\S+)")
 _HEAD_RE = re.compile(r"^[A-Za-z]:")
 CHANGED_LIMIT = 64
 ABC_MAX_CHARS = 200_000   # реальные планы — единицы-десятки КБ
-MULTI_REST_MAX = 512      # Z<n>: больше — не план, а попытка съесть память воркера
+MULTI_REST_MAX = 4096     # тактов мультипауз на весь план (Z<n> в сумме): больше — не план,
+                          # а попытка съесть память воркера (повтор Z512| обходил лимит «на каждую»)
 _ANY_MULTI_REST_RE = re.compile(r"Z(\d+)")
 CEILING_STEPS = 2
 
@@ -99,8 +100,8 @@ def plan_diff(old_abc: str, new_abc: str, from_sec=None) -> dict:
     (время по новому плану), потолок голоса, предупреждения."""
     if len(new_abc) > ABC_MAX_CHARS:
         raise ValueError(f"план длиннее {ABC_MAX_CHARS} символов")
-    if any(int(n) > MULTI_REST_MAX for n in _ANY_MULTI_REST_RE.findall(new_abc)):
-        raise ValueError(f"мультипауза длиннее {MULTI_REST_MAX} тактов")
+    if sum(int(n) for n in _ANY_MULTI_REST_RE.findall(new_abc)) > MULTI_REST_MAX:
+        raise ValueError(f"мультипауз больше {MULTI_REST_MAX} тактов на план")
     old_b, new_b = voice_bars(old_abc), voice_bars(new_abc)
     if not any(new_b.values()):
         raise ValueError("в плане нет тактов голосов (V: … и такты через |)")

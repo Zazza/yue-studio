@@ -324,10 +324,6 @@ class TestPlanDiffLimit(unittest.TestCase):
         self.assertEqual(len(d["changed"]), 64)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestPlanDiffBroken(unittest.TestCase):
     """Битый план — ValueError (эндпоинт отдаёт 422), а не 500 и не «0 тактов»."""
 
@@ -344,6 +340,11 @@ class TestPlanDiffBroken(unittest.TestCase):
 class TestPlanDiffLimits(unittest.TestCase):
     """Кривой ввод не съедает память/время воркера: лимиты → ValueError (422)."""
 
+    def test_repeated_multirest_sum(self):
+        many = "|".join(["Z512"] * 20)   # каждая ≤ лимита, в сумме — нет
+        with self.assertRaises(ValueError):
+            plancheck.plan_diff(BASE, BASE.replace("|\n% chorus", "|" + many + "|\n% chorus", 1))
+
     def test_huge_multirest(self):
         with self.assertRaises(ValueError):
             plancheck.plan_diff(BASE, BASE.replace("|\n% chorus", "|Z999999999|\n% chorus", 1))
@@ -357,3 +358,7 @@ class TestPlanDiffLimits(unittest.TestCase):
         t0 = time.time()
         plancheck.plan_diff(BASE, BASE.replace('"C"c16', '"C"c16' + "=" * 40000, 1))
         self.assertLess(time.time() - t0, 2.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
