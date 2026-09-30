@@ -323,3 +323,35 @@ func TestRunInputsLowpassSubtractsOnlyLows(t *testing.T) {
 		}
 	}
 }
+
+// Вычитание куска на некруглой секунде гасит звук до нуля: начало куска (atrim)
+// и задержка (adelay) совпадают до сэмпла (было: %.3f и целые мс — остаток 0.45 при 0.3).
+func TestInsertsSubtractNonRoundSecond(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "s.wav")
+	if out, err := exec.Command("ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+		"aevalsrc=exprs='0.3*sin(2*PI*500*t)':d=6:s=44100", src).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	out := filepath.Join(dir, "o.wav")
+	g := InsertsGraph([]Insert{{AtSec: 3.4567, SkipSec: 3.4567, Gain: -1}})
+	if err := RunInputs([]string{src, src}, out, g); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := exec.Command("ffmpeg", "-loglevel", "error", "-i", out, "-ss", "4", "-t", "1", "-f", "f32le", "-ac", "1", "-").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	n := len(raw) / 4
+	for i := 0; i < n; i++ {
+		v := float64(math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:])))
+		sum += v * v
+	}
+	if rms := math.Sqrt(sum / float64(n)); rms > 0.005 {
+		t.Errorf("остаток после вычитания RMS %.4f, want ≈ 0", rms)
+	}
+}

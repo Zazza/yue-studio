@@ -45,7 +45,10 @@ func InsertsGraph(ins []Insert) string {
 	for i, in := range ins {
 		fmt.Fprintf(&b, "[%d:a]", i+1)
 		if in.SkipSec > 0 {
-			fmt.Fprintf(&b, "atrim=start=%.3f,asetpts=PTS-STARTPTS,", in.SkipSec)
+			// то же значение, что у adelay ниже (%g, без округления до мс): иначе
+			// начало куска и задержка расходились на сэмплы, и «вычитание» на
+			// некруглой секунде делало звук громче (ревью: остаток 0.45 при 0.3)
+			fmt.Fprintf(&b, "atrim=start=%g,asetpts=PTS-STARTPTS,", in.SkipSec)
 		}
 		if in.Tempo > 0 && in.Tempo != 1 {
 			t := min(max(in.Tempo, minAtempo), maxAtempo)
@@ -69,8 +72,8 @@ func InsertsGraph(ins []Insert) string {
 		if in.FadeOut > 0 && in.DurSec > in.FadeOut {
 			fmt.Fprintf(&b, "afade=t=out:st=%.3f:d=%.3f,", in.DurSec-in.FadeOut, in.FadeOut)
 		}
-		ms := int(max(in.AtSec, 0) * 1000)
-		fmt.Fprintf(&b, "adelay=delays=%d:all=1,volume=%.3f[p%d];", ms, in.Gain, i+1)
+		ms := max(in.AtSec, 0) * 1000 // дробные мс: ffmpeg округляет до сэмпла так же, как atrim
+		fmt.Fprintf(&b, "adelay=delays=%g:all=1,volume=%.3f[p%d];", ms, in.Gain, i+1)
 		labels += fmt.Sprintf("[p%d]", i+1)
 	}
 	fmt.Fprintf(&b, "%samix=inputs=%d:duration=first:normalize=0[out]", labels, len(ins)+1)
