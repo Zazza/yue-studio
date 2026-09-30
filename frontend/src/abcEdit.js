@@ -81,6 +81,89 @@ function octTranspose(s, dir) {
   }).join('')
 }
 
+// ---------- мелодия голоса: ступени лада ----------
+// Ступень = буква по порядку (C D E F G A B c d e … c' …): знаки ключа (K:)
+// держат лад, поэтому «на ступень выше» — просто следующая буква. Замер
+// 2026-09-30: модель поёт мелодию Vocal плана нота в ноту; выше потолка
+// голоса (верх плана + 2 ступени) — писк/фальцет.
+const LETTERS = 'CDEFGAB'
+const VOCAL_KINDS = new Set(['octave', 'vocalUp', 'vocalVary'])
+
+function noteStep(letter, oct) {
+  const low = letter === letter.toLowerCase()
+  let st = LETTERS.indexOf(letter.toUpperCase()) + (low ? 7 : 0)
+  for (const ch of oct || '') st += ch === "'" ? 7 : -7
+  return st
+}
+function stepNote(st) {
+  if (st >= 7) {
+    const up = Math.floor((st - 7) / 7)
+    return LETTERS[(st - 7) % 7].toLowerCase() + "'".repeat(up)
+  }
+  const down = Math.ceil(-st / 7)
+  return LETTERS[((st % 7) + 7) % 7] + ','.repeat(Math.max(0, down))
+}
+function parseNote(n) {
+  const m = String(n).match(/^([A-Ga-g])([,']*)$/)
+  return m ? noteStep(m[1], m[2]) : null
+}
+
+// ноты такта вне аккордов-аннотаций: fn(step, i) → новая ступень (i — номер ноты)
+function mapNotes(chunk, fn) {
+  let i = 0
+  return chunk.split(/("[^"]*")/).map((seg) => {
+    if (seg.startsWith('"')) return seg
+    return seg.replace(NOTE_RE, (m0, acc, letter, oct) => {
+      const st = noteStep(letter, oct)
+      const ns = fn(st, i++)
+      return ns === st ? m0 : stepNote(ns)   // сдвинутая нота — без явного знака
+    })
+  }).join('')
+}
+function noteCount(chunk) {
+  let n = 0
+  mapNotes(chunk, (st) => { n++; return st })
+  return n
+}
+
+// потолок голоса: верхняя нота Vocal во всём плане + 2 ступени; нет нот — null
+export function vocalCeiling(abc) {
+  let top = -Infinity
+  for (const p of splitBars(abc)) {
+    if (p.kind !== 'body' || !/vocal/i.test(p.voice || '')) continue
+    for (const c of p.chunks) mapNotes(c, (st) => { top = Math.max(top, st); return st })
+  }
+  return top === -Infinity ? null : stepNote(top + 2)
+}
+
+// «голос выше»: терция вверх (2 ступени), выше потолка — на потолок
+function vocalUp(chunk, ceil) {
+  return mapNotes(chunk, (st) => Math.min(st + 2, ceil))
+}
+// «вариации мотива»: ритм и первая нота такта — опора; конец фразы уходит на
+// соседнюю ступень (чётный такт выделения вверх, нечётный вниз; упёрся в
+// потолок — вниз), во второй половине выделения предпоследняя нота — на
+// ступень вверх (фраза шире к концу). Детерминировано.
+function vocalVary(chunk, ceil, k, n) {
+  const cnt = noteCount(chunk)
+  if (cnt < 2) return chunk
+  const late = k >= n / 2
+  return mapNotes(chunk, (st, i) => {
+    if (i === 0) return st
+    let ns = st
+    if (i === cnt - 1) ns = k % 2 === 0 && st + 1 <= ceil ? st + 1 : st - 1
+    else if (late && i === cnt - 2) ns = st + 1
+    return Math.min(ns, ceil)
+  })
+}
+
+// план для «заново с места»: приёмы ролла ровно по разу поверх исходника
+// (раньше применялись к уже изменённому черновику — октава выходила двойной)
+export function continuationPlan(baseAbc, specs) {
+  if (!specs || !specs.length) return ''
+  return specs.reduce((abc, spec) => applyTrick(abc, spec), baseAbc)
+}
+
 // адресация приёма по позиционному выделению ролла: колонка = музыкальный
 // такт, голоса в одной позиции звучат одновременно. voiceBars — {голос: [такты]}
 // по позициям (как строит ролл). Семантика:
@@ -92,7 +175,7 @@ export function pickTargets(voiceBars, lo, hi, kind) {
   const targets = []
   let from = Infinity, to = -Infinity
   for (const [voice, list] of Object.entries(voiceBars || {})) {
-    if (kind === 'octave' && !/vocal/i.test(voice)) continue
+    if (VOCAL_KINDS.has(kind) && !/vocal/i.test(voice)) continue
     for (let p = Math.max(0, lo); p <= hi; p++) {
       const b = (list || [])[p]
       if (!b) continue
@@ -278,6 +361,9 @@ export const TRICK_MUTES = [
   { id: 'drumsup', mute: ['drums'], db: 6 },
   { id: 'otherdown', mute: ['other'], db: -6 },
   { id: 'bassdown', mute: ['bass'], db: -6 },
+  // «стоп»: голос молчит, музыка идёт. Паузу голоса в плане модель заполняет
+  // пением (замер #235/#236) — поэтому глушением дорожки, без генерации
+  { id: 'vocalstop', mute: ['vocals'], db: -100 },
 ]
 
 // окна секций по таймлайну ролла: подряд идущие такты голоса voice с секцией
@@ -340,6 +426,10 @@ export function applyTrick(abc, spec) {
   const out = []
   let curTempo = baseTempo(abc)
   let tempoDone = spec.kind !== 'tempo'
+  const vocal = spec.kind === 'vocalUp' || spec.kind === 'vocalVary'
+  const ceilNote = vocal ? (spec.ceiling || vocalCeiling(abc)) : null
+  const ceil = ceilNote ? parseNote(ceilNote) : Infinity
+  let varied = 0
   for (const p of splitBars(abc)) {
     if (p.kind !== 'body' || !p.voice) {
       const qm = p.kind === 'head' && p.raw.match(/^Q:.*?=\s*(\d+)/)
@@ -364,6 +454,8 @@ export function applyTrick(abc, spec) {
         const head = c.match(/^(?:"[^"]*"\s*)+/)   // аккордовые аннотации такта сохраняем
         kept.push((head ? head[0] : '') + 'z' + units)
       } else if (spec.kind === 'octave') kept.push(octTranspose(c, spec.dir || 'up'))
+      else if (spec.kind === 'vocalUp') kept.push(vocalUp(c, ceil))
+      else if (spec.kind === 'vocalVary') kept.push(vocalVary(c, ceil, varied++, want.size))
       // 'cut' — такт просто не попадает в kept
     }
     counters[p.voice] = base + bars.length

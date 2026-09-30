@@ -42,9 +42,12 @@ GET  /voices           список карточек (job_alive — жива л�
 DELETE /voices/{id}   удалить карточку (строка БД + voices/<id>/)
 
 DELETE /jobs/{id}/dsp/{file}  удалить вариант эффекта/вклейки (файл + метрики)
-POST /jobs/{id}/variant_track  {file, title} — вариант DSP-эффекта (dsp-*.flac) отдельным
+POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным
                        треком-готов: копия аудио + партитура исходника, стемы/минус работают
                        (parent_id = исходник, role = variant)
+                       voice_src — рендер, чей голос подставлен в версию («перепеть с места»;
+                       несуществующий → 422). В /jobs — поле voice_src (источник голоса версии;
+                       пусто — голос свой у сгенерированного трека или от родителя у варианта)
 POST /jobs/{id}/continue {from_sec, seed?, abc?, style_add?} — «продолжение с места»: новая
                        джоба = шаги модели исходника (semantic.npy) до from_sec + продолжение
                        (другой сид; abc — изменённый план; style_add — приписка к стилю исходника

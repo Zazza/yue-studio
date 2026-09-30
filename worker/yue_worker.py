@@ -132,6 +132,10 @@ def _migrate():
             conn.execute("ALTER TABLE jobs ADD COLUMN cont_from REAL DEFAULT 0")
         # основная версия песни (у корня): с какой версией человек работает
         # сейчас — её играет карточка и открывает студия; правки копятся от неё
+        # источник голоса версии: рендер, чей голос подставлен («перепеть с
+        # места» берёт продолжение от него); NULL — голос свой/от родителя
+        if "voice_src" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN voice_src INTEGER")
         if "head_id" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN head_id INTEGER")
         conn.execute("""
@@ -1163,6 +1167,7 @@ class VariantTrackIn(BaseModel):
     с подписью эффекта; в студии работают стемы/минус/эффекты."""
     file: str
     title: str = ""
+    voice_src: int | None = None   # рендер, чей голос подставлен в версию
 
 
 @app.post("/jobs/{job_id}/variant_track")
@@ -1177,11 +1182,14 @@ def job_variant_track(job_id: int, req: VariantTrackIn):
         src = JOBS_DIR / str(job_id) / req.file
         if not src.is_file():
             raise HTTPException(404, f"variant {req.file} not found")
+        if req.voice_src is not None and conn.execute(
+                "SELECT 1 FROM jobs WHERE id=?", (req.voice_src,)).fetchone() is None:
+            raise HTTPException(422, "voice_src job not found")
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,created_at,finished_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,voice_src,created_at,finished_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (req.title or row["title"], "done", "(вариант DSP-эффекта)", "", None, "full",
-             job_id, "variant",
+             job_id, "variant", req.voice_src,
              time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
         jid = cur.lastrowid
     jdir = JOBS_DIR / str(jid)

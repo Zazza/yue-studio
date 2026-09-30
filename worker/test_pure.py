@@ -640,3 +640,90 @@ class TestProgressFinalize(_WorkerDbCase):
             self.assertEqual(self.w._progress[777]["stage"], "finalize")
         finally:
             stop.set()
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestMigrateVoiceSrc(TestMigrateContinueColumns):
+    """_migrate(): добавляет в jobs колонку voice_src (INTEGER, по умолчанию
+    NULL); повторный запуск не падает; старые строки сохраняются."""
+
+    NEW_COLS = {"voice_src"}
+
+    def test_voice_src_integer_default_null(self):
+        self._legacy_db()
+        self.w._migrate()
+        with self._conn() as c:
+            info = {r[1]: r for r in c.execute("PRAGMA table_info(jobs)")}
+            old = c.execute("SELECT voice_src FROM jobs").fetchone()
+        self.assertIn("voice_src", info)
+        self.assertEqual(info["voice_src"][2].upper(), "INTEGER")
+        self.assertIsNone(info["voice_src"][4])  # dflt_value: без DEFAULT → NULL
+        self.assertIsNone(old["voice_src"])      # у старой строки — NULL
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestVariantTrackVoiceSrc(_WorkerApiCase):
+    """POST /jobs/{id}/variant_track: необязательное voice_src (int) попадает
+    в новую джобу; без поля — NULL; ссылка на несуществующую джобу → 422."""
+
+    def _parent_with_variant(self):
+        parent = self._job()
+        (self.jobs_dir / str(parent) / "dsp-wall.flac").write_bytes(b"x")
+        return parent
+
+    def test_voice_src_stored(self):
+        parent = self._parent_with_variant()
+        src = self._job()
+        r = self.client.post(f"/jobs/{parent}/variant_track",
+                             json={"file": "dsp-wall.flac", "voice_src": src})
+        self.assertLess(r.status_code, 300, r.text)
+        kids = self._children(parent)
+        self.assertEqual(len(kids), 1)
+        self.assertEqual(kids[0]["voice_src"], src)
+
+    def test_without_voice_src_null(self):
+        parent = self._parent_with_variant()
+        r = self.client.post(f"/jobs/{parent}/variant_track", json={"file": "dsp-wall.flac"})
+        self.assertLess(r.status_code, 300, r.text)
+        kids = self._children(parent)
+        self.assertEqual(len(kids), 1)
+        self.assertIsNone(kids[0]["voice_src"])
+
+    def test_missing_voice_src_job_422(self):
+        parent = self._parent_with_variant()
+        with self._conn() as c:
+            before = c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        r = self.client.post(f"/jobs/{parent}/variant_track",
+                             json={"file": "dsp-wall.flac", "voice_src": 9999})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(self._children(parent), [])
+        with self._conn() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], before)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestListJobsVoiceSrc(_WorkerApiCase):
+    """GET /jobs отдаёт voice_src у каждой джобы; у старых — null."""
+
+    def test_old_jobs_have_null_voice_src(self):
+        a, b = self._job(), self._job()
+        r = self.client.get("/jobs")
+        self.assertEqual(r.status_code, 200, r.text)
+        jobs = {j["id"]: j for j in r.json()}
+        for jid in (a, b):
+            self.assertIn("voice_src", jobs[jid])
+            self.assertIsNone(jobs[jid]["voice_src"])
+
+    def test_variant_voice_src_in_list(self):
+        parent = self._job()
+        (self.jobs_dir / str(parent) / "dsp-wall.flac").write_bytes(b"x")
+        src = self._job()
+        r = self.client.post(f"/jobs/{parent}/variant_track",
+                             json={"file": "dsp-wall.flac", "voice_src": src})
+        self.assertLess(r.status_code, 300, r.text)
+        kid = self._children(parent)[0]["id"]
+        jobs = {j["id"]: j for j in self.client.get("/jobs").json()}
+        self.assertEqual(jobs[kid]["voice_src"], src)
+        for jid in (parent, src):
+            self.assertIn("voice_src", jobs[jid])
+            self.assertIsNone(jobs[jid]["voice_src"])

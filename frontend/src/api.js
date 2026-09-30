@@ -64,7 +64,7 @@ export const api = {
   // [{child_id, from, to, lead, beat_sec, db, stems, fade_in, fade_out}]
   rebuildSections: (parentId, specs) => YueRebuildSections(parentId, specs),
   dspVariantDelete: (id, file) => YueDspVariantDelete(id, file),
-  variantToTrack: (jobId, file, title) => YueVariantToTrack(jobId, file, title),
+  variantToTrack: (jobId, file, title, voiceSrc = 0) => YueVariantToTrack(jobId, file, title, voiceSrc),
   // трек до fromSec + продолжение моделью (seed 0 — случайный; abc — план; styleAdd — звучание)
   continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
   // основная версия песни: rootId — корень, headId — версия (0 — сам трек)

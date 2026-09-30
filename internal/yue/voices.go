@@ -37,11 +37,16 @@ func (c *Client) VoiceDelete(ctx context.Context, id int64) (bool, error) {
 }
 
 // VariantToTrack — вариант DSP-эффекта отдельным треком (копия с подписью).
-func (c *Client) VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error) {
+// voiceSrc > 0 — у версии подставлен голос этого рендера (источник голоса
+// для следующих «перепеть с места»); 0 — не менялся.
+func (c *Client) VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error) {
 	var out struct {
 		ID int64 `json:"id"`
 	}
 	body := map[string]any{"file": file, "title": title}
+	if voiceSrc > 0 {
+		body["voice_src"] = voiceSrc
+	}
 	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/variant_track", jobID), body, requestTimeout, &out); err != nil {
 		return 0, err
 	}

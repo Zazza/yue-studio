@@ -8,7 +8,9 @@ import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
 import { useInserts } from '../composables/useInserts.js'
 import { odPartyChips } from '../slotOptions.js'
-import { applyTrick, beatSecAt, pickTargets, sectionRequest, sectionWindows, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, TRICK_MUTES, trickStyleSuffix } from '../abcEdit.js'
+import { applyTrick, beatSecAt, continuationPlan, pickTargets, planTimeline, sectionRequest, sectionWindows, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, TRICK_MUTES, trickStyleSuffix } from '../abcEdit.js'
+import { useRevoice } from '../composables/useRevoice.js'
+import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { mixLabel } from '../insertLabels.js'
 import VSelect from '../VSelect.vue'
@@ -19,6 +21,7 @@ const emit = defineEmits(['close', 'open-metrics'])
 const { isPlaying, playBusy, playBtn, toggleArtifact } = usePlayer()
 const { askConfirm } = useConfirm()
 const inserts = useInserts()
+const revoice = useRevoice()
 
 const rollData = ref(null)     // parsed score
 const rollBusy = ref(false)
@@ -696,13 +699,57 @@ async function continueFromSel() {
     let abc = ''
     if (pendingSpecs.value.length) {
       await ensureBaseAbc()
-      abc = pendingSpecs.value.reduce((plan, spec) => applyTrick(plan, spec), planDraft.value || baseAbc.value)
+      abc = continuationPlan(baseAbc.value, pendingSpecs.value)   // приёмы — ровно по разу
     }
     const id = await api.continueJob(props.job.id, r.from, 0, abc, contStyle.value.trim())
     buildJob.value = { id, status: 'queued' }
     trickMsg.value = t('studio.cont.done', { id })
     startJobPoll()
     pollBuild()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally {
+    trickBusy.value = false
+  }
+}
+
+// «перепеть с места» по частям: голос выделенной части меняется приёмами
+// голоса (выше / вариации / октава), остальной голос и музыка версии — как были.
+// Продолжение берётся от ИСТОЧНИКА голоса (у версии-микса своих шагов модели
+// нет), 2 дубля; сервис useRevoice по готовности подставляет голос дубля
+// только в окно части → новая версия под «📎» (замер 2026-09-30, #214/#210).
+const REVOICE_TAKES = 2
+async function revoiceFromSel() {
+  const r = selTimeRange()
+  if (!r) return
+  trickBusy.value = true
+  rollErr.value = ''
+  trickMsg.value = ''
+  try {
+    const jobs = await api.jobs()
+    const byId = Object.fromEntries((jobs || []).map((j) => [j.id, j]))
+    const srcId = voiceSource(byId[props.job.id] || props.job, byId)
+    const src = srcId != null && byId[srcId]
+    if (!src) { rollErr.value = t('studio.revoice.nosrc'); return }
+    await ensureBaseAbc()
+    const srcAbc = srcId === props.job.id ? baseAbc.value : await api.jobAbcText(srcId, src.abc_file || 'score.abc')
+    // адреса тактов приёмов — по плану этой версии; у источника план должен совпадать
+    const n = (abc) => Object.entries(planTimeline(abc)).filter(([v]) => /vocal/i.test(v)).map(([, l]) => l.length).join()
+    if (n(srcAbc) !== n(baseAbc.value)) { rollErr.value = t('studio.revoice.plan', { id: srcId }); return }
+    const specs = pendingSpecs.value.filter((s) => revoiceSpecKinds.has(s.kind))
+    const abc = continuationPlan(srcAbc, specs)
+    const beat = beatSecAt(baseAbc.value, r.from)
+    const what = specs.map((s) => s.label).join(', ') || t('studio.revoice.take')
+    const ids = []
+    for (let k = 0; k < REVOICE_TAKES; k++) {
+      const id = await api.continueJob(srcId, r.from, 0, abc, '')
+      ids.push(id)
+      revoice.register([{ parent: props.job.id, child: id, from: r.from, to: r.to, beat, voiceSrc: srcId,
+        title: `${props.job.title || 'трек'} · голос: ${what} (дубль #${id})` }])
+    }
+    const quiet = vocalEndsQuiet((rollData.value && rollData.value.bars) || [], r.to)
+    trickMsg.value = t('studio.revoice.done', { ids: ids.map((i) => '#' + i).join(', ') }) +
+      (quiet ? '' : ' ' + t('studio.revoice.seam'))
   } catch (e) {
     rollErr.value = String(e)
   } finally {
@@ -1034,6 +1081,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       :title="t('studio.trick.oct.up.tip')" @click="runTrick('octave', { dir: 'up' })">{{ t('studio.trick.oct.up') }}</button>
               <button class="ghost small-btn" :disabled="trickBusy"
                       :title="t('studio.trick.oct.down.tip')" @click="runTrick('octave', { dir: 'down' })">{{ t('studio.trick.oct.down') }}</button>
+              <button class="ghost small-btn" :disabled="trickBusy"
+                      :title="t('studio.trick.vocalUp.tip')" @click="runTrick('vocalUp')">{{ t('studio.trick.vocalUp') }}</button>
+              <button class="ghost small-btn" :disabled="trickBusy"
+                      :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
+              <button class="ghost small-btn" :disabled="trickBusy"
+                      :title="t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
             </template>
             <span class="muted" style="margin-left:8px">{{ t('studio.trick.inst.label') }}</span>
             <VSelect v-model="instSel" :options="instOptions" :title="t('studio.trick.inst.tip')" style="width:150px" />

@@ -41,7 +41,7 @@ type Service interface {
 	VoiceCreate(ctx context.Context, name string, jobID int64, params string, seed int64) (int64, error)
 	Voices(ctx context.Context) ([]Voice, error)
 	VoiceDelete(ctx context.Context, id int64) (bool, error)
-	VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error)
+	VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
 	// styleAdd — что изменить в звучании с этого места)
@@ -84,6 +84,9 @@ type Job struct {
 	Role     string `json:"role,omitempty"`
 	// основная версия песни (у корня): её играет карточка и открывает студия
 	HeadID *int64 `json:"head_id,omitempty"`
+	// источник голоса: рендер, чей голос звучит в этой версии (у версии,
+	// созданной подстановкой голоса); пусто — голос свой или от родителя
+	VoiceSrc *int64 `json:"voice_src,omitempty"`
 
 	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
 	Stage       string   `json:"stage,omitempty"`

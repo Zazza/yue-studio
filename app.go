@@ -556,6 +556,7 @@ func (a *App) YueSetHead(jobID, headID int64) error {
 }
 
 // YueVariantToTrack — вариант DSP-эффекта отдельным треком с подписью эффекта.
-func (a *App) YueVariantToTrack(jobID int64, file, title string) (int64, error) {
-	return a.yue.VariantToTrack(a.ctx, jobID, file, title)
+// voiceSrc > 0 — версия с подставленным голосом этого рендера.
+func (a *App) YueVariantToTrack(jobID int64, file, title string, voiceSrc int64) (int64, error) {
+	return a.yue.VariantToTrack(a.ctx, jobID, file, title, voiceSrc)
 }

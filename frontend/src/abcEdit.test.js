@@ -1,6 +1,6 @@
 // Тесты приёмов над ABC-планом: разбор/сборка и мутации тактов.
 import { describe, it, expect } from 'vitest'
-import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix, expandMultiRests, sectionStyle, SOFT_MOOD_WORDS, sectionWindows, TRICK_MUTES } from './abcEdit.js'
+import { splitBars, assemble, barUnits, keyRoot, borrowedChord, applyTrick, pickTargets, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, trickStyleSuffix, expandMultiRests, sectionStyle, SOFT_MOOD_WORDS, sectionWindows, TRICK_MUTES, vocalCeiling, continuationPlan } from './abcEdit.js'
 
 // диалект YuE: та же фикстура, что в worker/test_pure.py
 const ABC = [
@@ -607,5 +607,225 @@ describe('sectionWindows — окна секции в голосе', () => {
       expect(Array.isArray(t.mute) && t.mute.length > 0).toBe(true)
       expect(typeof t.db).toBe('number')
     }
+  })
+})
+
+// ── Голос-мелодия: потолок, «голос выше», «вариации мотива», «заново с места» ──
+
+// план K:Em: Vocal — два такта, верхняя нота c; Ins выше вокала (не должен влиять на потолок)
+const VPLAN = [
+  'X:1', 'T:', 'M:4/4', 'L:1/16', 'Q:1/4=120',
+  'V: Vocal clef=treble name="Vocal Melody" snm="Vocal"',
+  'V: Ins clef=treble name="Ins Melody" snm="Inst."',
+  'K:Em',
+  '% verse',
+  'V: Vocal',
+  '"Em"B4B2B2B2B2B2B2|"C"c2c2c2c2"D"B2A2A4|',
+  'V: Ins',
+  'a4a4a4a4|g4g4g4g4|',
+].join('\n')
+
+const vplan = (vocalLine, insLine = 'E4E4E4E4|') => [
+  'X:1', 'M:4/4', 'L:1/16', 'K:Em', 'V: Vocal', vocalLine, 'V: Ins', insLine,
+].join('\n')
+
+// ступень ноты: C=0 … B=6, строчные +7, ' — +7, , — −7
+const STEP = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 }
+function noteStep(n) {
+  const m = /^([A-Ga-g])([',]*)$/.exec(n)
+  if (!m) throw new Error('не нота: ' + n)
+  let s = STEP[m[1].toUpperCase()] + (m[1] === m[1].toLowerCase() ? 7 : 0)
+  for (const c of m[2]) s += c === "'" ? 7 : -7
+  return s
+}
+
+// токены такта без аккордов: [{rest, note, dur}]
+function barTokens(bar) {
+  const body = bar.replace(/"[^"]*"/g, '')
+  const out = []
+  const re = /(z|[A-Ga-g][',]*)(\d*)/g
+  let m
+  while ((m = re.exec(body))) {
+    out.push({ rest: m[1] === 'z', note: m[1] === 'z' ? null : m[1], dur: m[2] ? Number(m[2]) : 1 })
+  }
+  return out
+}
+const chordsOf = (bar) => bar.match(/"[^"]*"/g) || []
+const notesOf = (bar) => barTokens(bar).filter((t) => !t.rest).map((t) => t.note)
+
+describe('потолок голоса (vocalCeiling)', () => {
+  it('верхняя нота «c» → потолок «e» (+2 ступени); Ins выше вокала не учитывается', () => {
+    expect(vocalCeiling(VPLAN)).toBe('e')
+  })
+
+  it('верхняя нота «B» → «d»', () => {
+    expect(vocalCeiling(vplan('"Em"B4B4A4G4|'))).toBe('d')
+  })
+
+  it('берётся весь план: верхняя «e» во второй строке голоса после пауз → «g»', () => {
+    // ZPLAN: Vocal …|"Em"e4e4e4e4|… и далее строка пауз
+    expect(vocalCeiling(ZPLAN)).toBe('g')
+    const two = [
+      'X:1', 'M:4/4', 'L:1/16', 'K:Em',
+      'V: Vocal', 'B4B4B4B4|', 'V: Ins', 'E4E4E4E4|',
+      'V: Vocal', 'z8e8|', 'V: Ins', 'E4E4E4E4|',
+    ].join('\n')
+    expect(vocalCeiling(two)).toBe('g')
+  })
+
+  it('нет голоса Vocal → null', () => {
+    expect(vocalCeiling('X:1\nM:4/4\nL:1/16\nK:Em\nV: Ins\nE4E4E4E4|\n')).toBeNull()
+  })
+
+  it('в голосе Vocal только паузы (z и Z) → null', () => {
+    expect(vocalCeiling(vplan('"Em"z16|Z2|'))).toBeNull()
+  })
+})
+
+describe('приём «голос выше» (vocalUp)', () => {
+  const both = [{ voice: 'Vocal', bar: 0 }, { voice: 'Vocal', bar: 1 }]
+
+  it('каждая нота целевых тактов — на 2 ступени вверх, аккорды целы', () => {
+    const out = applyTrick(VPLAN, { kind: 'vocalUp', targets: both, ceiling: 'e' })
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"d4d2d2d2d2d2d2', '"C"e2e2e2e2"D"d2c2c4'])
+  })
+
+  it('нота выше потолка после сдвига становится потолком: d при потолке e → e, не f', () => {
+    const out = applyTrick(vplan('"G"d4d4d4d4|'), { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 0 }], ceiling: 'e' })
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"G"e4e4e4e4'])
+  })
+
+  it('сдвиг через октаву записи: b → d\' (при потолке e\')', () => {
+    const out = applyTrick(vplan('b4b4b4b4|'), { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 0 }], ceiling: "e'" })
+    expect(voiceBarsText(out, 'Vocal')).toEqual(["d'4d'4d'4d'4"])
+  })
+
+  it('паузы остаются, длительности не меняются', () => {
+    const out = applyTrick(vplan('"Am"z4B4z2B2B4|'), { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 0 }], ceiling: 'e' })
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Am"z4d4z2d2d4'])
+  })
+
+  it('нецелевые такты и другие голоса не меняются', () => {
+    const out = applyTrick(VPLAN, { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 1 }], ceiling: 'e' })
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"B4B2B2B2B2B2B2', '"C"e2e2e2e2"D"d2c2c4'])
+    expect(voiceBarsText(out, 'Ins')).toEqual(voiceBarsText(VPLAN, 'Ins'))
+  })
+
+  it('потолок не передан → берётся vocalCeiling(abc)', () => {
+    const plan = vplan('"Em"B4B4B4B4|"G"g4g4g4g4|"C"e4f4g4e4|')
+    const t = [{ voice: 'Vocal', bar: 0 }, { voice: 'Vocal', bar: 1 }, { voice: 'Vocal', bar: 2 }]
+    const auto = applyTrick(plan, { kind: 'vocalUp', targets: t })
+    expect(auto).toBe(applyTrick(plan, { kind: 'vocalUp', targets: t, ceiling: vocalCeiling(plan) }))
+    // верх g → потолок b: g→b, e→g, f→a
+    expect(voiceBarsText(auto, 'Vocal')).toEqual(['"Em"d4d4d4d4', '"G"b4b4b4b4', '"C"g4a4b4g4'])
+  })
+})
+
+describe('приём «вариации мотива» (vocalVary)', () => {
+  const plan = vplan('"Em"B4B2B2B2B2B2B2|"C"c2c2c2c2"D"B2A2A4|"Em"B4B4B4B4|', 'E4E4E4E4|F4F4F4F4|G4G4G4G4|')
+  const targets = [{ voice: 'Vocal', bar: 0 }, { voice: 'Vocal', bar: 1 }]
+  const run = (abc = plan, t = targets, ceiling = 'e') => applyTrick(abc, { kind: 'vocalVary', targets: t, ceiling })
+
+  it('ритм сохраняется: та же последовательность длительностей и пауз, то же число нот', () => {
+    const src = voiceBarsText(plan, 'Vocal')
+    const out = voiceBarsText(run(), 'Vocal')
+    expect(out).toHaveLength(src.length)
+    for (const i of [0, 1]) {
+      expect(barTokens(out[i]).map((t) => [t.rest, t.dur])).toEqual(barTokens(src[i]).map((t) => [t.rest, t.dur]))
+    }
+  })
+
+  it('паузы на своих местах в такте с паузами', () => {
+    const p = vplan('"Am"z4B4z2B2c4|')
+    const out = voiceBarsText(run(p, [{ voice: 'Vocal', bar: 0 }]), 'Vocal')
+    expect(barTokens(out[0]).map((t) => [t.rest, t.dur])).toEqual(barTokens('z4B4z2B2c4').map((t) => [t.rest, t.dur]))
+  })
+
+  it('первая нота каждого целевого такта не меняется, аккорды целы', () => {
+    const src = voiceBarsText(plan, 'Vocal')
+    const out = voiceBarsText(run(), 'Vocal')
+    for (const i of [0, 1]) {
+      expect(notesOf(out[i])[0]).toBe(notesOf(src[i])[0])
+      expect(chordsOf(out[i])).toEqual(chordsOf(src[i]))
+    }
+  })
+
+  it('в целевом участке изменена хотя бы одна нота', () => {
+    const src = voiceBarsText(plan, 'Vocal').slice(0, 2).flatMap(notesOf)
+    const out = voiceBarsText(run(), 'Vocal').slice(0, 2).flatMap(notesOf)
+    expect(out).not.toEqual(src)
+  })
+
+  it('все ноты не выше потолка', () => {
+    for (const c of ['e', 'c']) {
+      const out = voiceBarsText(run(plan, targets, c), 'Vocal').slice(0, 2).flatMap(notesOf)
+      for (const n of out) expect(noteStep(n)).toBeLessThanOrEqual(noteStep(c))
+    }
+  })
+
+  it('детерминирован: два вызова дают одно и то же', () => {
+    expect(run()).toBe(run())
+  })
+
+  it('такт из одинаковых нот: последняя нота отличается от исходной', () => {
+    const out = voiceBarsText(run(plan, [{ voice: 'Vocal', bar: 2 }]), 'Vocal')
+    const notes = notesOf(out[2])
+    expect(notes).toHaveLength(4)
+    expect(notes[0]).toBe('B')
+    expect(notes[3]).not.toBe('B')
+    expect(barTokens(out[2]).map((t) => t.dur)).toEqual([4, 4, 4, 4])
+  })
+
+  it('нецелевые такты и другие голоса не меняются', () => {
+    const out = run()
+    expect(voiceBarsText(out, 'Vocal')[2]).toBe('"Em"B4B4B4B4')
+    expect(voiceBarsText(out, 'Ins')).toEqual(voiceBarsText(plan, 'Ins'))
+  })
+})
+
+describe('pickTargets для «голос выше» / «вариации»', () => {
+  for (const kind of ['vocalUp', 'vocalVary']) {
+    it(`${kind}: только вокальный голос выбранных позиций; без вокала — null`, () => {
+      expect(pickTargets(VOICE_BARS, 1, 2, kind).targets)
+        .toEqual([{ voice: 'Vocal', bar: 1 }, { voice: 'Vocal', bar: 2 }])
+      expect(pickTargets({ Ins: VOICE_BARS.Ins }, 0, 1, kind)).toBeNull()
+    })
+  }
+})
+
+describe('TRICK_MUTES: заглушить голос без генерации', () => {
+  it('есть vocalstop: mute vocals, −100 дБ', () => {
+    const t = TRICK_MUTES.find((x) => x.id === 'vocalstop')
+    expect(t).toBeTruthy()
+    expect(t.mute).toEqual(['vocals'])
+    expect(t.db).toBe(-100)
+  })
+})
+
+describe('план для «заново с места» (continuationPlan)', () => {
+  const up = { kind: 'octave', dir: 'up', targets: [{ voice: 'Vocal', bar: 0 }] }
+
+  it('октава вверх применяется ровно один раз (регрессия: было две октавы)', () => {
+    const src = 'X:1\nM:4/4\nL:1/16\nK:Dm\nV: Vocal\n"Dm"d2A2g2e2|\n'
+    const out = continuationPlan(src, [up])
+    expect(out).toContain('"Dm"d\'2a2g\'2e\'2|')
+    expect(out).not.toContain("d''")
+    expect(out).toBe(applyTrick(src, up))
+  })
+
+  it('«голос выше» — ровно на 2 ступени, не на 4', () => {
+    const spec = { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 0 }], ceiling: "c'" }
+    const out = continuationPlan(vplan('"Em"B4B4B4B4|'), [spec])
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"d4d4d4d4'])
+  })
+
+  it('несколько specs — каждый по разу, по порядку', () => {
+    const rest = { kind: 'rest', targets: [{ voice: 'Ins', bar: 1 }] }
+    const vu = { kind: 'vocalUp', targets: [{ voice: 'Vocal', bar: 0 }], ceiling: 'e' }
+    expect(continuationPlan(VPLAN, [vu, rest])).toBe(applyTrick(applyTrick(VPLAN, vu), rest))
+  })
+
+  it('specs пустой → пустая строка (продолжение без изменённого плана)', () => {
+    expect(continuationPlan(VPLAN, [])).toBe('')
   })
 })

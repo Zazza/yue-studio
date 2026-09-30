@@ -193,13 +193,14 @@ func RegisterStudioTools(s *Server) {
 		Name:        "variant_track",
 		Description: "Вариант DSP-эффекта (dsp-*.flac) отдельным треком с подписью эффекта — дальше работают стемы/минус/эффекты.",
 		InputSchema: props(map[string]any{
-			"job_id": prop("ID джобы с вариантом", "integer"),
-			"file":   prop("имя файла варианта, напр. dsp-tape.flac", "string"),
-			"title":  prop("название нового трека (обычно «исходное · эффект»)", "string"),
+			"job_id":    prop("ID джобы с вариантом", "integer"),
+			"file":      prop("имя файла варианта, напр. dsp-tape.flac", "string"),
+			"title":     prop("название нового трека (обычно «исходное · эффект»)", "string"),
+			"voice_src": prop("ID рендера, чей голос подставлен в эту версию (после «перепеть»); 0 — голос не менялся", "integer"),
 		}, "job_id", "file"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			id, err := s.client.VariantToTrack(context.Background(),
-				argInt(args, "job_id"), argString(args, "file"), argString(args, "title"))
+				argInt(args, "job_id"), argString(args, "file"), argString(args, "title"), argInt(args, "voice_src"))
 			if err != nil {
 				return "", err
 			}

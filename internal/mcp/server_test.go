@@ -56,7 +56,7 @@ func (f *fakeService) VoiceDelete(ctx context.Context, id int64) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, title string) (int64, error) {
+func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error) {
 	return 77, nil
 }
 

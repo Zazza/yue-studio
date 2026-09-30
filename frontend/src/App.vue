@@ -11,6 +11,8 @@ import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
 import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount } from './jobFilter.js'
 import { isResultJob, mixChildId, mixLabel } from './insertLabels.js'
 import { useInserts } from './composables/useInserts.js'
+// сервис «перепеть с места»: живёт всё время, как вклейки (студию закрывают)
+import './composables/useRevoice.js'
 import { SLOT_ORDER, buildStyleLine, dictStyle, cleanLyrics, effectiveLyrics } from './styleLogic.js'
 import { usePlayer, fmtDur } from './composables/usePlayer.js'
 import { useConfirm } from './composables/useConfirm.js'
