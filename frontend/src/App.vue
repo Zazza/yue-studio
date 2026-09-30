@@ -1209,8 +1209,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .roll-block { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; overflow-x: auto; }
 .roll-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 12px; }
 /* min-width: 0 — иначе минимальная ширина ролл-сетки (сотни тактов) растягивает
-   всю панель студии шире окна вместо прокрутки внутри roll-block */
-.studio-page .roll-block { border: none; padding: 0; overflow-x: auto; min-width: 0; }
+   всю панель студии шире окна вместо прокрутки внутри roll-scroll */
+.studio-page .roll-block { border: none; padding: 0; min-width: 0; }
 .studio-page, .corpus-page-wide, .settings-wide { justify-content: stretch; }
 .studio-page .panel, .corpus-page-wide .panel, .settings-wide .panel { width: auto; max-width: none; flex: 1; margin: 0 16px; min-width: 0; }
 .corpus-list { max-width: none; }
@@ -1257,10 +1257,12 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .wave-thumb { position: absolute; top: 1px; bottom: 1px; border-radius: 4px; background: var(--accent); opacity: .55; }
 .wave-scroll:active .wave-thumb, .wave-scroll:hover .wave-thumb { opacity: .85; }
 
-/* прокрутка ролла: нативный скроллбар webkit тонет в тёмной теме — явный */
-.roll-block::-webkit-scrollbar { height: 10px; }
-.roll-block::-webkit-scrollbar-track { background: var(--panel); border-radius: 5px; }
-.roll-block::-webkit-scrollbar-thumb { background: var(--accent); opacity: .6; border-radius: 5px; }
+/* прокрутка ролла: только вокруг сетки тактов — скроллбар прямо под ней;
+   нативный скроллбар webkit тонет в тёмной теме — стилизуем явно */
+.roll-scroll { overflow-x: auto; }
+.roll-scroll::-webkit-scrollbar { height: 10px; }
+.roll-scroll::-webkit-scrollbar-track { background: var(--panel); border-radius: 5px; }
+.roll-scroll::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 5px; }
 
 /* овердаб */
 .od-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }

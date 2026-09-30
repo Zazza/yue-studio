@@ -125,6 +125,17 @@ const rollCellW = ref(16)
 function rollZoom(delta) { rollCellW.value = Math.min(48, Math.max(8, rollCellW.value + delta)) }
 const rollPositions = computed(() => Array.from({ length: posCount.value }, (_, i) => i))
 
+// колесо над роллом крутит сам ролл (горизонталь), а не всю страницу;
+// на краях прокрутки — отдаем событие форме, чтобы страница листалась
+function onRollWheel(e) {
+  const el = e.currentTarget
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+  if (!delta) return
+  const before = el.scrollLeft
+  el.scrollLeft = before + delta
+  if (el.scrollLeft !== before) e.preventDefault()
+}
+
 // выделение — единый источник для всех кнопок студии: точные секунды волны
 // переопределяют тактовую сетку (приёмы остаются по тактам через rollSel),
 // протяжка по роллу — наоборот, отбрасывает точность волны
@@ -1197,18 +1208,20 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="ghost small-btn" :title="t('studio.roll.zoom.in')" @click="rollZoom(4)">+</button>
             </span>
           </div>
-          <div class="roll-grid" :style="{ gridTemplateColumns: `70px repeat(${posCount}, minmax(${rollCellW}px, 1fr))` }">
-            <div></div>
-            <div v-for="pos in rollPositions" :key="'s' + pos" class="roll-sec" :title="posSection(pos)">{{ (posSection(pos) || '').slice(0, 3) }}</div>
-            <template v-for="v in rollData.voice_order" :key="v">
-              <div class="roll-voice">{{ v }}</div>
-              <div v-for="pos in rollPositions" :key="v + pos"
-                   class="roll-cell" :class="['d' + cellDensity(v, pos), { sel: isBarSel(pos), off: cellOff(v, pos), trick: isTrickCell(v, pos), empty: !barAt(v, pos) }]"
-                   :title="cellTitle(v, pos)"
-                   @mousedown.prevent="barSelStart(pos)" @mouseover="barSelOver(pos)"></div>
-            </template>
-            <div class="roll-voice">{{ t('studio.chords') }}</div>
-            <div v-for="pos in rollPositions" :key="'c' + pos" class="roll-chord">{{ posChord(pos) }}</div>
+          <div class="roll-scroll" @wheel="onRollWheel">
+            <div class="roll-grid" :style="{ gridTemplateColumns: `70px repeat(${posCount}, minmax(${rollCellW}px, 1fr))` }">
+              <div></div>
+              <div v-for="pos in rollPositions" :key="'s' + pos" class="roll-sec" :title="posSection(pos)">{{ (posSection(pos) || '').slice(0, 3) }}</div>
+              <template v-for="v in rollData.voice_order" :key="v">
+                <div class="roll-voice">{{ v }}</div>
+                <div v-for="pos in rollPositions" :key="v + pos"
+                     class="roll-cell" :class="['d' + cellDensity(v, pos), { sel: isBarSel(pos), off: cellOff(v, pos), trick: isTrickCell(v, pos), empty: !barAt(v, pos) }]"
+                     :title="cellTitle(v, pos)"
+                     @mousedown.prevent="barSelStart(pos)" @mouseover="barSelOver(pos)"></div>
+              </template>
+              <div class="roll-voice">{{ t('studio.chords') }}</div>
+              <div v-for="pos in rollPositions" :key="'c' + pos" class="roll-chord">{{ posChord(pos) }}</div>
+            </div>
           </div>
           <div class="trick-row">
             <span class="muted">{{ t('studio.novocal.label') }}</span>
