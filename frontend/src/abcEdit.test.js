@@ -838,3 +838,13 @@ describe('потолок голоса не уползает от повторо�
     expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"e4e4e4e4', '"C"e4e4e4e4'])
   })
 })
+
+describe('октава голоса — ровно одна', () => {
+  const one = (src, dir) => voiceBarsText(applyTrick(vplan(src), { kind: 'octave', dir, targets: [{ voice: 'Vocal', bar: 0 }] }), 'Vocal')[0]
+  it("вниз: c' → c, b → B, B → B, (регрессия: c' давало C — две октавы)", () => {
+    expect(one("c'4b4B4A,4|", 'down')).toBe("c4B4B,4A,,4")
+  })
+  it("вверх: C, → C, C → c, c → c'", () => {
+    expect(one("C,4C4c4c'4|", 'up')).toBe("C4c4c'4c''4")
+  })
+})

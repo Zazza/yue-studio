@@ -70,12 +70,16 @@ export function borrowedChord(key, flavor) {
 function octTranspose(s, dir) {
   return s.split(/("[^"]*")/).map((seg) => {
     if (seg.startsWith('"')) return seg
+    // сначала снимаем знак октавы (c' ↓ → c, C, ↑ → C), только без него меняем регистр
+    // буквы: раньше c' вниз давало C — сразу две октавы
     return seg.replace(NOTE_RE, (m0, acc, letter, oct) => {
       if (dir === 'down') {
-        if (letter === letter.toLowerCase()) return acc + letter.toUpperCase() + oct.replace("'", '')
+        if (oct.includes("'")) return acc + letter + oct.replace("'", '')
+        if (letter === letter.toLowerCase()) return acc + letter.toUpperCase() + oct
         return acc + letter + oct + ','
       }
-      if (letter === letter.toUpperCase()) return acc + letter.toLowerCase() + oct.replace(/,/g, '')
+      if (oct.includes(',')) return acc + letter + oct.replace(',', '')
+      if (letter === letter.toUpperCase()) return acc + letter.toLowerCase() + oct
       return acc + letter + oct + "'"
     })
   }).join('')
