@@ -1020,10 +1020,10 @@ class TestWaveformPeaks(unittest.TestCase):
     def test_bins_bounds(self):
         from waveform import clamp_bins, default_bins
         self.assertEqual(clamp_bins(5), 100)
-        self.assertEqual(clamp_bins(99999), 12000)
-        self.assertEqual(default_bins(10), 500)     # короткий трек → минимум
-        self.assertEqual(default_bins(240), 2400)   # 4 минуты → 10 окон/с
-        self.assertEqual(default_bins(2400), 8000)  # длинный → максимум
+        self.assertEqual(clamp_bins(999999), 20000)
+        self.assertEqual(default_bins(10), 600)      # 60 окон/с с первых секунд
+        self.assertEqual(default_bins(240), 14400)   # 4 минуты → 60 окон/с
+        self.assertEqual(default_bins(2400), 20000)  # длинный → максимум
 
 
 def _ffmpeg_available() -> bool:
