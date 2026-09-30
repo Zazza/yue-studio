@@ -71,5 +71,7 @@ jobs:
           ruff check worker
       - name: unittest
         run: |
+          # API-тесты воркера (continue/head/миграции) без них пропускаются
+          pip install fastapi httpx numpy
           cd worker
           python3 -m unittest test_pure
