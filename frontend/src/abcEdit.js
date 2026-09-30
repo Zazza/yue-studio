@@ -159,9 +159,13 @@ function vocalVary(chunk, ceil, k, n) {
 
 // план для «заново с места»: приёмы ролла ровно по разу поверх исходника
 // (раньше применялись к уже изменённому черновику — октава выходила двойной)
+// Потолок голоса — по ИСХОДНОМУ плану, один на все приёмы: иначе второе
+// «голос выше» считало бы потолок от уже поднятого плана и уползало вверх
 export function continuationPlan(baseAbc, specs) {
   if (!specs || !specs.length) return ''
-  return specs.reduce((abc, spec) => applyTrick(abc, spec), baseAbc)
+  const ceiling = vocalCeiling(baseAbc)
+  return specs.reduce((abc, spec) => applyTrick(abc,
+    spec.ceiling || !ceiling ? spec : { ...spec, ceiling }), baseAbc)
 }
 
 // адресация приёма по позиционному выделению ролла: колонка = музыкальный

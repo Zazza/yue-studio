@@ -130,12 +130,12 @@ def _migrate():
         # «продолжение с места»: с какой секунды родителя модель играет заново
         if "cont_from" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN cont_from REAL DEFAULT 0")
-        # основная версия песни (у корня): с какой версией человек работает
-        # сейчас — её играет карточка и открывает студия; правки копятся от неё
         # источник голоса версии: рендер, чей голос подставлен («перепеть с
         # места» берёт продолжение от него); NULL — голос свой/от родителя
         if "voice_src" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN voice_src INTEGER")
+        # основная версия песни (у корня): с какой версией человек работает
+        # сейчас — её играет карточка и открывает студия; правки копятся от неё
         if "head_id" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN head_id INTEGER")
         conn.execute("""
@@ -742,10 +742,15 @@ def _job_dict(row) -> dict:
     return d
 
 
+JOBS_LIST_LIMIT = 2000
+
+
 @app.get("/jobs")
 def list_jobs():
     with db_lock, db() as conn:
-        rows = conn.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT 100").fetchall()
+        # вся библиотека (с запасом): при LIMIT 100 старые корни пропадали из
+        # списка — версии песни теряли родителя, а «перепеть» — свои дубли
+        rows = conn.execute("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (JOBS_LIST_LIMIT,)).fetchall()
     return [_job_dict(r) for r in rows]
 
 

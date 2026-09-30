@@ -45,6 +45,10 @@ async function tickOnce() {
       const r = await api.rebuildSections(it.parent, [revoiceSpec(it.child, it.from, it.to, it.beat)])
       it.track = await api.variantToTrack(it.parent, r.variant.file, it.title, it.voiceSrc)
       it.done = true
+      // сразу на диск: закрыли приложение посреди прохода — при следующем
+      // запуске готовый дубль не подставится второй раз (лишняя версия)
+      pending.value = pending.value.filter((x) => !x.done)
+      save()
     } catch (e) {
       // сеть/воркер моргнул — повтор на следующем тике; причину видно в консоли
       console.warn('revoice', it.child, e)

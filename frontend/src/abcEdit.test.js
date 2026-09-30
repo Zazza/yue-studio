@@ -829,3 +829,12 @@ describe('план для «заново с места» (continuationPlan)', ()
     expect(continuationPlan(VPLAN, [])).toBe('')
   })
 })
+
+describe('потолок голоса не уползает от повторов', () => {
+  it('два «голос выше» без явного потолка: ноты не выше потолка исходного плана', () => {
+    const src = vplan('"Em"B4B4B4B4|"C"c4c4B4A4|')   // верх c → потолок e
+    const t = [{ voice: 'Vocal', bar: 0 }, { voice: 'Vocal', bar: 1 }]
+    const out = continuationPlan(src, [{ kind: 'vocalUp', targets: t }, { kind: 'vocalUp', targets: t }])
+    expect(voiceBarsText(out, 'Vocal')).toEqual(['"Em"e4e4e4e4', '"C"e4e4e4e4'])
+  })
+})

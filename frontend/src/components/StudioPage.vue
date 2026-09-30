@@ -8,7 +8,7 @@ import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
 import { useInserts } from '../composables/useInserts.js'
 import { odPartyChips } from '../slotOptions.js'
-import { applyTrick, beatSecAt, continuationPlan, pickTargets, planTimeline, sectionRequest, sectionWindows, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, TRICK_MUTES, trickStyleSuffix } from '../abcEdit.js'
+import { applyTrick, beatSecAt, continuationPlan, pickTargets, planTimeline, vocalCeiling, sectionRequest, sectionWindows, sliceAbc, sliceLeadSec, TRICK_INSTRUMENTS, TRICK_MUTES, trickStyleSuffix } from '../abcEdit.js'
 import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
@@ -374,6 +374,8 @@ async function runTrick(kind, extra = {}) {
   trickMsg.value = ''
   try {
     await ensureBaseAbc()
+    // потолок голоса фиксируется по исходному плану версии — не уползает от повторов
+    if (kind === 'vocalUp' || kind === 'vocalVary') spec.ceiling = vocalCeiling(baseAbc.value)
     pendingSpecs.value = [...pendingSpecs.value, spec]
     trickMsg.value = t('studio.trick.staged', { n: pendingSpecs.value.length })
   } catch (e) {
@@ -744,7 +746,8 @@ async function revoiceFromSel() {
     for (let k = 0; k < REVOICE_TAKES; k++) {
       const id = await api.continueJob(srcId, r.from, 0, abc, '')
       ids.push(id)
-      revoice.register([{ parent: props.job.id, child: id, from: r.from, to: r.to, beat, voiceSrc: srcId,
+      // источник голоса новой версии — этот дубль (его голос подставлен)
+      revoice.register([{ parent: props.job.id, child: id, from: r.from, to: r.to, beat, voiceSrc: id,
         title: `${props.job.title || 'трек'} · голос: ${what} (дубль #${id})` }])
     }
     const quiet = vocalEndsQuiet((rollData.value && rollData.value.bars) || [], r.to)

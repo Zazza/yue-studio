@@ -727,3 +727,15 @@ class TestListJobsVoiceSrc(_WorkerApiCase):
         for jid in (parent, src):
             self.assertIn("voice_src", jobs[jid])
             self.assertIsNone(jobs[jid]["voice_src"])
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestListJobsWholeLibrary(_WorkerApiCase):
+    """/jobs отдаёт всю библиотеку, а не 100 последних: иначе старый корень
+    пропадает из списка (версии без родителя, «перепеть» теряет дубли)."""
+
+    def test_more_than_100(self):
+        ids = [self._job(semantic=False) for _ in range(130)]
+        got = {j["id"] for j in self.client.get("/jobs").json()}
+        self.assertIn(ids[0], got)
+        self.assertEqual(len(got), 130)
