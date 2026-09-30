@@ -39,3 +39,16 @@ export function mixLabel(file, { applied = [], jobs = [], labelOf, fmt }) {
   const inst = job && instIdFromTitle(job.title, labelOf)
   return inst ? labelOf(inst) : null
 }
+
+// строка реестра вклеек: у эффекта на дорожку — «эффект · дорожка», у вклейки/
+// заглушки — название приёма
+export function insertTitle(it, { chainName, stemName, instName }) {
+  if (it.chain) return `${chainName(it.chain)} · ${(it.stems || []).map(stemName).join(', ')}`
+  return instName(it.instId)
+}
+
+// окно записи: to ≤ 0 — «до конца», весь трек — отдельной подписью
+export function insertWindow(it, { fmt, toEnd, whole }) {
+  if (!(it.to > 0)) return it.from > 0 ? `${fmt(it.from)}–${toEnd}` : whole
+  return `${fmt(it.from)}–${fmt(it.to)}`
+}

@@ -261,6 +261,8 @@ export default {
   'studio.dsp.target.bass': 'бас',
   'studio.dsp.target.other': 'гитары/синты',
   'studio.dsp.target.tip': 'На что эффект: весь трек или одна дорожка. Дорожка — только в выделенном месте (нет выделения — весь трек), остальное не меняется; копится вместе со вклейками',
+  'studio.inserts.toEnd': 'конец',
+  'studio.inserts.whole': 'весь трек',
   'studio.cont': '↻ заново с места',
   'studio.cont.style.ph': 'что изменить в звучании (необязательно)',
   'studio.cont.style.tip': 'Приписка к стилю с этого места, по-английски: electric guitar enters and builds, drum fill into the chorus, heavier…',

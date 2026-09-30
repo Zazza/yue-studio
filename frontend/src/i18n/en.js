@@ -261,6 +261,8 @@ export default {
   'studio.dsp.target.bass': 'bass',
   'studio.dsp.target.other': 'guitars/synths',
   'studio.dsp.target.tip': 'What the effect applies to: the whole track or one track (stem). A stem — only in the selected part (no selection — whole length), the rest stays; accumulates with inserts',
+  'studio.inserts.toEnd': 'end',
+  'studio.inserts.whole': 'whole track',
   'studio.cont': '↻ redo from here',
   'studio.cont.style.ph': 'what to change in the sound (optional)',
   'studio.cont.style.tip': 'Style addition from this point: electric guitar enters and builds, drum fill into the chorus, heavier…',

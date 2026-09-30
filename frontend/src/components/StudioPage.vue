@@ -12,7 +12,7 @@ import { applyTrick, beatSecAt, continuationPlan, pickTargets, planTimeline, voc
 import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
-import { mixLabel } from '../insertLabels.js'
+import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
@@ -748,6 +748,13 @@ const instJob = ref(null)
 // со всеми вклейками (ffmpeg на ПК, в ритм по бочке) — играем смешанный файл
 // вклейки этого трека с громкостью и отметкой «в сетке / по плану»
 const appliedInserts = computed(() => inserts.appliedFor(props.job.id))
+// подписи строк реестра: эффект на дорожку — «эффект · дорожка», окно «до конца»
+const insertNames = {
+  chainName: (id) => (dspChains.value.find((c) => c.id === id) || { name: id }).name,
+  stemName: (s) => t('studio.dsp.target.' + s),
+  instName: (id) => t('studio.trick.inst.' + id),
+}
+const insertWin = computed(() => ({ fmt: fmtDur, toEnd: t('studio.inserts.toEnd'), whole: t('studio.inserts.whole') }))
 const dbBusy = ref(false)
 async function onInsertDb(it, value) {
   dbBusy.value = true
@@ -1376,9 +1383,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <div v-if="appliedInserts.length" class="insert-list">
             <span class="muted">{{ t('studio.inserts.title') }}</span>
             <div v-for="it in appliedInserts" :key="it.instId + ':' + it.from" class="insert-row">
-              <strong>{{ t('studio.trick.inst.' + it.instId) }}</strong>
-              <span class="muted">{{ fmtDur(it.from) }}–{{ fmtDur(it.to) }}</span>
-              <label v-if="it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
+              <strong>{{ insertTitle(it, insertNames) }}</strong>
+              <span class="muted">{{ insertWindow(it, insertWin) }}</span>
+              <label v-if="!it.chain && it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
                 <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
                        :disabled="dbBusy" @change="onInsertDb(it, $event.target.value)" />
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
@@ -1389,7 +1396,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 <button v-for="(alt, n) in it.alts" :key="alt" class="ghost small-btn" :class="{ on: alt === it.childId }"
                         :disabled="dbBusy" :title="t('studio.inserts.alt.tip')" @click="pickAlt(it, alt)">{{ n + 1 }}</button>
               </template>
-              <button class="ghost small-btn" :disabled="dbBusy || trickBusy" :title="t('studio.inserts.more.tip')"
+              <button v-if="!it.chain" class="ghost small-btn" :disabled="dbBusy || trickBusy" :title="t('studio.inserts.more.tip')"
                       @click="moreVariant(it)">↻ {{ t('studio.inserts.more') }}</button>
             </div>
           </div>

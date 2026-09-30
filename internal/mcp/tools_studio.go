@@ -81,7 +81,8 @@ func RegisterStudioTools(s *Server) {
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
 			"stem": prop("эффект только на дорожку: vocals / drums / bass / other (пусто — весь трек); "+
-				"через пересборку дорожек, остальное не меняется", "string"),
+				"через пересборку дорожек, остальное не меняется. Вызовы НЕ копятся: каждый считается с чистой "+
+				"основы в один файл overdub-inst-0.flac — несколько эффектов подавай одним rebuild_sections", "string"),
 			"from": prop("со stem: с какой секунды", "number"),
 			"to":   prop("со stem: по какую секунду (0 — до конца)", "number"),
 		}, "job_id", "chain"),

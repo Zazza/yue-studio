@@ -1,6 +1,7 @@
 // Тесты подписей миксов вклеек: файл overdub-inst-<N>.flac → понятная подпись.
 import { describe, it, expect } from 'vitest'
 import { mixLabel, mixChildId, instIdFromTitle } from './insertLabels.js'
+import { insertTitle, insertWindow } from './insertLabels.js'
 import { TRICK_INSTRUMENTS } from './abcEdit.js'
 
 // подпись инструмента и формат времени — от вызывающего (i18n и m:ss)
@@ -64,5 +65,20 @@ describe('mixLabel', () => {
 
   it('без applied/jobs в опциях — не падает', () => {
     expect(mixLabel('overdub-inst-5.flac', { labelOf, fmt })).toBeNull()
+  })
+})
+
+describe('insertTitle / insertWindow — строка эффекта на дорожку в списке', () => {
+  const names = { chainName: (c) => ({ soften: 'Смягчить звон' })[c] || c, stemName: (s) => ({ vocals: 'голос' })[s] || s,
+    instName: (id) => 'приём ' + id }
+  const w = { fmt: (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`, toEnd: 'конец', whole: 'весь трек' }
+  it('эффект на дорожку — «эффект · дорожка», вклейка — название приёма', () => {
+    expect(insertTitle({ chain: 'soften', stems: ['vocals'] }, names)).toBe('Смягчить звон · голос')
+    expect(insertTitle({ instId: 'drumsup' }, names)).toBe('приём drumsup')
+  })
+  it('окно: обычное, до конца, весь трек', () => {
+    expect(insertWindow({ from: 176, to: 190 }, w)).toBe('2:56–3:10')
+    expect(insertWindow({ from: 176, to: 0 }, w)).toBe('2:56–конец')
+    expect(insertWindow({ from: 0, to: 0 }, w)).toBe('весь трек')
   })
 })
