@@ -20,6 +20,12 @@ type Insert struct {
 	LowpassHz float64
 }
 
+// окно FFT-маски «только низ» и её задержка (окно × перекрытие 0.75), сэмплов
+const (
+	fftWin     = 4096
+	fftLatency = fftWin * 3 / 4
+)
+
 // пределы одного фильтра atempo в ffmpeg
 const (
 	minAtempo = 0.5
@@ -49,7 +55,13 @@ func InsertsGraph(ins []Insert) string {
 			fmt.Fprintf(&b, "atrim=duration=%.3f,", in.DurSec)
 		}
 		if in.LowpassHz > 0 {
-			fmt.Fprintf(&b, "lowpass=f=%.0f,", in.LowpassHz)
+			// низ дорожки без сдвига фазы: маска по частотам в FFT; обычный
+			// lowpass сдвигал фазу, и вычитание «низа» оставляло ~20% речи и
+			// задевало верх (#258). Задержка afftfilt (окно × перекрытие) снята
+			// обрезкой, хвост — дополнен тишиной
+			fmt.Fprintf(&b, "apad=pad_len=%[1]d,afftfilt=real='re*lte(b*sr/%[2]d\\,%.0[3]f)':imag='im*lte(b*sr/%[2]d\\,%.0[3]f)'"+
+				":win_size=%[2]d:overlap=0.75,atrim=start_sample=%[1]d,asetpts=PTS-STARTPTS,",
+				fftLatency, fftWin, in.LowpassHz)
 		}
 		if in.FadeIn > 0 {
 			fmt.Fprintf(&b, "afade=t=in:st=0:d=%.3f,", in.FadeIn)

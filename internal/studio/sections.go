@@ -266,8 +266,11 @@ func muteInserts(s SectionSpec, parent stemSet, inputs *[]string) []dsp.Insert {
 		}
 		from, to := s.From-fadeIn, s.To+fadeOut
 		*inputs = append(*inputs, parent[name])
+		// KeepHighHz > 0 — меняется только низ дорожки: demucs относит к голосу
+		// шумные тарелки, и заглушённая речь уносила их с собой (#258: верх −30 дБ
+		// на месте речи, «дыры»)
 		out = append(out, dsp.Insert{AtSec: from, SkipSec: from, DurSec: to - from, Gain: gain,
-			FadeIn: fadeIn, FadeOut: fadeOut})
+			FadeIn: fadeIn, FadeOut: fadeOut, LowpassHz: s.KeepHighHz})
 	}
 	return out
 }

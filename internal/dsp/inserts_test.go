@@ -243,12 +243,13 @@ func TestRunInputsNegativeGainSubtracts(t *testing.T) {
 
 func TestInsertsGraphLowpass(t *testing.T) {
 	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: -1, LowpassHz: 6000}})
-	mustMatch(t, g, `lowpass=f=6000([^0-9]|$)`, "фильтр нижних частот со срезом 6000")
+	// низ без сдвига фазы: FFT-маска «частота ≤ 6000» (обычный lowpass недовычитал)
+	mustMatch(t, g, `afftfilt=real='re\*lte\(b\*sr/4096\\,6000\)'`, "маска нижних частот со срезом 6000")
 }
 
 func TestInsertsGraphNoLowpassByDefault(t *testing.T) {
 	g := InsertsGraph([]Insert{{AtSec: 1, DurSec: 2, Gain: -1}})
-	if strings.Contains(g, "lowpass") {
+	if strings.Contains(g, "lowpass") || strings.Contains(g, "afftfilt") {
 		t.Errorf("LowpassHz=0 — lowpass быть не должно: %s", g)
 	}
 }

@@ -316,3 +316,26 @@ func TestRebuildSectionsNoRevoiceKeepsVocals(t *testing.T) {
 		t.Errorf("без Revoice в окне 770 Гц %.4f — голос рендера попал в трек", a)
 	}
 }
+
+// Громкость дорожки с KeepHighHz меняет только низ: заглушить речь в голосе и
+// оставить тарелки, которые demucs отнёс к голосу (#258: «дыры» на месте речи).
+func TestRebuildSectionsMuteKeepHigh(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	pf := parentFiles(t, dir)
+	voc := "0.3*sin(2*PI*500*t)+0.3*sin(2*PI*6000*t)"
+	pf["audio.flac"] = lavfi(t, aeval(expr440+"+"+exprClicks+"+"+voc, trackDur), filepath.Join(dir, "kh-audio.flac"))
+	pf["stem-vocals.flac"] = lavfi(t, aeval(voc, trackDur), filepath.Join(dir, "kh-vocals.flac"))
+	f := newSecFake()
+	put(f, parentID, pf)
+	spec := muteSpec([]string{"vocals"}, -100)
+	spec.KeepHighHz = 3000
+	run(t, f, spec)
+	out := uploadedOnly(t, f)
+	if a := toneAmp(out, 500, 4.5, 7.5); a > 0.03 {
+		t.Errorf("500 Гц (речь) в окне %.4f — должен быть заглушён", a)
+	}
+	if a := toneAmp(out, 6000, 4.5, 7.5); math.Abs(a-0.3) > 0.06 {
+		t.Errorf("6000 Гц (тарелки) в окне %.4f, want ≈ 0.3 — верх должен остаться", a)
+	}
+}
