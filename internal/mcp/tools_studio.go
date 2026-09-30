@@ -64,8 +64,9 @@ func RegisterStudioTools(s *Server) {
 	// ---------- DSP и метрики ----------
 
 	s.Register(Tool{
-		Name:        "dsp_chains",
-		Description: "Пресеты DSP-цепочек эффектов (ffmpeg на ПК): список, параметры и диапазоны крутилок.",
+		Name: "dsp_chains",
+		Description: "Пресеты DSP-цепочек эффектов (ffmpeg на ПК): список, параметры и диапазоны крутилок. " +
+			"Цепочки с voice=true — примочки на голос (мегафон, телефон, перегруз, слэпбэк): применять на дорожку vocals.",
 		InputSchema: props(nil),
 		Handler: func(s *Server, _ map[string]any) (string, error) {
 			return toJSON(dsp.All()), nil
@@ -81,10 +82,13 @@ func RegisterStudioTools(s *Server) {
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
 			"stem": prop("эффект только на дорожку: vocals / drums / bass / other (пусто — весь трек); "+
-				"через пересборку дорожек, остальное не меняется. Вызовы НЕ копятся: каждый считается с чистой "+
-				"основы в один файл overdub-inst-0.flac — несколько эффектов подавай одним rebuild_sections", "string"),
+				"через пересборку дорожек, остальное не меняется. У голосовых цепочек (voice=true, напр. мегафон) "+
+				"громкость обработанной дорожки выравнивается по исходной (RMS), дБ — сверху. Вызовы НЕ копятся: "+
+				"каждый считается с чистой основы в один файл overdub-inst-0.flac — несколько эффектов подавай "+
+				"одним rebuild_sections", "string"),
 			"from": prop("со stem: с какой секунды", "number"),
 			"to":   prop("со stem: по какую секунду (0 — до конца)", "number"),
+			"db":   prop("со stem: дБ к обработанной дорожке поверх выравнивания (по умолчанию 0)", "number"),
 		}, "job_id", "chain"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			params := argNumMap(args, "params")
@@ -94,7 +98,7 @@ func RegisterStudioTools(s *Server) {
 			if stem := argString(args, "stem"); stem != "" {
 				res, err := studio.RebuildSections(context.Background(), s.client, argInt(args, "job_id"),
 					[]studio.SectionSpec{{Chain: argString(args, "chain"), Params: params, Stems: []string{stem},
-						From: argFloat(args, "from"), To: argFloat(args, "to")}})
+						From: argFloat(args, "from"), To: argFloat(args, "to"), Db: argFloat(args, "db")}})
 				if err != nil {
 					return "", err
 				}

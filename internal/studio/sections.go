@@ -126,8 +126,12 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 			if err != nil {
 				return nil, err
 			}
+			rep := InsertReport{Aligned: true}
+			if len(fx) > 0 {
+				rep.Gain = fx[0].Gain // гейн первой обработанной дорожки (выравнивание + дБ)
+			}
 			ins = append(ins, fx...)
-			reports = append(reports, InsertReport{Aligned: true})
+			reports = append(reports, rep)
 			continue
 		}
 		if s.ChildID == 0 {
@@ -207,6 +211,9 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 // stemFxInserts — эффект на дорожки трека в окне: дорожка целиком через
 // цепочку (эффекты с памятью — эхо, компрессор — «разогреты» к окну), в трек
 // ложится обработанная дорожка и та же исходная с обратным знаком, с фейдами.
+// Громкость обработанной дорожки выравнивается по RMS исходной в окне, сверху
+// дБ из спеки (перегруз/клиппинг сжимает и громчит — без выравнивания голос
+// рвёт микс).
 func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[]string) ([]dsp.Insert, error) {
 	chain := dsp.ByID(s.Chain)
 	if chain == nil {
@@ -228,6 +235,10 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		if err := dsp.Run(parent[name], fx, chain.FilterGraph(s.Params), nil); err != nil {
 			return nil, fmt.Errorf("эффект %s на %s: %w", s.Chain, name, err)
 		}
+		gain, err := fxGain(chain, parent[name], fx, s)
+		if err != nil {
+			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", s.Chain, name, err)
+		}
 		from := math.Max(0, s.From-fadeIn)
 		dur := fxWindowForever
 		if s.To > 0 {
@@ -235,10 +246,34 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		}
 		*inputs = append(*inputs, fx, parent[name])
 		out = append(out,
-			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: 1, FadeIn: fadeIn, FadeOut: fadeOut},
+			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut},
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
 	}
 	return out, nil
+}
+
+// fxGain — гейн обработанной дорожки. У голосовых цепочек-примочек её RMS
+// в окне [From, To) выравнивается по исходной дорожке, сверху дБ пользователя
+// (перегруз/клиппинг сжимает и громчит). «Ремонтные» цепочки (вырез свиста,
+// де-эссер) уровень дорожки менять не должны: вырез почти всего сигнала
+// «добрал» бы гейном до исходного уровня — там только дБ.
+func fxGain(chain *dsp.Chain, oldPath, fxPath string, s SectionSpec) (float64, error) {
+	if !chain.Voice {
+		return math.Pow(10, s.Db/20), nil
+	}
+	dur := s.To - s.From
+	if dur <= 0 {
+		dur = 0 // до конца
+	}
+	ref, err := dsp.DecodeMono(oldPath, gainRate, s.From, dur)
+	if err != nil {
+		return 0, err
+	}
+	wet, err := dsp.DecodeMono(fxPath, gainRate, s.From, dur)
+	if err != nil {
+		return 0, err
+	}
+	return dsp.InsertGain(dsp.RMS(ref), dsp.RMS(wet), s.Db), nil
 }
 
 // fxWindowForever — «до конца трека» для окна эффекта (длиннее любой песни)

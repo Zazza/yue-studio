@@ -34,7 +34,8 @@ func registerRevoiceTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to, lead?, beat_sec?, " +
-				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?}", "items": map[string]any{"type": "object"}},
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?} — chain/params: эффект на " +
+				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
 			"title":     prop("название версии (as_track)", "string"),
 			"voice_src": prop("ID рендера, чей голос подставлен (as_track после «перепеть»)", "integer"),

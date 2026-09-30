@@ -191,3 +191,39 @@ func TestDspApplyStemWindowGoesThroughRebuild(t *testing.T) {
 		}
 	}
 }
+
+// Голосовая цепочка (мегафон) на vocals: тон ниже полосы срезан ≥ 12 дБ, тон
+// в полосе выровнен по исходному (RMS), остальное не тронуто; db принимается.
+func TestDspApplyVoiceChainOnVocals(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	s, fake := newTestServer(t)
+	fake.jobs = []yue.Job{{ID: 5, Status: "done", AudioFile: "audio.flac"}}
+	const v1k200 = "0.3*sin(2*PI*1000*t)+0.2*sin(2*PI*200*t)"
+	const b500 = "0.3*sin(2*PI*500*t)"
+	fake.fetch = map[string]string{
+		"audio.flac":       fxLavfi(t, v1k200+"+"+b500, 8),
+		"stem-vocals.flac": fxLavfi(t, v1k200, 8),
+		"stem-other.flac":  fxLavfi(t, b500, 8),
+		"stem-drums.flac":  fxLavfi(t, "0", 8),
+		"stem-bass.flac":   fxLavfi(t, "0", 8),
+	}
+	out, ok := call(t, s, "dsp_apply", jsonArgs(t, `{"job_id":5,"chain":"megaphone","stem":"vocals","db":0}`))
+	if !ok {
+		t.Fatalf("dsp_apply с голосовой цепочкой: %s", out)
+	}
+	var res []float32
+	for _, data := range fake.uploads {
+		res = fxDecode(t, data)
+	}
+	if a := fxTone(res, 200, 1, 7); a == 0 || 20*math.Log10(a/0.2) > -12 {
+		t.Errorf("200 Гц (ниже полосы мегофона) %.4f (%+.1f дБ), want ≤ −12", a, 20*math.Log10(a/0.2))
+	}
+	if d := 20 * math.Log10(fxTone(res, 1000, 1, 7)/0.3); math.Abs(d) > 2 {
+		t.Errorf("1000 Гц (в полосе): %+.1f дБ к исходному, want ±2 (RMS-выравнивание)", d)
+	}
+	if d := 20 * math.Log10(fxTone(res, 500, 1, 7)/0.3); math.Abs(d) > 0.5 {
+		t.Errorf("500 Гц (остальное): %+.1f дБ, want ±0.5", d)
+	}
+}

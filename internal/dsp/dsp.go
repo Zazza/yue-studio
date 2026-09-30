@@ -23,6 +23,10 @@ type Chain struct {
 	Name   string  `json:"name"`
 	Note   string  `json:"note"`
 	Params []Param `json:"params"`
+	// Voice — цепочка для дорожки голоса (мегафон, телефон, перегруз, слэпбэк):
+	// примочки «как у Джека Уайта или Летова». UI такой цепочке автоматически
+	// выбирает дорожку «голос»; применение на весь микс остаётся возможным
+	Voice bool `json:"voice,omitempty"`
 
 	graph func(p map[string]float64) string
 }
@@ -157,6 +161,29 @@ func gritGraph(p map[string]float64) string {
 		p["drive"], p["crush"], p["grit"])
 }
 
+var masterParams = []Param{
+	{ID: "drive", Label: "перегруз (громкость)", Min: 1, Max: 3, Step: 0.1, Default: 1.5},
+	{ID: "grit", Label: "песок верхов", Min: 0, Max: 3, Step: 0.1, Default: 1.3},
+	{ID: "breath", Label: "разжатие тишины (0 — выкл)", Min: 0, Max: 1.5, Step: 0.05, Default: 1.5},
+}
+
+// masterGraph — «мастеринг одним кликом»: разжать кирпич нейромикса (экспандер
+// как у «Дыхания»), поднять громкость перегрузом и присыпать песком верхов —
+// классический цикл гейн → сатурация → песок → лимитер, но одним проходом.
+// Песок — treble-подъём: гармоники даёт клиппинг лимитера, а aexciter в этой
+// сборке ffmpeg (9.0.2) подтягивает любой уровень к потолку (замер: вход
+// −30 дБ → выход 0 дБ) и убивает разжатие. Замер на #173: RMS −18.5 → −15.4 дБ,
+// куплет +1.9 / припев +2.0 дБ, пик ≤ 0.94, без клипа.
+func masterGraph(p map[string]float64) string {
+	a := p["breath"]
+	return fmt.Sprintf(
+		"[0:a]compand=attacks=0.02:decays=0.3:points=-90/-90|-40/%.1f|-22/%.1f|-8/-8|0/-0.5:soft-knee=6,"+
+			"volume=%.2f,alimiter=limit=0.55:attack=1:release=8:level=disabled,"+
+			"treble=g=%.1f:f=3500,"+
+			"alimiter=limit=0.94:attack=1:release=15:level=disabled[out]",
+		-40-6*a, -22-2*a, p["drive"], p["grit"]*2)
+}
+
 var warpParams = []Param{
 	{ID: "wow", Label: "варп (завывание)", Min: 0, Max: 0.4, Step: 0.01, Default: 0.22},
 	{ID: "flutter", Label: "флаттер (дрожь)", Min: 0, Max: 0.3, Step: 0.01, Default: 0.12},
@@ -234,6 +261,98 @@ func softenGraph(p map[string]float64) string {
 	return fmt.Sprintf("[0:a]deesser=i=%g:m=%g:f=%g[out]", p["amount"], p["max"], p["freq"])
 }
 
+var megaphoneParams = []Param{
+	{ID: "lo", Label: "низ полосы, Гц", Min: 250, Max: 800, Step: 10, Default: 400},
+	{ID: "hi", Label: "верх полосы, кГц", Min: 2, Max: 5, Step: 0.1, Default: 3},
+	{ID: "drive", Label: "насыщение", Min: 1, Max: 8, Step: 0.1, Default: 5},
+	{ID: "ring", Label: "звон рупора", Min: 0, Max: 12, Step: 0.5, Default: 6},
+	{ID: "echo", Label: "короткое эхо", Min: 0, Max: 1, Step: 0.05, Default: 0.5},
+}
+
+// megaphoneGraph — голос сквозь рупор: узкая полоса, ЗВОН рупора (резонанс
+// ~1.8 кГц — без него полосный голос звучит глухим картоном), перегруз,
+// короткое эхо «помещения». Полоса стоит и до перегруза (в клип уходит только
+// полосный сигнал), и после — клиппинг/биткраш рождают широкополосные гармоники,
+// динамик мегофона их не играет (после эха ещё один lowpass — эхо до него
+// доходит уже с гармониками). Насыщение — клиппинг в лимитере с attack 0.1 мс
+// (обычный лимитер с атакой в миллисекунду на ровном тоне — просто гейн).
+func megaphoneGraph(p map[string]float64) string {
+	ring := ""
+	if p["ring"] > 0.01 {
+		ring = fmt.Sprintf("equalizer=f=1800:t=q:w=1.4:g=%g,", p["ring"])
+	}
+	echo := ""
+	if p["echo"] > 0.01 {
+		echo = fmt.Sprintf(",aecho=in_gain=1:out_gain=1:delays=55|110:decays=%.2f|%.2f",
+			p["echo"], p["echo"]*0.5)
+	}
+	return fmt.Sprintf("[0:a]highpass=f=%[1]g,highpass=f=%[1]g,lowpass=f=%[2]g,lowpass=f=%[2]g,"+
+		"%[5]svolume=%[3]g,"+
+		"alimiter=limit=0.3:attack=0.1:release=5:level=disabled,acrusher=bits=10:mix=0.3,"+
+		"highpass=f=%[1]g,highpass=f=%[1]g,highpass=f=%[1]g,lowpass=f=%[2]g,lowpass=f=%[2]g,lowpass=f=%[2]g%[4]s,"+
+		"lowpass=f=%[2]g,alimiter=limit=0.9:attack=1:release=15:level=disabled[out]",
+		p["lo"], p["hi"]*1000, p["drive"], echo, ring)
+}
+
+var phoneParams = []Param{
+	{ID: "lo", Label: "низ полосы, Гц", Min: 200, Max: 600, Step: 10, Default: 420},
+	{ID: "hi", Label: "верх полосы, кГц", Min: 2, Max: 4, Step: 0.1, Default: 2.6},
+	{ID: "drive", Label: "хрип трубки", Min: 1, Max: 6, Step: 0.1, Default: 3},
+}
+
+// phoneGraph — голос из телефонной трубки: полоса УЖЕ мегафонной (до ~2.6 кГц),
+// гнусавый резонанс ~1 кГц, сухо — без эха и биткраша, в отличие от мегофона.
+func phoneGraph(p map[string]float64) string {
+	return fmt.Sprintf("[0:a]highpass=f=%[1]g,highpass=f=%[1]g,lowpass=f=%[2]g,lowpass=f=%[2]g,"+
+		"equalizer=f=1000:t=q:w=1.4:g=4,volume=%[3]g,"+
+		"alimiter=limit=0.35:attack=0.1:release=5:level=disabled,"+
+		"highpass=f=%[1]g,highpass=f=%[1]g,highpass=f=%[1]g,lowpass=f=%[2]g,lowpass=f=%[2]g,lowpass=f=%[2]g,"+
+		"alimiter=limit=0.85:attack=1:release=12:level=disabled[out]",
+		p["lo"], p["hi"]*1000, p["drive"])
+}
+
+var voiceDriveParams = []Param{
+	{ID: "drive", Label: "перегруз", Min: 1, Max: 8, Step: 0.1, Default: 5},
+	{ID: "sand", Label: "песок верхов (зерно)", Min: 0, Max: 6, Step: 0.1, Default: 4},
+	{ID: "crush", Label: "биткраш (ломкость)", Min: 0, Max: 0.6, Step: 0.05, Default: 0.4},
+	{ID: "cut", Label: "срез верхов, кГц", Min: 4, Max: 12, Step: 0.5, Default: 7.5},
+	{ID: "noise", Label: "шум ленты", Min: 0, Max: 0.15, Step: 0.005, Default: 0.03},
+}
+
+// voiceDriveGraph — летовский перегруз голоса: «микрофон в красном» — компрессор
+// с порогом НИЖЕ типичного уровня голоса и большим makeup (плотность сама, без
+// ручной громкости: фикс-клип прежних версий полосный голос не пробивал),
+// жёсткий клип, биткраш, песок эксайтером 2–10 кГц — главное летовское зерно:
+// верх не глухой, а шипяще-хриплый (замер: полоса >4 кГц +15 дБ к исходному
+// стему, на полном треке +6.8 дБ). Голос читается: низ не вырезан (hp 140),
+// середина не глушится. aexciter здесь вопреки общей рекомендации «песок только
+// treble»: его подтяжку уровня к 0 дБ полностью гасит RMS-выравнивание
+// стем-режима (замер полного конвейера: RMS трека до = после), а treble
+// гармоник не генерит — зерно пропадает (A/B: >4 кГц −35.5 против −24.6 дБ).
+func voiceDriveGraph(p map[string]float64) string {
+	return fmt.Sprintf("[0:a]highpass=f=140,"+
+		"acompressor=threshold=0.02:ratio=6:attack=2:release=60:makeup=%[1]g,"+
+		"alimiter=limit=0.28:attack=0.1:release=4:level=disabled,"+
+		"acrusher=bits=10:mix=%[2]g,"+
+		"aexciter=amount=%[3]g:drive=8:freq=2000:ceil=9999,lowpass=f=%[4]g[a];"+
+		"anoisesrc=color=pink:amplitude=%[5]g:seed=11,highpass=f=40,lowpass=f=8000[n];"+
+		"[a][n]amix=inputs=2:duration=first:normalize=0,"+
+		"alimiter=limit=0.92:attack=1:release=15:level=disabled[out]",
+		3+p["drive"], p["crush"], p["sand"], p["cut"]*1000, p["noise"])
+}
+
+var slapbackParams = []Param{
+	{ID: "delay", Label: "задержка повтора, мс", Min: 60, Max: 160, Step: 5, Default: 100},
+	{ID: "echo", Label: "громкость повтора", Min: 0, Max: 1, Step: 0.05, Default: 0.6},
+}
+
+// slapbackGraph — одиночное эхо (рокабилли, Джек Уайт): сухой голос и один
+// повтор через delay мс с ослаблением echo.
+func slapbackGraph(p map[string]float64) string {
+	return fmt.Sprintf("[0:a]aecho=in_gain=1:out_gain=1:delays=%[1]g:decays=%[2]g[out]",
+		p["delay"], p["echo"])
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -271,6 +390,12 @@ var chains = []Chain{
 		Params: breatheParams, graph: breatheGraph,
 	},
 	{
+		ID: "master", Name: "Мастеринг",
+		Note: "«Как настоящая пластинка»: разжимает кирпич, поднимает громкость перегрузом, " +
+			"добавляет песок верхов — одним проходом. В разделе эффектов есть кнопка применения одним кликом.",
+		Params: masterParams, graph: masterGraph,
+	},
+	{
 		ID: "gap", Name: "Тишина",
 		Note:   "Полная пауза на пару секунд с отметки — затишье перед сбивкой/припевом; края мягкие.",
 		Params: gapParams, graph: gapGraph,
@@ -301,6 +426,30 @@ var chains = []Chain{
 		ID: "warp", Name: "Варп-лента",
 		Note:   "Глубокое завывание и дрожь, глухой верх — плёночный брак как приём.",
 		Params: warpParams, graph: warpGraph,
+	},
+	{
+		ID: "megaphone", Name: "Мегафон",
+		Note: "Голос сквозь рупор: узкая полоса, перегруз, короткое эхо помещения (Джек Уайт). " +
+			"Цепочка для дорожки «голос» — дорожка выбирается сама.",
+		Params: megaphoneParams, graph: megaphoneGraph, Voice: true,
+	},
+	{
+		ID: "phone", Name: "Телефон",
+		Note: "Голос из телефонной трубки: полоса ещё уже, сухо, лёгкий хрип. " +
+			"Цепочка для дорожки «голос» — дорожка выбирается сама.",
+		Params: phoneParams, graph: phoneGraph, Voice: true,
+	},
+	{
+		ID: "voice-drive", Name: "Перегруз голоса",
+		Note: "Лоуфай-перегруз голоса: клиппинг, биткраш, глухой верх, шум ленты (Летов). " +
+			"Цепочка для дорожки «голос» — дорожка выбирается сама.",
+		Params: voiceDriveParams, graph: voiceDriveGraph, Voice: true,
+	},
+	{
+		ID: "slapback", Name: "Слэпбэк",
+		Note: "Одиночное эхо 80–120 мс — рокабилли/Джек Уайт: голос с повтором. " +
+			"Цепочка для дорожки «голос» — дорожка выбирается сама.",
+		Params: slapbackParams, graph: slapbackGraph, Voice: true,
 	},
 }
 
@@ -337,7 +486,11 @@ func (c *Chain) FilterGraph(params map[string]float64) string {
 		}
 		p[prm.ID] = v
 	}
-	return withFrom(c.graph(p), p[fromParamID])
+	g := c.graph(p)
+	if c.Voice {
+		g = dryWet(g, p[mixParamID])
+	}
+	return withFrom(g, p[fromParamID])
 }
 
 // fromParamID — общий параметр «с какой секунды»: эффект включается с
@@ -350,6 +503,12 @@ const (
 
 var fromParam = Param{ID: fromParamID, Label: "с какой секунды (0 — весь трек)", Min: 0, Max: 600, Step: 0.5, Default: 0}
 
+// mixParamID — общий параметр голосовых цепочек «сухой/обработанный»: доля
+// эффекта в финальном микше (0 — сухой голос, 1 — только обработанный).
+const mixParamID = "mix"
+
+var mixParam = Param{ID: mixParamID, Label: "сухой/обработанный (доля эффекта)", Min: 0, Max: 1, Step: 0.05, Default: 1}
+
 func init() {
 	for i := range chains {
 		hasStart := false
@@ -359,7 +518,26 @@ func init() {
 		if !hasStart {
 			chains[i].Params = append(chains[i].Params, fromParam)
 		}
+		if chains[i].Voice {
+			chains[i].Params = append(chains[i].Params, mixParam)
+		}
 	}
+}
+
+// dryWet — доля эффекта (mix) у голосовых цепочек: линейный микс сухого
+// сигнала и графа цепочки. mix ≥ 1 — только обработанный сигнал, граф без
+// изменений; mix = 0 — сухой голос, эффект выключен (шум/эхо внутри графа
+// гасятся вместе с веткой).
+func dryWet(graph string, mix float64) string {
+	if mix >= 1 {
+		return graph
+	}
+	wet := strings.Replace(graph, "[0:a]", "[vx_b]", 1)
+	wet = strings.TrimSuffix(wet, "[out]") + "[vx_w0]"
+	return fmt.Sprintf("[0:a]asplit=2[vx_d][vx_b];%[1]s;"+
+		"[vx_d]volume=%.2f[vx_dry];[vx_w0]volume=%.2f[vx_wet];"+
+		"[vx_dry][vx_wet]amix=inputs=2:duration=first:normalize=0[out]",
+		wet, 1-mix, mix)
 }
 
 // withFrom — граф цепочки (вход [0:a], выход [out]) звучит только с отметки

@@ -14,6 +14,7 @@ import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
+import { chainDefaults, voiceTarget } from '../dspVoice.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
@@ -1081,10 +1082,10 @@ function chainLabel(file) {
 
 function selChain(chainId) {
   dspSel.value = chainId
-  const c = dspChains.value.find((x) => x.id === chainId)
-  const p = {}
-  if (c) for (const prm of c.params) p[prm.id] = prm.default
-  dspParams.value = p
+  const c = dspChains.value.find((c) => c.id === chainId)
+  dspParams.value = chainDefaults(c)
+  // голосовая цепочка (мегафон, телефон…) без выбранной дорожки — сама на голос
+  dspTarget.value = voiceTarget(c, dspTarget.value)
 }
 
 async function ensureJobMetrics() {
@@ -1157,6 +1158,26 @@ async function applyDsp() {
     await ensureJobMetrics()
     await api.applyDsp(props.job.id, c.id, dspParams.value || {})
     await reloadVariants()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally { dspBusy.value = false }
+}
+
+// «Мастеринг — одним кликом»: цепочка master с дефолтами на весь микс, результат
+// сразу отдельным треком-версией (повторный клик — ещё одна версия, лишние удалить)
+async function applyMastering() {
+  const c = dspChains.value.find((x) => x.id === 'master')
+  if (!c) { rollErr.value = t('studio.dsp.master.none'); return }
+  dspBusy.value = true
+  try {
+    selChain('master')
+    dspTarget.value = ''
+    await ensureJobMetrics()
+    const v = await api.applyDsp(props.job.id, 'master', dspParams.value || {})
+    await reloadVariants()
+    await api.variantToTrack(props.job.id, v.file, (props.job.title || 'трек') + ' · ' + chainLabel(v.file))
+    rollErr.value = ''
+    trickMsg.value = t('studio.dsp.totrack.done', { name: chainLabel(v.file) })
   } catch (e) {
     rollErr.value = String(e)
   } finally { dspBusy.value = false }
@@ -1385,7 +1406,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div v-for="it in appliedInserts" :key="it.instId + ':' + it.from" class="insert-row">
               <strong>{{ insertTitle(it, insertNames) }}</strong>
               <span class="muted">{{ insertWindow(it, insertWin) }}</span>
-              <label v-if="!it.chain && it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
+              <label v-if="it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
                 <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
                        :disabled="dbBusy" @change="onInsertDb(it, $event.target.value)" />
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
@@ -1457,6 +1478,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
 
           <details class="studio-sec">
             <summary>{{ t('studio.dsp') }} <span class="muted">{{ t('studio.dsp.sub') }}</span></summary>
+            <div class="dsp-row">
+              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyMastering">
+                {{ dspBusy ? '…' : t('studio.dsp.master') }}
+              </button>
+            </div>
             <div class="dsp-row">
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
                        :placeholder="t('studio.dsp.chain')" style="max-width: 220px"
