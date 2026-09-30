@@ -139,15 +139,20 @@ func RegisterWorkflowTools(s *Server) {
 			"lyrics": prop("стих", "string"),
 			"title":  prop("название", "string"),
 			"seed":   prop("сид", "integer"),
+			"parent_id": prop("производный трек: от какого трека (кусок для вклейки — role section); "+
+				"в списке прячется под родителем «📎»", "integer"),
+			"role": prop("зачем: section (кусок для вклейки) | rebuild | fragment", "string"),
 		}, "abc", "style"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			p := yue.SubmitParams{
-				Title:  argString(args, "title"),
-				Style:  argString(args, "style"),
-				Lyrics: argString(args, "lyrics"),
-				Seed:   argInt(args, "seed"),
-				Cot:    "melody", // abc требует full|melody
-				Abc:    argString(args, "abc"),
+				Title:    argString(args, "title"),
+				Style:    argString(args, "style"),
+				Lyrics:   argString(args, "lyrics"),
+				Seed:     argInt(args, "seed"),
+				Cot:      "melody", // abc требует full|melody
+				Abc:      argString(args, "abc"),
+				ParentID: argInt(args, "parent_id"),
+				Role:     argString(args, "role"),
 			}
 			id, err := s.client.Submit(context.Background(), p)
 			if err != nil {

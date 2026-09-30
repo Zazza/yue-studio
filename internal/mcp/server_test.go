@@ -561,3 +561,14 @@ func TestJobSpectrumToolSavesPNG(t *testing.T) {
 		t.Fatalf("png round-trip: %q", b)
 	}
 }
+
+// render_abc с parent_id/role — кусок для вклейки прячется под родителем, как в студии.
+func TestRenderAbcParentRole(t *testing.T) {
+	s, fake := newTestServer(t)
+	if out, ok := call(t, s, "render_abc", jsonArgs(t, `{"abc":"X:1","style":"rock","parent_id":245,"role":"section"}`)); !ok {
+		t.Fatal(out)
+	}
+	if n := len(fake.submitted); n != 1 || fake.submitted[0].ParentID != 245 || fake.submitted[0].Role != "section" {
+		t.Errorf("submitted %+v", fake.submitted)
+	}
+}

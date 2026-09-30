@@ -51,7 +51,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 ## Инструменты
 
 **Рабочий флоу**: `status` · `jobs` · `submit` (стиль/стих/сид/веер n) · `plan` (ABC до
-рендера) · `render_abc` · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
+рендера) · `render_abc` (`parent_id`/`role` — кусок для вклейки под родителем) · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
 возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент) ·
 `recognize_lyrics` (трек → текст) · `job_lyrics` (текст из аудио джобы) · `lyrics_adapt` (перевод под пение, слоги сохраняются).
 
