@@ -218,8 +218,12 @@ export function YueTranslate(arg1) {
   return window['go']['main']['App']['YueTranslate'](arg1);
 }
 
-export function YueVariantToTrack(arg1, arg2, arg3) {
-  return window['go']['main']['App']['YueVariantToTrack'](arg1, arg2, arg3);
+export function YueVariantToTrack(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['YueVariantToTrack'](arg1, arg2, arg3, arg4);
+}
+
+export function YueVocalContour(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueVocalContour'](arg1, arg2, arg3);
 }
 
 export function YueVoiceCreate(arg1, arg2, arg3, arg4) {

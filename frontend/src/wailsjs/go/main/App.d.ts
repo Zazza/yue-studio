@@ -113,7 +113,9 @@ export function YueTranscribeFile():Promise<yue.TranscribeResult>;
 
 export function YueTranslate(arg1:string):Promise<yue.TranslateResult>;
 
-export function YueVariantToTrack(arg1:number,arg2:string,arg3:string):Promise<number>;
+export function YueVariantToTrack(arg1:number,arg2:string,arg3:string,arg4:number):Promise<number>;
+
+export function YueVocalContour(arg1:number,arg2:number,arg3:number):Promise<yue.VocalContour>;
 
 export function YueVoiceCreate(arg1:string,arg2:number,arg3:string,arg4:number):Promise<number>;
 

@@ -53,6 +53,10 @@ POST /jobs/{id}/continue {from_sec, seed?, abc?, style_add?} — «продол�
                        (другой сид; abc — изменённый план; style_add — приписка к стилю исходника
                        «что изменить в звучании»). parent_id = исходник, role = continue, cont_from.
                        422: нет semantic.npy или from_sec за концом трека
+GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по тактам плана (стем vocals, pyin):
+                       {bars:[{index,start,end,notes[4]}], median_hz, low_hz, high_hz}; ноты по
+                       четвертям такта («D4», «·» — нет голоса); to=0 — до конца. 409 — нет стема
+                       vocals (сначала stems). Сверка «спето ли по плану» и потолка голоса
 POST /jobs/{id}/head   {head_id?} — основная версия песни: id — корень, head_id — он сам или его
                        потомок (иначе 422); null/0 — основной снова сам трек. В /jobs — поле head_id
 ```

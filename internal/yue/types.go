@@ -42,6 +42,7 @@ type Service interface {
 	Voices(ctx context.Context) ([]Voice, error)
 	VoiceDelete(ctx context.Context, id int64) (bool, error)
 	VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error)
+	VocalContour(ctx context.Context, id int64, from, to float64) (*VocalContour, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
 	// styleAdd — что изменить в звучании с этого места)
@@ -200,4 +201,21 @@ type Voice struct {
 	CreatedAt string `json:"created_at"`
 	JobAlive  bool   `json:"job_alive"`
 	HasAudio  bool   `json:"has_audio"`
+}
+
+// VocalContour — высота голоса по тактам плана (стем vocals): сверка «спето ли
+// по плану» и не ушёл ли голос выше потолка.
+type VocalContour struct {
+	Bars     []ContourBar `json:"bars"`
+	MedianHz float64      `json:"median_hz"`
+	LowHz    float64      `json:"low_hz"`  // 5-й перцентиль
+	HighHz   float64      `json:"high_hz"` // 95-й перцентиль
+}
+
+// ContourBar — такт голоса Vocal: ноты по четвертям («A3», «·» — нет голоса).
+type ContourBar struct {
+	Index int      `json:"index"`
+	Start float64  `json:"start"`
+	End   float64  `json:"end"`
+	Notes []string `json:"notes"`
 }

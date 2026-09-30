@@ -50,6 +50,11 @@ func (s *Server) Register(t Tool) {
 
 // jsonSchema — компактная сборка object-схемы аргументов.
 func props(props map[string]any, required ...string) map[string]any {
+	// properties — всегда объект: null клиенты (Claude Code) отвергают, и весь
+	// список инструментов не загружается
+	if props == nil {
+		props = map[string]any{}
+	}
 	schema := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
 		schema["required"] = required

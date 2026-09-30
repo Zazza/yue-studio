@@ -30,7 +30,7 @@ import llm
 import media
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -1033,6 +1033,88 @@ def job_score(job_id: int):
         if row["audio_file"] and (job_dir / row["audio_file"]).is_file() else []
     cache.write_text(json.dumps(parsed, ensure_ascii=False))
     return parsed
+
+
+# ---------- Высота голоса по тактам (проверка «спето ли по плану») ----------
+# Замер 2026-09-30: модель поёт мелодию Vocal плана нота в ноту — сверка контура
+# с планом показывает, дошла ли правка мелодии и не ушёл ли голос в писк.
+_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+_CONTOUR_MIN_FRAMES = 3   # меньше голосных кадров в четверти — «·» (шум, согласные)
+
+
+def _note_name(hz) -> str:
+    """Ближайшая нота равномерного строя (A4 = 440 Гц); нет высоты — «·»."""
+    import math
+    try:
+        hz = float(hz)
+    except (TypeError, ValueError):
+        return "·"
+    if not hz > 0:   # 0, отрицательное, NaN
+        return "·"
+    midi = round(69 + 12 * math.log2(hz / 440.0))
+    return f"{_NOTE_NAMES[midi % 12]}{midi // 12 - 1}"
+
+
+def _contour_bars(f0, hop_sec: float, bars: list[dict], from_s: float, to_s: float) -> list[dict]:
+    """Кадры F0 (NaN — нет голоса) → такты [from, to): по четвертям медиана
+    высоты голосных кадров → имя ноты."""
+    import numpy as np
+    f0 = np.asarray(f0, dtype=float)
+    out = []
+    for i, b in enumerate(bars):
+        start, end = float(b["start_sec"]), float(b["end_sec"])
+        if end <= from_s or start >= to_s:
+            continue
+        q = (end - start) / 4
+        notes = []
+        for k in range(4):
+            a = int(round((start + k * q) / hop_sec))
+            z = int(round((start + (k + 1) * q) / hop_sec))
+            seg = f0[a:z]
+            seg = seg[np.isfinite(seg) & (seg > 0)]
+            notes.append(_note_name(float(np.median(seg))) if len(seg) >= _CONTOUR_MIN_FRAMES else "·")
+        out.append({"index": i, "start": start, "end": end, "notes": notes})
+    return out
+
+
+def _contour_summary(f0) -> dict:
+    """Медиана и диапазон (5–95-й перцентиль) высоты голоса, Гц."""
+    import numpy as np
+    f = np.asarray(f0, dtype=float)
+    f = f[np.isfinite(f) & (f > 0)]
+    if not len(f):
+        return {"median_hz": None, "low_hz": None, "high_hz": None}
+    return {"median_hz": round(float(np.median(f)), 1),
+            "low_hz": round(float(np.percentile(f, 5)), 1),
+            "high_hz": round(float(np.percentile(f, 95)), 1)}
+
+
+@app.get("/jobs/{job_id}/vocal_contour")
+def vocal_contour(job_id: int, from_: float = Query(0.0, alias="from"), to: float = 0.0):
+    """Высота голоса по тактам плана (стем vocals, pyin) в окне [from, to);
+    to = 0 — до конца трека. Нужен стем вокала (make_stems)."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    job_dir = JOBS_DIR / str(job_id)
+    stem = job_dir / "stem-vocals.flac"
+    if not stem.is_file():
+        raise HTTPException(409, "no vocals stem — run make_stems first")
+    abc_path = job_dir / (row["abc_file"] or "score.abc")
+    if not abc_path.is_file():
+        raise HTTPException(404, "no score.abc for this job")
+    parsed = parse_abc(abc_path.read_text())
+    bars = [b for b in parsed["bars"] if any("vocal" in v.lower() for v in (b.get("voices") or {}))]
+    import librosa
+    import numpy as np
+    to_s = to if to > 0 else float(row["duration_sec"] or parsed["duration_sec"] or 0)
+    sr, hop = 22050, 512
+    y, _ = librosa.load(str(stem), sr=sr, mono=True, offset=max(0.0, from_), duration=max(0.1, to_s - from_))
+    f0, _, _ = librosa.pyin(y, fmin=70, fmax=900, sr=sr, hop_length=hop)
+    # кадры считаются от from — сдвигаем таймлайн тактов в ту же шкалу
+    pad = int(round(max(0.0, from_) / (hop / sr)))
+    f0 = np.concatenate([np.full(pad, np.nan), f0])
+    return {"bars": _contour_bars(f0, hop / sr, bars, from_, to_s), **_contour_summary(f0)}
 
 
 def _rms_sections(audio_path: Path, bars: list[dict]) -> list[dict]:

@@ -14,6 +14,7 @@ import (
 
 // RegisterStudioTools — настройка адреса, Ollama, DSP, стемы, корпуса.
 func RegisterStudioTools(s *Server) {
+	registerRevoiceTools(s)
 	s.Register(Tool{
 		Name:        "config_get",
 		Description: "Текущие настройки: адрес воркера, Ollama (url/модель), пути данных воркера.",

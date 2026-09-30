@@ -739,3 +739,217 @@ class TestListJobsWholeLibrary(_WorkerApiCase):
         got = {j["id"] for j in self.client.get("/jobs").json()}
         self.assertIn(ids[0], got)
         self.assertEqual(len(got), 130)
+
+
+# --- Спецификация: высота голоса по тактам (vocal_contour) -----------------
+# Чистые функции живут в воркере, а его импорт требует fastapi/numpy —
+# поэтому тот же skipUnless, что у соседних классов. librosa не нужна.
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestNoteName(unittest.TestCase):
+    """_note_name(hz): ближайшая нота равномерного строя, A4 = 440 Гц,
+    научная запись с диезами; нет высоты → «·»."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.w = _import_worker(self._td.name)
+
+    def test_reference_notes(self):
+        for hz, name in ((440.0, "A4"), (261.63, "C4"), (293.66, "D4"),
+                         (246.94, "B3"), (466.16, "A#4")):
+            with self.subTest(hz=hz):
+                self.assertEqual(self.w._note_name(hz), name)
+
+    def test_octave_boundary_b3_c4(self):
+        # B3 и C4 — соседние ноты в разных октавах: номер октавы меняется на C
+        self.assertEqual(self.w._note_name(246.94), "B3")
+        self.assertEqual(self.w._note_name(261.63), "C4")
+
+    def test_nearest_note_not_floor(self):
+        # 450 Гц ближе к A4 (440), чем к A#4 (466.16); 460 — ближе к A#4
+        self.assertEqual(self.w._note_name(450.0), "A4")
+        self.assertEqual(self.w._note_name(460.0), "A#4")
+
+    def test_other_octaves(self):
+        self.assertEqual(self.w._note_name(110.0), "A2")
+        self.assertEqual(self.w._note_name(880.0), "A5")
+
+    def test_no_pitch(self):
+        for hz in (0, 0.0, float("nan"), -440.0):
+            with self.subTest(hz=hz):
+                self.assertEqual(self.w._note_name(hz), "·")
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestContourBars(unittest.TestCase):
+    """_contour_bars(f0, hop_sec, bars, from_s, to_s): такты, пересекающиеся
+    с [from_s, to_s); в каждом — 4 равные четверти, медиана f0 по голосным
+    кадрам → нота; меньше 3 голосных кадров → «·»."""
+
+    HOP = 0.01  # кадр i — момент i*0.01 с; четверть такта 1 с = 25 кадров
+    A4, C4, D4, B3 = 440.0, 261.63, 293.66, 246.94
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.w = _import_worker(self._td.name)
+
+    @staticmethod
+    def _bars(n, length=1.0, start=0.0):
+        return [{"start_sec": start + i * length, "end_sec": start + (i + 1) * length}
+                for i in range(n)]
+
+    def _f0(self, seconds, fill=float("nan")):
+        import numpy as np
+        return np.full(int(round(seconds / self.HOP)), fill, dtype=float)
+
+    def _set(self, f0, t0, t1, hz):
+        """Заполнить кадры с моментом в [t0, t1) частотой hz."""
+        i0, i1 = int(round(t0 / self.HOP)), int(round(t1 / self.HOP))
+        f0[i0:i1] = hz
+
+    def test_four_quarters_notes(self):
+        f0 = self._f0(1.0)
+        self._set(f0, 0.00, 0.25, self.A4)
+        self._set(f0, 0.25, 0.50, self.C4)
+        self._set(f0, 0.50, 0.75, self.D4)
+        self._set(f0, 0.75, 1.00, self.B3)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(1), 0.0, 1.0)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["index"], 0)
+        self.assertAlmostEqual(res[0]["start"], 0.0)
+        self.assertAlmostEqual(res[0]["end"], 1.0)
+        self.assertEqual(res[0]["notes"], ["A4", "C4", "D4", "B3"])
+
+    def test_median_not_mean(self):
+        # 20 кадров A4 + 5 кадров A5: медиана → A4, среднее (528 Гц) дало бы C5
+        f0 = self._f0(1.0)
+        self._set(f0, 0.00, 0.20, self.A4)
+        self._set(f0, 0.20, 0.25, 880.0)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(1), 0.0, 1.0)
+        self.assertEqual(res[0]["notes"][0], "A4")
+
+    def test_unvoiced_frames_ignored_in_median(self):
+        # 5 голосных кадров A4 посреди четверти, остальное NaN → A4, а не «·»
+        f0 = self._f0(1.0)
+        self._set(f0, 0.10, 0.15, self.A4)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(1), 0.0, 1.0)
+        self.assertEqual(res[0]["notes"], ["A4", "·", "·", "·"])
+
+    def test_fewer_than_three_voiced_is_dot(self):
+        f0 = self._f0(1.0)
+        self._set(f0, 0.10, 0.12, self.A4)   # 2 кадра → «·»
+        self._set(f0, 0.35, 0.38, self.C4)   # 3 кадра → нота
+        res = self.w._contour_bars(f0, self.HOP, self._bars(1), 0.0, 1.0)
+        self.assertEqual(res[0]["notes"][:2], ["·", "C4"])
+
+    def test_quarters_follow_bar_length(self):
+        # такт 2 с, начинается с 1 с: четверти по 0.5 с
+        f0 = self._f0(3.0)
+        self._set(f0, 1.0, 1.5, self.A4)
+        self._set(f0, 1.5, 2.0, self.C4)
+        self._set(f0, 2.0, 2.5, self.D4)
+        self._set(f0, 2.5, 3.0, self.B3)
+        bars = [{"start_sec": 0.0, "end_sec": 1.0}, {"start_sec": 1.0, "end_sec": 3.0}]
+        res = self.w._contour_bars(f0, self.HOP, bars, 1.0, 3.0)
+        self.assertEqual([b["index"] for b in res], [1])
+        self.assertEqual(res[0]["notes"], ["A4", "C4", "D4", "B3"])
+
+    def test_range_selects_overlapping_bars_with_indexes(self):
+        f0 = self._f0(5.0, self.A4)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(5), 1.5, 3.2)
+        # пересекают [1.5, 3.2): такты 1 (1–2), 2 (2–3), 3 (3–4)
+        self.assertEqual([b["index"] for b in res], [1, 2, 3])
+        self.assertEqual([(b["start"], b["end"]) for b in res],
+                         [(1.0, 2.0), (2.0, 3.0), (3.0, 4.0)])
+
+    def test_range_half_open(self):
+        # такт, кончающийся ровно на from, и такт, начинающийся ровно на to,
+        # с полуинтервалом [from, to) не пересекаются
+        f0 = self._f0(5.0, self.A4)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(5), 1.0, 3.0)
+        self.assertEqual([b["index"] for b in res], [1, 2])
+
+    def test_index_is_position_in_bars_not_in_result(self):
+        f0 = self._f0(10.0, self.A4)
+        bars = self._bars(10)
+        res = self.w._contour_bars(f0, self.HOP, bars, 7.0, 8.0)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["index"], 7)
+        self.assertEqual(res[0]["notes"], ["A4"] * 4)
+
+    def test_no_bars_in_range_empty(self):
+        f0 = self._f0(3.0, self.A4)
+        self.assertEqual(self.w._contour_bars(f0, self.HOP, self._bars(3), 10.0, 20.0), [])
+        self.assertEqual(self.w._contour_bars(f0, self.HOP, [], 0.0, 3.0), [])
+
+    def test_bar_beyond_f0_is_all_dots(self):
+        # голос анализирован на 1 с, а такт 2–3 с — кадров нет → «·», не падение
+        f0 = self._f0(1.0, self.A4)
+        res = self.w._contour_bars(f0, self.HOP, self._bars(3), 2.0, 3.0)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["notes"], ["·"] * 4)
+
+    def test_plain_list_f0(self):
+        f0 = [self.A4] * 100
+        res = self.w._contour_bars(f0, self.HOP, self._bars(1), 0.0, 1.0)
+        self.assertEqual(res[0]["notes"], ["A4"] * 4)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestContourSummary(unittest.TestCase):
+    """_contour_summary(f0): медиана, 5-й и 95-й перцентили по голосным
+    кадрам, округление до 1 знака; голоса нет → все None."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.w = _import_worker(self._td.name)
+
+    def test_percentiles_ignore_unvoiced(self):
+        import numpy as np
+        voiced = np.arange(100.0, 201.0)          # 101 значение: 100..200
+        f0 = np.empty(voiced.size * 2)
+        f0[0::2] = voiced
+        f0[1::2] = np.nan                           # NaN между голосными кадрами
+        s = self.w._contour_summary(f0)
+        self.assertEqual(s, {"median_hz": 150.0, "low_hz": 105.0, "high_hz": 195.0})
+
+    def test_rounded_to_one_decimal(self):
+        s = self.w._contour_summary([123.456] * 10)
+        self.assertEqual(s, {"median_hz": 123.5, "low_hz": 123.5, "high_hz": 123.5})
+
+    def test_no_voice_all_none(self):
+        for f0 in ([float("nan")] * 50, []):
+            with self.subTest(n=len(f0)):
+                self.assertEqual(self.w._contour_summary(f0),
+                                 {"median_hz": None, "low_hz": None, "high_hz": None})
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestVocalContourEndpoint(_WorkerApiCase):
+    """GET /jobs/{id}/vocal_contour?from=&to=: нет джобы → 404; нет стема
+    вокала jobs/<id>/stem-vocals.flac → 409 с подсказкой make_stems.
+    Анализ аудио здесь не вызывается."""
+
+    def test_missing_job_404(self):
+        r = self.client.get("/jobs/9999/vocal_contour", params={"from": 0, "to": 10})
+        self.assertEqual(r.status_code, 404, r.text)
+
+    def test_no_vocal_stem_409(self):
+        jid = self._job()
+        # другой стем есть, вокального — нет
+        (self.jobs_dir / str(jid) / "stem-drums.flac").write_bytes(b"x")
+        r = self.client.get(f"/jobs/{jid}/vocal_contour", params={"from": 0, "to": 10})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("make_stems", r.text)
+
+    def test_no_vocal_stem_409_without_range(self):
+        jid = self._job(semantic=False)
+        r = self.client.get(f"/jobs/{jid}/vocal_contour")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("make_stems", r.text)

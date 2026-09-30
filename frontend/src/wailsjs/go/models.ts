@@ -177,6 +177,24 @@ export namespace studio {
 
 export namespace yue {
 	
+	export class ContourBar {
+	    index: number;
+	    start: number;
+	    end: number;
+	    notes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ContourBar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.start = source["start"];
+	        this.end = source["end"];
+	        this.notes = source["notes"];
+	    }
+	}
 	export class CopilotParams {
 	    theme: string;
 	    style: string;
@@ -286,6 +304,7 @@ export namespace yue {
 	    parent_id?: number;
 	    role?: string;
 	    head_id?: number;
+	    voice_src?: number;
 	    stage?: string;
 	    tokens?: number;
 	    tok_per_s?: number;
@@ -318,6 +337,7 @@ export namespace yue {
 	        this.parent_id = source["parent_id"];
 	        this.role = source["role"];
 	        this.head_id = source["head_id"];
+	        this.voice_src = source["voice_src"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];
 	        this.tok_per_s = source["tok_per_s"];
@@ -456,6 +476,42 @@ export namespace yue {
 	        this.text = source["text"];
 	        this.seconds = source["seconds"];
 	    }
+	}
+	export class VocalContour {
+	    bars: ContourBar[];
+	    median_hz: number;
+	    low_hz: number;
+	    high_hz: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VocalContour(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bars = this.convertValues(source["bars"], ContourBar);
+	        this.median_hz = source["median_hz"];
+	        this.low_hz = source["low_hz"];
+	        this.high_hz = source["high_hz"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Voice {
 	    id: number;

@@ -3,6 +3,7 @@ package yue
 import (
 	"context"
 	"fmt"
+	"net/http"
 )
 
 // VoiceCreate — карточка голоса из джобы-прослушивания примерочной:
@@ -51,6 +52,17 @@ func (c *Client) VariantToTrack(ctx context.Context, jobID int64, file, title st
 		return 0, err
 	}
 	return out.ID, nil
+}
+
+// VocalContour — высота голоса по тактам (GET /jobs/{id}/vocal_contour);
+// to ≤ 0 — до конца трека. pyin на всём треке — десятки секунд.
+func (c *Client) VocalContour(ctx context.Context, id int64, from, to float64) (*VocalContour, error) {
+	var out VocalContour
+	path := fmt.Sprintf("/jobs/%d/vocal_contour?from=%g&to=%g", id, from, to)
+	if err := c.call(ctx, http.MethodGet, path, planTimeout, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // ContinueJob — «продолжение с места» (POST /jobs/{id}/continue).

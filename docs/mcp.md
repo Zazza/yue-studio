@@ -31,6 +31,15 @@ make mcp-data     # перегенерировать данные библиот
 }
 ```
 
+### Claude Code
+
+Локально для клона (адрес воркера в репозиторий не попадает):
+
+```bash
+make mcp
+claude mcp add yue-studio --scope local -e YUE_URL=http://gpu-host:8091 -- "$PWD/build/bin/yue-mcp"
+```
+
 ### Codex (~/.codex/config.toml)
 
 ```toml
@@ -45,6 +54,13 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 рендера) · `render_abc` · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
 возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент) ·
 `recognize_lyrics` (трек → текст) · `job_lyrics` (текст из аудио джобы) · `lyrics_adapt` (перевод под пение, слоги сохраняются).
+
+**Слой над моделью** (то, чего нет у YuE; те же механизмы, что в студии):
+`continue_job` (заново с места, без склейки) · `set_head` (основная версия) · `variant_track`
+(вариант → версия-трек, `voice_src`) · `rebuild_sections` (вклейки куском, громкость дорожек /
+заглушить, «перепеть» — замена голоса) · `revoice_start` → `revoice_apply` («перепеть с места»
+по частям: дубли от источника голоса, голос только в окне части) · `vocal_contour` (высота
+голоса по тактам — спето ли по плану, не выше ли потолка).
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `analyze_job` (метрики).

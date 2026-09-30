@@ -23,6 +23,28 @@ type fakeService struct {
 	voices    []yue.Voice
 	voiceDel  []int64
 	fetch     map[string]string // file -> content
+	fetched   []string          // какие файлы запрашивались через FetchAudio
+
+	// ContinueJob: записанные вызовы; id новых джоб — 500, 501, …
+	continued []continueCall
+
+	// VocalContour: настраиваемый ответ и записанные аргументы
+	contour      *yue.VocalContour
+	contourErr   error
+	contourCalls []contourCall
+}
+
+type continueCall struct {
+	JobID    int64
+	From     float64
+	Seed     int64
+	Abc      string
+	StyleAdd string
+}
+
+type contourCall struct {
+	ID       int64
+	From, To float64
 }
 
 func (f *fakeService) Health(ctx context.Context) (*yue.HealthInfo, error) { return f.health, nil }
@@ -61,7 +83,16 @@ func (f *fakeService) VariantToTrack(ctx context.Context, jobID int64, file, tit
 }
 
 func (f *fakeService) ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error) {
-	return 78, nil
+	f.continued = append(f.continued, continueCall{jobID, fromSec, seed, abc, styleAdd})
+	return 500 + int64(len(f.continued)) - 1, nil
+}
+
+func (f *fakeService) VocalContour(ctx context.Context, id int64, from, to float64) (*yue.VocalContour, error) {
+	f.contourCalls = append(f.contourCalls, contourCall{id, from, to})
+	if f.contourErr != nil {
+		return nil, f.contourErr
+	}
+	return f.contour, nil
 }
 
 func (f *fakeService) SetHead(ctx context.Context, jobID, headID int64) error { return nil }
@@ -71,6 +102,7 @@ func (f *fakeService) DspVariantDelete(ctx context.Context, id int64, fname stri
 }
 
 func (f *fakeService) FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error) {
+	f.fetched = append(f.fetched, file)
 	if c, ok := f.fetch[file]; ok {
 		return io.NopCloser(strings.NewReader(c)), "application/octet-stream", nil
 	}
@@ -377,5 +409,31 @@ func TestProtocolPingAndNotifications(t *testing.T) {
 	})
 	if len(lines) != 1 || !strings.Contains(lines[0], `"id":9`) {
 		t.Fatalf("ping responses: %v", lines)
+	}
+}
+
+// Схема аргументов каждого инструмента — объект с properties-объектом (не null):
+// иначе Claude Code отвергает tools/list целиком.
+func TestToolSchemasHaveObjectProperties(t *testing.T) {
+	s := NewServer(&fakeService{}, t.TempDir())
+	RegisterWorkflowTools(s)
+	RegisterStudioTools(s)
+	RegisterLibraryTools(s)
+	RegisterInstallTools(s)
+	for _, name := range s.toolOrder {
+		raw, err := json.Marshal(s.tools[name].InputSchema)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var sc struct {
+			Type       string          `json:"type"`
+			Properties json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &sc); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if sc.Type != "object" || len(sc.Properties) == 0 || sc.Properties[0] != '{' {
+			t.Errorf("%s: схема %s — нужен type object и properties-объект", name, raw)
+		}
 	}
 }

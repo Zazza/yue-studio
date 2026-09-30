@@ -1,0 +1,221 @@
+package mcp
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"yue-studio/internal/studio"
+	"yue-studio/internal/yue"
+)
+
+// Инструменты слоя над моделью, которых нет у YuE: пересборка дорожек
+// (вклейки, громкость, «перепеть»), «перепеть с места» по частям и сверка
+// высоты голоса с планом. Те же механизмы, что в студии приложения.
+
+const (
+	revoiceTakesDefault = 2
+	revoiceTakesMax     = 4
+)
+
+func registerRevoiceTools(s *Server) {
+	s.Register(Tool{
+		Name: "rebuild_sections",
+		Description: "Пересборка дорожек трека с чистого оригинала (как студия): вклейки куском (child_id — рендер " +
+			"куска, stems — какие дорожки заменить), громкость дорожек без рендера (child_id 0, db; −100 — заглушить, " +
+			"можно vocals), «перепеть» (revoice: stems [vocals] — голос из рендера child_id). Ответ — файл варианта и " +
+			"отчёт по заменам (встала по бочке/по плану). as_track — сразу версией-треком под «📎».",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
+			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to, lead?, beat_sec?, " +
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?}", "items": map[string]any{"type": "object"}},
+			"as_track":  prop("сделать вариант версией-треком", "boolean"),
+			"title":     prop("название версии (as_track)", "string"),
+			"voice_src": prop("ID рендера, чей голос подставлен (as_track после «перепеть»)", "integer"),
+		}, "job_id", "specs"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			specs, err := parseSectionSpecs(args["specs"])
+			if err != nil {
+				return "", err
+			}
+			if len(specs) == 0 {
+				return "", errors.New("specs пуст — нечего пересобирать")
+			}
+			jobID := argInt(args, "job_id")
+			res, err := studio.RebuildSections(context.Background(), s.client, jobID, specs)
+			if err != nil {
+				return "", err
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "вариант %s у трека #%d\n", res.Variant.File, jobID)
+			for _, r := range res.Inserts {
+				how := "по плану"
+				if r.Aligned {
+					how = "по бочке"
+				}
+				fmt.Fprintf(&b, "  #%d: с %.2f с, %s (score %.2f, gain %.2f)\n", r.ChildID, r.StartSec, how, r.Score, r.Gain)
+			}
+			if argBool(args, "as_track") {
+				title := argString(args, "title")
+				if title == "" {
+					title = fmt.Sprintf("версия #%d · пересборка", jobID)
+				}
+				id, err := s.client.VariantToTrack(context.Background(), jobID, res.Variant.File, title, argInt(args, "voice_src"))
+				if err != nil {
+					return "", err
+				}
+				fmt.Fprintf(&b, "версия-трек #%d", id)
+			}
+			return b.String(), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "revoice_start",
+		Description: "«Перепеть с места», шаг 1: голос части [from, to) версии поётся заново — продолжения от " +
+			"ИСТОЧНИКА голоса версии (voice_src / сам сгенерированный трек / по цепочке родителей) с отметки from. " +
+			"abc — изменённый план источника (мелодия голоса в части: модель поёт её нота в ноту; не выше потолка " +
+			"голоса — верх мелодии плана + 2 ступени). Ответ — id дублей; когда они done — revoice_apply.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID версии трека", "integer"),
+			"from":   prop("начало части, с", "number"),
+			"to":     prop("конец части, с (лучше в паузе голоса)", "number"),
+			"abc":    prop("изменённый план источника (необязательно)", "string"),
+			"takes":  prop("сколько дублей, 1–4 (по умолчанию 2)", "integer"),
+		}, "job_id", "from", "to"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			takes := int64(revoiceTakesDefault)
+			if _, ok := args["takes"]; ok {
+				takes = argInt(args, "takes")
+			}
+			if takes < 1 || takes > revoiceTakesMax {
+				return "", fmt.Errorf("takes: от 1 до %d", revoiceTakesMax)
+			}
+			ctx := context.Background()
+			jobs, err := s.client.Jobs(ctx)
+			if err != nil {
+				return "", err
+			}
+			byID := make(map[int64]yue.Job, len(jobs))
+			for _, j := range jobs {
+				byID[j.ID] = j
+			}
+			job, ok := byID[argInt(args, "job_id")]
+			if !ok {
+				return "", fmt.Errorf("трек #%d не найден", argInt(args, "job_id"))
+			}
+			src := studio.VoiceSource(job, byID)
+			if src == 0 {
+				return "", fmt.Errorf("источник голоса трека #%d не найден", job.ID)
+			}
+			from, abc := argFloat(args, "from"), argString(args, "abc")
+			ids := make([]string, 0, takes)
+			for k := int64(0); k < takes; k++ {
+				id, err := s.client.ContinueJob(ctx, src, from, 0, abc, "")
+				if err != nil {
+					return "", err
+				}
+				ids = append(ids, fmt.Sprintf("#%d", id))
+			}
+			return fmt.Sprintf("источник голоса #%d; дубли %s (с %.2f с). Когда done — revoice_apply {job_id: %d, "+
+				"take_id, from: %g, to: %g}", src, strings.Join(ids, ", "), from, job.ID, from, argFloat(args, "to")), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "revoice_apply",
+		Description: "«Перепеть с места», шаг 2: голос готового дубля подставляется в версию ТОЛЬКО в окне [from, to) " +
+			"(музыка и голос вне части прежние) → новая версия-трек под «📎» с voice_src = дубль.",
+		InputSchema: props(map[string]any{
+			"job_id":   prop("ID версии трека", "integer"),
+			"take_id":  prop("ID дубля из revoice_start", "integer"),
+			"from":     prop("начало части, с", "number"),
+			"to":       prop("конец части, с", "number"),
+			"beat_sec": prop("длина доли, с (по умолчанию по плану 120 BPM)", "number"),
+			"title":    prop("название версии", "string"),
+		}, "job_id", "take_id", "from", "to"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			ctx := context.Background()
+			jobID, take := argInt(args, "job_id"), argInt(args, "take_id")
+			jobs, err := s.client.Jobs(ctx)
+			if err != nil {
+				return "", err
+			}
+			status := ""
+			for _, j := range jobs {
+				if j.ID == take {
+					status = j.Status
+				}
+			}
+			if status != "done" {
+				if status == "" {
+					status = "не найден"
+				}
+				return "", fmt.Errorf("дубль #%d не готов (%s)", take, status)
+			}
+			from, to := argFloat(args, "from"), argFloat(args, "to")
+			res, err := studio.RebuildSections(ctx, s.client, jobID,
+				[]studio.SectionSpec{studio.RevoiceSpec(take, from, to, argFloat(args, "beat_sec"))})
+			if err != nil {
+				return "", err
+			}
+			title := argString(args, "title")
+			if title == "" {
+				title = fmt.Sprintf("версия #%d · голос %.0f–%.0f с (дубль #%d)", jobID, from, to, take)
+			}
+			id, err := s.client.VariantToTrack(ctx, jobID, res.Variant.File, title, take)
+			if err != nil {
+				return "", err
+			}
+			r := res.Inserts[0]
+			return fmt.Sprintf("версия-трек #%d (голос дубля #%d в %.2f–%.2f с; сдвиг %.3f с, по бочке: %v)",
+				id, take, from, to, r.StartSec, r.Aligned), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "vocal_contour",
+		Description: "Высота голоса по тактам плана (стем vocals, нужен make_stems): ноты по четвертям такта " +
+			"(«D4», «·» — нет голоса) + медиана/диапазон Гц. Сверка «спето ли по плану» и не ушёл ли голос в писк.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека", "integer"),
+			"from":   prop("с какой секунды (по умолчанию 0)", "number"),
+			"to":     prop("до какой секунды (0 — до конца)", "number"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			c, err := s.client.VocalContour(context.Background(), argInt(args, "job_id"), argFloat(args, "from"), argFloat(args, "to"))
+			if err != nil {
+				return "", err
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "голос: медиана %.1f Гц, диапазон %.1f–%.1f Гц\n", c.MedianHz, c.LowHz, c.HighHz)
+			for _, bar := range c.Bars {
+				fmt.Fprintf(&b, "%6.1f с  такт %d: %s\n", bar.Start, bar.Index, strings.Join(bar.Notes, " "))
+			}
+			return b.String(), nil
+		},
+	})
+}
+
+// parseSectionSpecs — спеки пересборки из JSON-аргументов MCP (числа — float64).
+func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, errors.New("specs: нужен массив объектов")
+	}
+	out := make([]studio.SectionSpec, 0, len(list))
+	for i, it := range list {
+		m, ok := it.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("specs[%d]: нужен объект", i)
+		}
+		out = append(out, studio.SectionSpec{
+			ChildID: argInt(m, "child_id"), From: argFloat(m, "from"), To: argFloat(m, "to"),
+			Lead: argFloat(m, "lead"), BeatSec: argFloat(m, "beat_sec"), Stems: argStringSlice(m, "stems"),
+			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
+			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
+		})
+	}
+	return out, nil
+}

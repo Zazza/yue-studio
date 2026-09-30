@@ -8,7 +8,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -65,6 +65,8 @@ export const api = {
   rebuildSections: (parentId, specs) => YueRebuildSections(parentId, specs),
   dspVariantDelete: (id, file) => YueDspVariantDelete(id, file),
   variantToTrack: (jobId, file, title, voiceSrc = 0) => YueVariantToTrack(jobId, file, title, voiceSrc),
+  // высота голоса по тактам плана: {bars:[{index,start,end,notes}], median_hz, low_hz, high_hz}
+  vocalContour: (jobId, from = 0, to = 0) => YueVocalContour(jobId, from, to),
   // трек до fromSec + продолжение моделью (seed 0 — случайный; abc — план; styleAdd — звучание)
   continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
   // основная версия песни: rootId — корень, headId — версия (0 — сам трек)
