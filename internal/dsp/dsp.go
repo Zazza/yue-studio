@@ -116,6 +116,61 @@ func tempoFromGraph(p map[string]float64) string {
 		p["start"], p["factor"])
 }
 
+var dropParams = []Param{
+	{ID: "start", Label: "с какой секунды тормозить", Min: 0, Max: 600, Step: 0.1, Default: 120},
+	{ID: "dur", Label: "сколько секунд тормозить (исходного звука)", Min: 0.5, Max: 10, Step: 0.1, Default: 3},
+	{ID: "slow", Label: "темп в конце торможения (1 — без замедления)", Min: 0.5, Max: 1, Step: 0.05, Default: 0.7},
+	{ID: "gap", Label: "тишина после, с", Min: 0, Max: 8, Step: 0.1, Default: 2},
+	{ID: "rise", Label: "нарастание после тишины, с (0 — сразу полный звук)", Min: 0, Max: 30, Step: 0.5, Default: 6},
+	{ID: "floor", Label: "откуда нарастать, дБ", Min: -40, Max: -6, Step: 1, Default: -30},
+}
+
+// dropSlices — на сколько кусков режется торможение: atempo держит один темп
+// на кусок, поэтому плавное замедление — лесенка из коротких кусков.
+const dropSlices = 8
+
+// dropGraph — «провал»: с отметки start кусок dur секунд звучит всё медленнее
+// (темп от 1 до slow, без смены высоты) и затихает до нуля; затем вставляется
+// тишина gap секунд, и остаток трека идёт в обычном темпе, нарастая за rise
+// секунд от floor дБ до полной громкости. Трек удлиняется на растяжку и паузу.
+// Ставить start на начало такта: стык торможения — ровно на отметке.
+func dropGraph(p map[string]float64) string {
+	start, dur, slow, gap, rise, floor := p["start"], p["dur"], p["slow"], p["gap"], p["rise"], p["floor"]
+	var b strings.Builder
+	fmt.Fprintf(&b, "[0:a]asplit=%d", dropSlices+2)
+	for i := 0; i < dropSlices+2; i++ {
+		fmt.Fprintf(&b, "[s%d]", i)
+	}
+	fmt.Fprintf(&b, ";[s0]atrim=0:%g,asetpts=PTS-STARTPTS[h]", start)
+	step := dur / dropSlices
+	for i := 0; i < dropSlices; i++ {
+		// темп куска — по его середине; громкость линейно от 1 до 0 по всему окну
+		tempo := 1 - (1-slow)*(float64(i)+0.5)/dropSlices
+		a0, a1 := 1-float64(i)/dropSlices, 1-float64(i+1)/dropSlices
+		l := step / tempo
+		fmt.Fprintf(&b, ";[s%d]atrim=%g:%g,asetpts=PTS-STARTPTS,atempo=%g,asetnsamples=n=%d:p=0,"+
+			"volume='%g+(%g)*min(t/%g,1)':eval=frame", i+1, start+float64(i)*step, start+float64(i+1)*step,
+			tempo, envFrame, a0, a1-a0, l)
+		fmt.Fprintf(&b, "[d%d]", i)
+	}
+	fmt.Fprintf(&b, ";[s%d]atrim=start=%g,asetpts=PTS-STARTPTS", dropSlices+1, start+dur)
+	if rise > 0 {
+		fmt.Fprintf(&b, ",asetnsamples=n=%d:p=0,volume='if(lt(t,%[2]g),pow(10,(%[3]g)*(1-t/%[2]g)/20),1)':eval=frame",
+			envFrame, rise, floor)
+	}
+	// пауза — задержкой хвоста, а не apad последнего куска: apad на пустом куске
+	// (отметка за концом трека) роняет весь граф ffmpeg
+	if gap > 0 {
+		fmt.Fprintf(&b, ",adelay=delays=%g:all=1", gap*1000)
+	}
+	b.WriteString("[t];[h]")
+	for i := 0; i < dropSlices; i++ {
+		fmt.Fprintf(&b, "[d%d]", i)
+	}
+	fmt.Fprintf(&b, "[t]concat=n=%d:v=0:a=1[out]", dropSlices+2)
+	return b.String()
+}
+
 var gapParams = []Param{
 	{ID: "start", Label: "с какой секунды тишина", Min: 0, Max: 600, Step: 0.1, Default: 120},
 	{ID: "dur", Label: "длина паузы, с", Min: 0.2, Max: 8, Step: 0.1, Default: 2},
@@ -399,6 +454,12 @@ var chains = []Chain{
 		ID: "tempo-from", Name: "Ускорить с отметки",
 		Note:   "С выбранной секунды трек быстрее без смены высоты — разогнать финал (модель смену темпа в плане не исполняет).",
 		Params: tempoFromParams, graph: tempoFromGraph,
+	},
+	{
+		ID: "drop", Name: "Провал",
+		Note: "С отметки трек замедляется и затихает, пауза, затем дальше в обычном темпе нарастает из тишины — " +
+			"«провал → разгон» перед финальным припевом. Трек удлиняется на растяжку и паузу.",
+		Params: dropParams, graph: dropGraph,
 	},
 	{
 		ID: "cresc", Name: "Громкость к концу",
