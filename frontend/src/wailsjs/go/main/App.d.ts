@@ -67,10 +67,6 @@ export function YueJobStems(arg1:number):Promise<Array<Record<string, any>>>;
 
 export function YueJobTones(arg1:number,arg2:number,arg3:number,arg4:string):Promise<Array<yue.Tone>>;
 
-export function YuePlanCheck(arg1:number,arg2:string,arg3:number):Promise<yue.PlanCheck>;
-
-export function YueSplice(arg1:number,arg2:Array<studio.SplicePart>,arg3:number):Promise<yue.DspVariant>;
-
 export function YueJobs():Promise<Array<yue.Job>>;
 
 export function YueMakeMinus(arg1:number,arg2:Array<string>):Promise<Record<string, any>>;
@@ -84,6 +80,8 @@ export function YueOpenExternal(arg1:number,arg2:string):Promise<void>;
 export function YueOpenURL(arg1:string):Promise<void>;
 
 export function YuePlan(arg1:yue.PlanParams):Promise<yue.PlanResult>;
+
+export function YuePlanCheck(arg1:number,arg2:string,arg3:number):Promise<yue.PlanCheck>;
 
 export function YuePlayAudio(arg1:number):Promise<void>;
 
@@ -106,6 +104,8 @@ export function YueSetServerURL(arg1:string):Promise<void>;
 export function YueSetVolume(arg1:number):Promise<void>;
 
 export function YueSetWorkerConfig(arg1:Record<string, any>):Promise<void>;
+
+export function YueSplice(arg1:number,arg2:Array<studio.SplicePart>,arg3:number):Promise<yue.DspVariant>;
 
 export function YueStatus():Promise<yue.HealthInfo>;
 

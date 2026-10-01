@@ -27,6 +27,7 @@ export namespace dsp {
 	    name: string;
 	    note: string;
 	    params: Param[];
+	    voice?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Chain(source);
@@ -38,6 +39,7 @@ export namespace dsp {
 	        this.name = source["name"];
 	        this.note = source["note"];
 	        this.params = this.convertValues(source["params"], Param);
+	        this.voice = source["voice"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -140,24 +142,6 @@ export namespace studio {
 		    return a;
 		}
 	}
-	export class SplicePart {
-	    job_id: number;
-	    from: number;
-	    to: number;
-	    gain_db: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SplicePart(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.job_id = source["job_id"];
-	        this.from = source["from"];
-	        this.to = source["to"];
-	        this.gain_db = source["gain_db"];
-	    }
-	}
 	export class SectionSpec {
 	    child_id: number;
 	    from: number;
@@ -170,6 +154,8 @@ export namespace studio {
 	    fade_out: number;
 	    revoice: boolean;
 	    keep_high_hz: number;
+	    chain?: string;
+	    params?: Record<string, number>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SectionSpec(source);
@@ -188,6 +174,26 @@ export namespace studio {
 	        this.fade_out = source["fade_out"];
 	        this.revoice = source["revoice"];
 	        this.keep_high_hz = source["keep_high_hz"];
+	        this.chain = source["chain"];
+	        this.params = source["params"];
+	    }
+	}
+	export class SplicePart {
+	    job_id: number;
+	    from: number;
+	    to: number;
+	    gain_db: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SplicePart(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.job_id = source["job_id"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.gain_db = source["gain_db"];
 	    }
 	}
 
@@ -416,7 +422,7 @@ export namespace yue {
 	    }
 	}
 	export class PlanCheck {
-	    bars: Record<string, number[]>;
+	    bars: Record<string, Array<number>>;
 	    duration: number[];
 	    changed: PlanChange[];
 	    changed_total: number;
