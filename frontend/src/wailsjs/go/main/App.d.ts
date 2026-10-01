@@ -133,4 +133,6 @@ export function YueVoiceDelete(arg1:number):Promise<boolean>;
 
 export function YueVoices():Promise<Array<yue.Voice>>;
 
+export function YueVolumeEnvelope(arg1:number,arg2:string,arg3:Array<dsp.EnvPoint>):Promise<yue.DspVariant>;
+
 export function YueWorkerConfig():Promise<Record<string, any>>;

@@ -60,6 +60,20 @@ export namespace dsp {
 		    return a;
 		}
 	}
+	export class EnvPoint {
+	    t: number;
+	    db: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.t = source["t"];
+	        this.db = source["db"];
+	    }
+	}
 
 }
 
@@ -156,6 +170,7 @@ export namespace studio {
 	    keep_high_hz: number;
 	    chain?: string;
 	    params?: Record<string, number>;
+	    envelope?: dsp.EnvPoint[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SectionSpec(source);
@@ -176,7 +191,26 @@ export namespace studio {
 	        this.keep_high_hz = source["keep_high_hz"];
 	        this.chain = source["chain"];
 	        this.params = source["params"];
+	        this.envelope = this.convertValues(source["envelope"], dsp.EnvPoint);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SplicePart {
 	    job_id: number;

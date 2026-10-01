@@ -258,6 +258,10 @@ export function YueVoices() {
   return window['go']['main']['App']['YueVoices']();
 }
 
+export function YueVolumeEnvelope(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueVolumeEnvelope'](arg1, arg2, arg3);
+}
+
 export function YueWorkerConfig() {
   return window['go']['main']['App']['YueWorkerConfig']();
 }
