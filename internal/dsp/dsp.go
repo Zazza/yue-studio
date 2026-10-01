@@ -312,33 +312,28 @@ func phoneGraph(p map[string]float64) string {
 }
 
 var voiceDriveParams = []Param{
-	{ID: "drive", Label: "перегруз", Min: 1, Max: 8, Step: 0.1, Default: 5},
-	{ID: "sand", Label: "песок верхов (зерно)", Min: 0, Max: 6, Step: 0.1, Default: 4},
-	{ID: "crush", Label: "биткраш (ломкость)", Min: 0, Max: 0.6, Step: 0.05, Default: 0.4},
-	{ID: "cut", Label: "срез верхов, кГц", Min: 4, Max: 12, Step: 0.5, Default: 7.5},
-	{ID: "noise", Label: "шум ленты", Min: 0, Max: 0.15, Step: 0.005, Default: 0.03},
+	{ID: "drive", Label: "перегруз, дБ", Min: 0, Max: 30, Step: 1, Default: 22},
+	{ID: "mid", Label: "плотность середины (1.5 кГц), дБ", Min: 0, Max: 10, Step: 0.5, Default: 5},
+	{ID: "low", Label: "срез низа, Гц", Min: 100, Max: 400, Step: 10, Default: 200},
+	{ID: "tape", Label: "верх плёнки, кГц", Min: 5, Max: 12, Step: 0.5, Default: 8.5},
+	{ID: "noise", Label: "шум ленты", Min: 0, Max: 0.05, Step: 0.0025, Default: 0.005},
 }
 
-// voiceDriveGraph — летовский перегруз голоса: «микрофон в красном» — компрессор
-// с порогом НИЖЕ типичного уровня голоса и большим makeup (плотность сама, без
-// ручной громкости: фикс-клип прежних версий полосный голос не пробивал),
-// жёсткий клип, биткраш, песок эксайтером 2–10 кГц — главное летовское зерно:
-// верх не глухой, а шипяще-хриплый (замер: полоса >4 кГц +15 дБ к исходному
-// стему, на полном треке +6.8 дБ). Голос читается: низ не вырезан (hp 140),
-// середина не глушится. aexciter здесь вопреки общей рекомендации «песок только
-// treble»: его подтяжку уровня к 0 дБ полностью гасит RMS-выравнивание
-// стем-режима (замер полного конвейера: RMS трека до = после), а treble
-// гармоник не генерит — зерно пропадает (A/B: >4 кГц −35.5 против −24.6 дБ).
+// voiceDriveGraph — летовский перегруз голоса, подогнан по эталону (замер
+// стема голоса «Гражданской обороны», 2026-10-01): грязь — это ПЛОТНАЯ
+// ПЕРЕГРУЖЕННАЯ СЕРЕДИНА и верх, закрытый плёнкой, а не шипящий песок.
+// Эталон: <300 Гц −15 дБ, 300–1к −2, 1–4к −5, >4к −17 дБ к сумме, центр ~1 кГц.
+// Прежняя цепочка (эксайтер после клипа) давала >4к −5 дБ и центр 2.5 кГц —
+// «не тот перегруз». Здесь: срез низа, подъём середины, мягкий клип tanh с
+// передискретизацией (без цифрового скрежета), плёночный срез верха —
+// на нашем голосе: −14 / −1.9 / −5.3 / −17.3 дБ, центр 900 Гц.
 func voiceDriveGraph(p map[string]float64) string {
-	return fmt.Sprintf("[0:a]highpass=f=140,"+
-		"acompressor=threshold=0.02:ratio=6:attack=2:release=60:makeup=%[1]g,"+
-		"alimiter=limit=0.28:attack=0.1:release=4:level=disabled,"+
-		"acrusher=bits=10:mix=%[2]g,"+
-		"aexciter=amount=%[3]g:drive=8:freq=2000:ceil=9999,lowpass=f=%[4]g[a];"+
-		"anoisesrc=color=pink:amplitude=%[5]g:seed=11,highpass=f=40,lowpass=f=8000[n];"+
+	return fmt.Sprintf("[0:a]highpass=f=%[1]g,highpass=f=%[1]g,equalizer=f=1500:t=q:w=1:g=%[2]g,"+
+		"volume=%[3]gdB,asoftclip=type=tanh:oversample=4,lowpass=f=%[4]g,volume=-%[3]gdB[a];"+
+		"anoisesrc=color=pink:amplitude=%[5]g:seed=11,highpass=f=40,lowpass=f=%[4]g[n];"+
 		"[a][n]amix=inputs=2:duration=first:normalize=0,"+
 		"alimiter=limit=0.92:attack=1:release=15:level=disabled[out]",
-		3+p["drive"], p["crush"], p["sand"], p["cut"]*1000, p["noise"])
+		p["low"], p["mid"], p["drive"], p["tape"]*1000, p["noise"])
 }
 
 var slapbackParams = []Param{
