@@ -15,6 +15,7 @@ import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js
 import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
 import { isFlat, bumpRange } from '../envelope.js'
+import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
 import { chainDefaults, voiceTarget } from '../dspVoice.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
@@ -1204,21 +1205,25 @@ async function applyDsp() {
   } finally { dspBusy.value = false }
 }
 
-// «Мастеринг — одним кликом»: цепочка master с дефолтами на весь микс, результат
-// сразу отдельным треком-версией (повторный клик — ещё одна версия, лишние удалить)
-async function applyMastering() {
-  const c = dspChains.value.find((x) => x.id === 'master')
-  if (!c) { rollErr.value = t('studio.dsp.master.none'); return }
+// Эффекты «одним кликом» (мастеринг, дыхание): цепочка на весь микс с крутилками
+// выбранного уровня, результат сразу отдельным треком-версией (повторный клик —
+// ещё одна версия, лишние удалить)
+const oneClickLevel = ref('medium')
+async function applyOneClick(chainId) {
+  const c = dspChains.value.find((x) => x.id === chainId)
+  if (!c) { rollErr.value = t('studio.dsp.oneclick.none', { name: chainId }); return }
   dspBusy.value = true
   try {
-    selChain('master')
+    selChain(chainId)
     dspTarget.value = ''
     await ensureJobMetrics()
-    const v = await api.applyDsp(props.job.id, 'master', dspParams.value || {})
+    const params = oneClickParams(chainId, oneClickLevel.value)
+    const v = await api.applyDsp(props.job.id, chainId, params)
     await reloadVariants()
-    await api.variantToTrack(props.job.id, v.file, (props.job.title || 'трек') + ' · ' + chainLabel(v.file))
+    const name = chainLabel(v.file) + ' (' + t('studio.dsp.level.' + oneClickLevel.value) + ')'
+    await api.variantToTrack(props.job.id, v.file, (props.job.title || 'трек') + ' · ' + name)
     rollErr.value = ''
-    trickMsg.value = t('studio.dsp.totrack.done', { name: chainLabel(v.file) })
+    trickMsg.value = t('studio.dsp.totrack.done', { name })
   } catch (e) {
     rollErr.value = String(e)
   } finally { dspBusy.value = false }
@@ -1536,9 +1541,14 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <details class="studio-sec">
             <summary>{{ t('studio.dsp') }} <span class="muted">{{ t('studio.dsp.sub') }}</span></summary>
             <div class="dsp-row">
-              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyMastering">
+              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyOneClick('master')">
                 {{ dspBusy ? '…' : t('studio.dsp.master') }}
               </button>
+              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.breathe.tip')" @click="applyOneClick('breathe')">
+                {{ dspBusy ? '…' : t('studio.dsp.breathe') }}
+              </button>
+              <VSelect v-model="oneClickLevel" :title="t('studio.dsp.level.tip')" style="max-width: 130px"
+                       :options="ONE_CLICK_LEVELS.map((l) => ({ value: l, label: t('studio.dsp.level.' + l) }))" />
             </div>
             <div class="dsp-row">
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
