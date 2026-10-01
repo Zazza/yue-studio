@@ -180,6 +180,26 @@ export const groups = [
     ],
   },
   {
+    id: 'chiptune', name: 'Чиптюн / 8-бит',
+    items: [
+      {
+        id: 'chiptune', name: 'Чиптюн',
+        style: 'Instrumental, no vocals, chiptune, 8-bit NES square-wave lead melodies, Game Boy chiptune arpeggios, 8-bit noise-channel drums, playful retro video game energy, 150 BPM',
+        slots: instr({ genre: 'chiptune', rhythm: '8-bit noise-channel drums', keys: '8-bit NES square-wave lead melodies, Game Boy chiptune arpeggios', mood: 'playful retro video game energy', production: 'lo-fi 8-bit bitcrushed chip sound' }), bpm: 150, lyrics: '[Instrumental]',
+      },
+      {
+        id: 'nintendo-punk', name: 'Нинтендо-панк (в духе Bondage Fairies)',
+        style: 'English, chiptune punk, electropunk, 8-bit NES square-wave lead melodies, aggressive down-tuned distorted guitar riffs, power chords, fast punk energy, shouted male vocals, raw snotty fun, 170 BPM',
+        slots: { language: 'English', genre: 'chiptune punk, electropunk', rhythm: 'fast punk energy', guitars: 'aggressive down-tuned distorted guitar riffs, power chords', keys: '8-bit NES square-wave lead melodies', vocals: 'shouted male', mood: 'raw snotty fun', production: 'raw loud' }, bpm: 170,
+      },
+      {
+        id: 'nintendocore', name: 'Нинтендокор (чиптюн + метал)',
+        style: 'English, nintendocore, metalcore riffs with 8-bit Game Boy arpeggios, double kick blast drums, palm-muted chug, screamed and clean male vocals, frantic video game boss fight energy, 180 BPM',
+        slots: { language: 'English', genre: 'nintendocore', rhythm: 'double kick blast drums', guitars: 'power chords, palm-muted chug', keys: 'Game Boy chiptune arpeggios', vocals: 'screamed and clean male', mood: 'frantic boss fight energy', production: 'modern loud' }, bpm: 180,
+      },
+    ],
+  },
+  {
     id: 'industrial', name: 'Индастриал / EBM',
     items: [
       {

@@ -194,6 +194,27 @@
   ]
  },
  {
+  "id": "chiptune",
+  "name": "Чиптюн / 8-бит",
+  "items": [
+   {
+    "id": "chiptune",
+    "name": "Чиптюн",
+    "style": "Instrumental, no vocals, chiptune, 8-bit NES square-wave lead melodies, Game Boy chiptune arpeggios, 8-bit noise-channel drums, playful retro video game energy, 150 BPM"
+   },
+   {
+    "id": "nintendo-punk",
+    "name": "Нинтендо-панк (в духе Bondage Fairies)",
+    "style": "English, chiptune punk, electropunk, 8-bit NES square-wave lead melodies, aggressive down-tuned distorted guitar riffs, power chords, fast punk energy, shouted male vocals, raw snotty fun, 170 BPM"
+   },
+   {
+    "id": "nintendocore",
+    "name": "Нинтендокор (чиптюн + метал)",
+    "style": "English, nintendocore, metalcore riffs with 8-bit Game Boy arpeggios, double kick blast drums, palm-muted chug, screamed and clean male vocals, frantic video game boss fight energy, 180 BPM"
+   }
+  ]
+ },
+ {
   "id": "industrial",
   "name": "Индастриал / EBM",
   "items": [
