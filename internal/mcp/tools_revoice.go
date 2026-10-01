@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"yue-studio/internal/dsp"
 	"yue-studio/internal/studio"
 	"yue-studio/internal/yue"
 )
@@ -34,8 +35,9 @@ func registerRevoiceTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to, lead?, beat_sec?, " +
-				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?} — chain/params: эффект на " +
-				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху)", "items": map[string]any{"type": "object"}},
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, envelope?} — chain/params: эффект на " +
+				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
+				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
 			"title":     prop("название версии (as_track)", "string"),
 			"voice_src": prop("ID рендера, чей голос подставлен (as_track после «перепеть»)", "integer"),
@@ -421,8 +423,21 @@ func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 			Lead: argFloat(m, "lead"), BeatSec: argFloat(m, "beat_sec"), Stems: argStringSlice(m, "stems"),
 			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
 			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
-			Chain: argString(m, "chain"), Params: argNumMap(m, "params"),
+			Chain: argString(m, "chain"), Params: argNumMap(m, "params"), Envelope: argEnvelope(m, "envelope"),
 		})
 	}
 	return out, nil
+}
+
+// argEnvelope — точки линии громкости [{t, db}]; нечисловые поля — 0,
+// не-объекты пропускаются (проверка точек — dsp.NormalizeEnvelope).
+func argEnvelope(args map[string]any, key string) []dsp.EnvPoint {
+	raw, _ := args[key].([]any)
+	var out []dsp.EnvPoint
+	for _, it := range raw {
+		if m, ok := it.(map[string]any); ok {
+			out = append(out, dsp.EnvPoint{T: argFloat(m, "t"), Db: argFloat(m, "db")})
+		}
+	}
+	return out
 }

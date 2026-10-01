@@ -6,8 +6,13 @@
 // (ось X у обоих линейна 0..длительность). Масштаб — окном просмотра:
 // колесо — зум в точке курсора, shift+колесо/горизонтальное — прокрутка,
 // «⟲» — вернуть весь трек в окно.
+// Линия громкости (prop envelope — массив точек, null — режим выключен):
+// клик по пустому месту ставит точку, протяжка точки двигает её, двойной или
+// правый клик по точке удаляет; изменение — событие envelope (новый массив).
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { zoomAt, panWindow, clampWindow, viewSecToPx, viewPxToSec, snapSec } from '../waveLogic.js'
+import { useI18n } from '../i18n/index.js'
+import { addPoint, movePoint, removePoint, dbAt, dbToY, yToDb, hitPoint } from '../envelope.js'
 
 const props = defineProps({
   peaks: { type: Object, required: true },  // {duration_sec, peaks: [[min,max],...]}
@@ -19,12 +24,20 @@ const props = defineProps({
   snap: { type: Boolean, default: true },
   mode: { type: String, default: 'amp' },           // 'amp' | 'spectrum'
   spectrumUrl: { type: String, default: '' },
+  envelope: { type: Array, default: null },         // [{t, db}] — линия громкости; null — выкл
 })
-const emit = defineEmits(['seek', 'select'])
+const emit = defineEmits(['seek', 'select', 'envelope'])
+const { t } = useI18n()
 
 const wrapRef = ref(null)
 const canvasRef = ref(null)
 const drag = ref(null)   // {x0, x1, w} — протяжка выделения
+// линия громкости: локальная копия на время протяжки точки (событие — на отпускании)
+const envPts = ref(null)
+const envDrag = ref(null)  // {i, moved}
+watch(() => props.envelope, (v) => { if (!envDrag.value) envPts.value = v ? v.map((p) => ({ ...p })) : null },
+  { immediate: true })
+const ENV_HIT_PX = 7
 
 const dur = computed(() => props.duration || props.peaks.duration_sec || 0)
 
@@ -141,6 +154,37 @@ function draw() {
     }
   }
 
+  // линия громкости: 0 дБ пунктиром, линия по видимому окну, точки кружками
+  if (envPts.value) {
+    const pts = envPts.value
+    const y = (db) => dbToY(db, h)
+    ctx.strokeStyle = 'rgba(128,128,128,.5)'
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(0, Math.round(y(0)) + 0.5)
+    ctx.lineTo(w, Math.round(y(0)) + 0.5)
+    ctx.stroke()
+    ctx.setLineDash([])
+    const env = cssVar('--env', '#3d9be0')
+    ctx.strokeStyle = env
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(0, y(dbAt(pts, t0)))
+    for (const p of pts) if (p.t > t0 && p.t < t1) ctx.lineTo(x(p.t), y(p.db))
+    ctx.lineTo(w, y(dbAt(pts, t1)))
+    ctx.stroke()
+    ctx.fillStyle = env
+    ctx.font = '10px sans-serif'
+    for (const p of pts) {
+      if (p.t < t0 || p.t > t1) continue
+      ctx.beginPath()
+      ctx.arc(x(p.t), y(p.db), 4, 0, 2 * Math.PI)
+      ctx.fill()
+    }
+    const d = envDrag.value && pts[envDrag.value.i]
+    if (d) ctx.fillText(t('studio.wave.env.db', { db: (d.db > 0 ? '+' : '') + d.db.toFixed(1) }), Math.min(x(d.t) + 6, w - 50), Math.max(y(d.db) - 6, 10))
+  }
+
   // курсор воспроизведения
   if (props.cursorSec > 0) {
     const cx = Math.round(x(props.cursorSec)) + 0.5
@@ -157,17 +201,54 @@ function draw() {
 
 function redraw() { requestAnimationFrame(draw) }
 
+// координаты события в канве: секунда трека и дБ линии
+function envAt(e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  const px = e.clientX - r.left, py = e.clientY - r.top
+  return { px, py, w: r.width, h: r.height, t: Math.max(0, Math.min(dur.value, viewPxToSec(px, win.value, r.width))) }
+}
+function envHit(e) {
+  const a = envAt(e)
+  const i = hitPoint(envPts.value, a.px, a.py, (t) => viewSecToPx(t, win.value, a.w), (db) => dbToY(db, a.h), ENV_HIT_PX)
+  return { ...a, i }
+}
+
 function onDown(e) {
+  if (envPts.value) {
+    if (e.button !== 0) return
+    const a = envHit(e)
+    let i = a.i
+    if (i < 0) {
+      // индекс новой: addPoint ставит её после точек с тем же t
+      i = envPts.value.filter((p) => p.t <= a.t).length
+      envPts.value = addPoint(envPts.value, a.t, yToDb(a.py, a.h))
+    }
+    envDrag.value = { i, moved: a.i < 0 }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    return
+  }
   const r = e.currentTarget.getBoundingClientRect()
   drag.value = { x0: e.clientX - r.left, x1: e.clientX - r.left, w: r.width }
 }
 
 function onMove(e) {
+  if (envDrag.value) {
+    const a = envAt(e)
+    envPts.value = movePoint(envPts.value, envDrag.value.i, a.t, yToDb(a.py, a.h))
+    envDrag.value = { ...envDrag.value, moved: true }
+    return
+  }
   if (!drag.value) return
   drag.value = { ...drag.value, x1: e.clientX - e.currentTarget.getBoundingClientRect().left }
 }
 
 function onUp() {
+  if (envDrag.value) {
+    const moved = envDrag.value.moved
+    envDrag.value = null
+    if (moved) emit('envelope', envPts.value.map((p) => ({ ...p })))
+    return
+  }
   const d = drag.value
   drag.value = null
   if (!d) return
@@ -179,6 +260,15 @@ function onUp() {
   const a = viewPxToSec(Math.min(d.x0, d.x1), win.value, d.w)
   const b = viewPxToSec(Math.max(d.x0, d.x1), win.value, d.w)
   emit('select', { from: snapSec(a, props.edges, props.snap), to: snapSec(b, props.edges, props.snap) })
+}
+
+// двойной/правый клик по точке линии — удалить её
+function onEnvRemove(e) {
+  if (!envPts.value) return
+  const { i } = envHit(e)
+  if (i < 0) return
+  envPts.value = removePoint(envPts.value, i)
+  emit('envelope', envPts.value.map((p) => ({ ...p })))
 }
 
 // колесо — зум в точке курсора; shift/горизонтальное — прокрутка окна
@@ -238,7 +328,7 @@ onMounted(() => {
 })
 onUnmounted(() => { if (ro) ro.disconnect() })
 
-watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, drag.value, props.spectrumUrl, win.value], redraw, { deep: false })
+watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, drag.value, props.spectrumUrl, win.value, envPts.value, envDrag.value], redraw, { deep: false })
 </script>
 
 <template>
@@ -249,6 +339,7 @@ watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.m
     <canvas ref="canvasRef" class="wave-canvas"
             @pointerdown.prevent="onDown" @pointermove="onMove"
             @pointerup="onUp" @pointercancel="onUp"
+            @dblclick="onEnvRemove" @contextmenu="envelope && ($event.preventDefault(), onEnvRemove($event))"
             @wheel.prevent="onWheel"></canvas>
     <div class="wave-zoom">
       <span v-if="zoomX > 1.01" class="muted">×{{ zoomX.toFixed(zoomX < 10 ? 1 : 0) }}</span>

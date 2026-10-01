@@ -55,6 +55,8 @@ async function doRebuild(parentId) {
     keep_high_hz: it.keepHighHz || 0,
     // эффект на дорожку: цепочка и её крутилки
     ...(it.chain ? { chain: it.chain, params: it.params || {} } : {}),
+    // линия громкости дорожки (по волне): точки {t, db} по всему треку
+    ...(it.envelope ? { envelope: it.envelope } : {}),
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -121,6 +123,19 @@ async function addStemFx(parentId, { stem, chain, params, from = 0, to = 0 }) {
     stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, chain, params: { ...(params || {}) },
   }
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
+  save()
+  return rebuild(parentId)
+}
+
+// линия громкости дорожки (по волне): одна запись на дорожку — повторная
+// заменяет прежнюю, пустая — убирает; эффекты и вклейки не трогаются
+async function addStemEnvelope(parentId, { stem, envelope }) {
+  const rest = appliedFor(parentId).filter((x) => !(x.envelope && (x.stems || [])[0] === stem))
+  const item = envelope && envelope.length ? [{
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'env', from: 0, to: 0, lead: 0, beat: 0, db: 0,
+    stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, envelope: envelope.map(({ t, db }) => ({ t, db })),
+  }] : []
+  applied.value = { ...applied.value, [parentId]: [...rest, ...item] }
   save()
   return rebuild(parentId)
 }
@@ -207,5 +222,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemEnvelope, carryTo, flush, latestFile }
 }

@@ -113,6 +113,29 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "volume_envelope",
+		Description: "Громкость по линии (как «линия громкости» по волне в студии): точки время → дБ, между ними " +
+			"линейно в дБ, до первой и после последней — их дБ. Без stem — весь трек (вариант dsp-envelope.flac), " +
+			"со stem — только эта дорожка через пересборку (остальное не меняется). Лесенка громкости, " +
+			"подъём голоса в куплете, тише проигрыш. Версией-треком — variant_track.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы", "integer"),
+			"points": map[string]any{"type": "array", "description": fmt.Sprintf("точки [{t: секунда, db: дБ}], "+
+				"дБ %g…%+g, до %d точек", dsp.EnvMinDb, dsp.EnvMaxDb, dsp.EnvMaxPoints),
+				"items": map[string]any{"type": "object"}},
+			"stem": prop("только дорожка: vocals / drums / bass / other (пусто — весь трек)", "string"),
+		}, "job_id", "points"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			v, err := studio.VolumeEnvelope(context.Background(), s.client, argInt(args, "job_id"),
+				argString(args, "stem"), argEnvelope(args, "points"))
+			if err != nil {
+				return "", err
+			}
+			return toJSON(v), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "dsp_preview",
 		Description: "Превью DSP-цепочки: 15-секундный кусок трека через эффекты (быстро послушать результат).",
 		InputSchema: props(map[string]any{

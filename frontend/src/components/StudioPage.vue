@@ -14,6 +14,7 @@ import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
+import { isFlat } from '../envelope.js'
 import { chainDefaults, voiceTarget } from '../dspVoice.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
@@ -1114,6 +1115,40 @@ async function previewDsp() {
 // на что эффект: '' — весь трек, иначе дорожка (стем) — через пересборку
 // дорожек: остальное не меняется (звон голоса #254 — обработка микса глушила гитары)
 const DSP_TARGETS = ['', 'vocals', 'drums', 'bass', 'other']
+
+// линия громкости по волне: весь трек — отдельный вариант; дорожка — запись
+// реестра пересборки (копится со вклейками/эффектами, повторная заменяет)
+const envOn = ref(false)
+const envTarget = ref('')
+const envPts = ref([])
+const envBusy = ref(false)
+function envLoad() {
+  const rec = envTarget.value && inserts.appliedFor(props.job.id)
+    .find((x) => x.envelope && (x.stems || [])[0] === envTarget.value)
+  envPts.value = rec ? rec.envelope.map((p) => ({ ...p })) : []
+}
+watch(envTarget, envLoad)
+watch(envOn, (on) => { if (on) envLoad() })
+const envCanApply = computed(() => !envBusy.value && (envTarget.value ? true : !isFlat(envPts.value)))
+async function applyEnvelope() {
+  envBusy.value = true
+  try {
+    const pts = envPts.value.map(({ t, db }) => ({ t, db }))
+    let v
+    if (envTarget.value) {
+      const res = await inserts.addStemEnvelope(props.job.id, { stem: envTarget.value, envelope: pts })
+      v = res && res.variant
+      // пустая линия убрала единственную запись реестра — пересобирать нечего
+      if (!v) waveErr.value = t('studio.wave.env.nothing')
+    } else {
+      v = await api.volumeEnvelope(props.job.id, '', pts)
+    }
+    await reloadVariants()
+    if (v) await api.playFile(props.job.id, v.file, props.job.duration_sec)
+  } catch (e) {
+    waveErr.value = String(e)
+  } finally { envBusy.value = false }
+}
 const dspTarget = ref('')
 const dspTargetOptions = computed(() => DSP_TARGETS.map((v) => ({ value: v, label: t('studio.dsp.target.' + (v || 'mix')) })))
 
@@ -1260,6 +1295,14 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <label class="wave-snap" :title="t('studio.wave.snap.tip')">
                 <input type="checkbox" v-model="waveSnap">{{ t('studio.wave.snap') }}
               </label>
+              <button class="ghost small-btn" :class="{ on: envOn }" :title="t('studio.wave.env.tip')"
+                      @click="envOn = !envOn">{{ t('studio.wave.env') }}</button>
+              <template v-if="envOn">
+                <VSelect v-model="envTarget" :options="dspTargetOptions" style="max-width: 150px" />
+                <button class="ghost small-btn" :disabled="envBusy || !envPts.length" @click="envPts = []">{{ t('studio.wave.env.reset') }}</button>
+                <button class="primary small" :disabled="!envCanApply" :title="t('studio.wave.env.apply.tip')" @click="applyEnvelope">
+                  {{ envBusy ? '…' : t('studio.wave.env.apply') }}</button>
+              </template>
               <span v-if="waveBusy" class="muted">{{ t('studio.wave.loading') }}</span>
               <span v-if="waveErr" class="error">{{ waveErr }}</span>
             </div>
@@ -1267,7 +1310,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       :marks="waveMarks" :edges="waveEdges" :snap="waveSnap"
                       :mode="waveMode" :spectrum-url="spectrumUrl"
                       :cursor-sec="waveCursor" :selection="selRange"
-                      @seek="onWaveSeek" @select="onWaveSelect" />
+                      :envelope="envOn ? envPts : null"
+                      @seek="onWaveSeek" @select="onWaveSelect" @envelope="(v) => (envPts = v)" />
+            <p v-if="envOn" class="muted wave-hint">{{ t('studio.wave.env.hint') }}</p>
           </div>
           <div class="panel-caption">
             <span>{{ t('studio.roll.caption') }}</span>

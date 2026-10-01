@@ -692,3 +692,72 @@ describe('addStemFx — эффект на дорожку через пересб
     expect(ins.latestFile('P')).toBeNull()
   })
 })
+
+describe('addStemEnvelope — громкость по волне на дорожку через пересборку', () => {
+  const envV = [{ t: 1, db: 0 }, { t: 3, db: -12 }]
+  const envV2 = [{ t: 2, db: -6 }]
+  const envD = [{ t: 0, db: 3 }, { t: 4, db: -3 }]
+  const lastCall = () => apiMock.rebuildSections.mock.calls.at(-1)[1]
+  const envSpecs = specs => specs.filter(s => Array.isArray(s.envelope) && s.envelope.length)
+
+  it('запись в реестре с отрицательным childId, вклейки не теряются, сразу одна пересборка', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV })
+    await flush()
+    const reg = ins.appliedFor('P')
+    expect(reg.filter(x => x.childId < 0).length).toBe(1)
+    expect(reg.some(x => x.childId === 1)).toBe(true)   // вклейка A не потерялась
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[0]).toBe('P')
+    expect(lastCall().length).toBe(2)
+  })
+
+  it('в api уходит child_id 0, stems [stem], envelope как передан, без chain', async () => {
+    const ins = await load({})
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV })
+    await flush()
+    const s = lastCall()[0]
+    expect(s.child_id).toBe(0)
+    expect(s.stems).toEqual(['vocals'])
+    expect(s.envelope).toEqual(envV)
+    expect(s.chain || '').toBe('')
+  })
+
+  it('повторно на ту же дорожку — заменяет прежнюю огибающую (одна запись на дорожку)', async () => {
+    const ins = await load({})
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV })
+    await flush()
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV2 })
+    await flush()
+    expect(ins.appliedFor('P').filter(x => x.childId < 0).length).toBe(1)
+    const specs = envSpecs(lastCall())
+    expect(specs.length).toBe(1)
+    expect(specs[0]).toMatchObject({ child_id: 0, stems: ['vocals'] })
+    expect(specs[0].envelope).toEqual(envV2)
+  })
+
+  it('на другую дорожку — добавляет вторую огибающую', async () => {
+    const ins = await load({})
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV })
+    await flush()
+    await ins.addStemEnvelope('P', { stem: 'drums', envelope: envD })
+    await flush()
+    const recs = ins.appliedFor('P').filter(x => x.childId < 0)
+    expect(recs.length).toBe(2)
+    expect(new Set(recs.map(x => x.childId)).size).toBe(2)
+    const byStem = Object.fromEntries(envSpecs(lastCall()).map(s => [s.stems.join(','), s.envelope]))
+    expect(byStem).toEqual({ vocals: envV, drums: envD })
+  })
+
+  it('огибающая не путается с эффектом той же дорожки: эффект остаётся', async () => {
+    const ins = await load({})
+    await ins.addStemFx('P', { stem: 'vocals', chain: 'soften', params: { strength: 0.6 }, from: 0, to: 0 })
+    await flush()
+    await ins.addStemEnvelope('P', { stem: 'vocals', envelope: envV })
+    await flush()
+    const call = lastCall()
+    expect(call.length).toBe(2)
+    expect(call.some(s => s.chain === 'soften')).toBe(true)
+    expect(envSpecs(call).length).toBe(1)
+  })
+})

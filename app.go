@@ -219,6 +219,12 @@ func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64
 	return a.runDsp(jobID, chainID, params, false)
 }
 
+// YueVolumeEnvelope — линия громкости по волне (точки время → дБ): stem "" —
+// весь трек (вариант dsp-envelope.flac), иначе только дорожка через пересборку.
+func (a *App) YueVolumeEnvelope(jobID int64, stem string, points []dsp.EnvPoint) (*yue.DspVariant, error) {
+	return studio.VolumeEnvelope(a.ctx, a.yue, jobID, stem, points)
+}
+
 // YueDspPreview — превью цепочки: кусок трека через те же эффекты.
 // Файл кладётся как вариант dsp-preview-<chain>.flac и сразу проигрывается.
 func (a *App) YueDspPreview(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {

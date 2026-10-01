@@ -44,6 +44,10 @@ type SectionSpec struct {
 	// обработка микса глушила и гитары)
 	Chain  string             `json:"chain,omitempty"`
 	Params map[string]float64 `json:"params,omitempty"`
+	// Envelope при ChildID 0 — линия громкости дорожек Stems по всему треку
+	// (точки время → дБ, между ними линейно в дБ); как у эффекта, в трек
+	// добавляется разница «дорожка с линией − дорожка»
+	Envelope []dsp.EnvPoint `json:"envelope,omitempty"`
 }
 
 // RebuildResult — новый вариант трека и отчёт по заменам.
@@ -132,6 +136,15 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 			}
 			ins = append(ins, fx...)
 			reports = append(reports, rep)
+			continue
+		}
+		if s.ChildID == 0 && len(s.Envelope) > 0 {
+			env, err := envelopeInserts(s, parent, dir, i, &inputs)
+			if err != nil {
+				return nil, err
+			}
+			ins = append(ins, env...)
+			reports = append(reports, InsertReport{Aligned: true})
 			continue
 		}
 		if s.ChildID == 0 {
@@ -248,6 +261,28 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		out = append(out,
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut},
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
+	}
+	return out, nil
+}
+
+// envelopeInserts — линия громкости на дорожки Stems: дорожка целиком через
+// EnvelopeGraph, в трек — она же минус исходная (остальное не меняется).
+func envelopeInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[]string) ([]dsp.Insert, error) {
+	pts, err := dsp.NormalizeEnvelope(s.Envelope)
+	if err != nil {
+		return nil, err
+	}
+	var out []dsp.Insert
+	for _, name := range s.Stems {
+		if !slices.Contains(mutable, name) || parent[name] == "" {
+			continue
+		}
+		env := fmt.Sprintf("%s/env-%d-%s.flac", dir, idx, name)
+		if err := dsp.Run(parent[name], env, dsp.EnvelopeGraph(pts), nil); err != nil {
+			return nil, fmt.Errorf("громкость по линии на %s: %w", name, err)
+		}
+		*inputs = append(*inputs, env, parent[name])
+		out = append(out, dsp.Insert{Gain: 1}, dsp.Insert{Gain: -1})
 	}
 	return out, nil
 }

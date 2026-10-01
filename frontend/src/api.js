@@ -9,7 +9,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -68,6 +68,8 @@ export const api = {
   // все замены дорожек трека заново с чистого оригинала:
   // [{child_id, from, to, lead, beat_sec, db, stems, fade_in, fade_out}]
   rebuildSections: (parentId, specs) => YueRebuildSections(parentId, specs),
+  // линия громкости по волне: stem '' — весь трек (вариант), иначе только дорожка
+  volumeEnvelope: (id, stem, points) => YueVolumeEnvelope(id, stem || '', points),
   dspVariantDelete: (id, file) => YueDspVariantDelete(id, file),
   variantToTrack: (jobId, file, title, voiceSrc = 0) => YueVariantToTrack(jobId, file, title, voiceSrc),
   // высота голоса по тактам плана: {bars:[{index,start,end,notes}], median_hz, low_hz, high_hz}
