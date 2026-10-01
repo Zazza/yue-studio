@@ -34,6 +34,21 @@ export function dbAt(pts, t) {
   return pts[pts.length - 1].db
 }
 
+// поднять/опустить участок [from, to] на delta дБ: внутри — старая линия + delta,
+// по краям — переходы длиной fade, вне [from − fade, to + fade] линия как была.
+// Опоры краёв ставятся по старой линии, поэтому участков можно сделать сколько угодно.
+export function bumpRange(pts, from, to, delta, fade = 0.2) {
+  if (!(to > from)) return pts.map((p) => ({ ...p }))
+  const lo = Math.max(0, from - fade), hi = to + fade
+  const out = pts.filter((p) => p.t < lo || p.t > hi).map((p) => ({ ...p }))
+  if (lo < from) out.push({ t: lo, db: dbAt(pts, lo) })
+  out.push({ t: from, db: clampDb(dbAt(pts, from) + delta) })
+  for (const p of pts) if (p.t > from && p.t < to) out.push({ t: p.t, db: clampDb(p.db + delta) })
+  out.push({ t: to, db: clampDb(dbAt(pts, to) + delta) })
+  out.push({ t: hi, db: dbAt(pts, hi) })
+  return out.sort((a, b) => a.t - b.t)
+}
+
 // вертикаль канвы: +12 дБ — верх (y = 0), −30 дБ — низ (y = h)
 export function dbToY(db, h) {
   return (ENV_MAX_DB - db) / (ENV_MAX_DB - ENV_MIN_DB) * h

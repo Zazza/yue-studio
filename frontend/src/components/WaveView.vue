@@ -7,8 +7,9 @@
 // колесо — зум в точке курсора, shift+колесо/горизонтальное — прокрутка,
 // «⟲» — вернуть весь трек в окно.
 // Линия громкости (prop envelope — массив точек, null — режим выключен):
-// клик по пустому месту ставит точку, протяжка точки двигает её, двойной или
-// правый клик по точке удаляет; изменение — событие envelope (новый массив).
+// клик по пустому месту ставит точку на линию, протяжка точки гнёт линию,
+// протяжка по пустому месту — выделение участка (select), двойной или правый
+// клик по точке удаляет; изменение — событие envelope (новый массив).
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { zoomAt, panWindow, clampWindow, viewSecToPx, viewPxToSec, snapSec } from '../waveLogic.js'
 import { useI18n } from '../i18n/index.js'
@@ -217,15 +218,12 @@ function onDown(e) {
   if (envPts.value) {
     if (e.button !== 0) return
     const a = envHit(e)
-    let i = a.i
-    if (i < 0) {
-      // индекс новой: addPoint ставит её после точек с тем же t
-      i = envPts.value.filter((p) => p.t <= a.t).length
-      envPts.value = addPoint(envPts.value, a.t, yToDb(a.py, a.h))
+    if (a.i >= 0) {
+      envDrag.value = { i: a.i, moved: false }
+      e.currentTarget.setPointerCapture(e.pointerId)
+      return
     }
-    envDrag.value = { i, moved: a.i < 0 }
-    e.currentTarget.setPointerCapture(e.pointerId)
-    return
+    // мимо точек: клик — точка на линии, протяжка — выделение участка
   }
   const r = e.currentTarget.getBoundingClientRect()
   drag.value = { x0: e.clientX - r.left, x1: e.clientX - r.left, w: r.width }
@@ -252,9 +250,16 @@ function onUp() {
   const d = drag.value
   drag.value = null
   if (!d) return
-  // короткое движение без протяжки — клик: слушать с этого места
+  // короткое движение без протяжки — клик: слушать с этого места; в режиме
+  // линии — точка на самой линии (громкость не прыгает, линия гнётся протяжкой)
   if (Math.abs(d.x1 - d.x0) < 3) {
-    emit('seek', viewPxToSec(d.x0, win.value, d.w))
+    const t = Math.max(0, Math.min(dur.value, viewPxToSec(d.x0, win.value, d.w)))
+    if (envPts.value) {
+      envPts.value = addPoint(envPts.value, t, dbAt(envPts.value, t))
+      emit('envelope', envPts.value.map((p) => ({ ...p })))
+      return
+    }
+    emit('seek', t)
     return
   }
   const a = viewPxToSec(Math.min(d.x0, d.x1), win.value, d.w)

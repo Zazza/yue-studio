@@ -14,7 +14,7 @@ import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
-import { isFlat } from '../envelope.js'
+import { isFlat, bumpRange } from '../envelope.js'
 import { chainDefaults, voiceTarget } from '../dspVoice.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
@@ -1129,6 +1129,12 @@ function envLoad() {
 }
 watch(envTarget, envLoad)
 watch(envOn, (on) => { if (on) envLoad() })
+// поднять/опустить выделенный участок линии шагом ENV_BUMP_DB, края — плавные
+const ENV_BUMP_DB = 2
+function bumpSel(delta) {
+  const r = selRange.value
+  if (r) envPts.value = bumpRange(envPts.value, r.from, r.to, delta)
+}
 const envCanApply = computed(() => !envBusy.value && (envTarget.value ? true : !isFlat(envPts.value)))
 async function applyEnvelope() {
   envBusy.value = true
@@ -1300,6 +1306,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <template v-if="envOn">
                 <VSelect v-model="envTarget" :options="dspTargetOptions" style="max-width: 150px" />
                 <button class="ghost small-btn" :disabled="envBusy || !envPts.length" @click="envPts = []">{{ t('studio.wave.env.reset') }}</button>
+                <template v-if="selRange">
+                  <button class="ghost small-btn" :disabled="envBusy" :title="t('studio.wave.env.bump.tip')"
+                          @click="bumpSel(ENV_BUMP_DB)">{{ t('studio.wave.env.up') }}</button>
+                  <button class="ghost small-btn" :disabled="envBusy" :title="t('studio.wave.env.bump.tip')"
+                          @click="bumpSel(-ENV_BUMP_DB)">{{ t('studio.wave.env.down') }}</button>
+                </template>
                 <button class="primary small" :disabled="!envCanApply" :title="t('studio.wave.env.apply.tip')" @click="applyEnvelope">
                   {{ envBusy ? '…' : t('studio.wave.env.apply') }}</button>
               </template>
