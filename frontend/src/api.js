@@ -9,7 +9,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueSetJobFolder, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -84,6 +84,8 @@ export const api = {
   continueJob: (jobId, fromSec, seed, abc, styleAdd) => YueContinueJob(jobId, fromSec, seed || 0, abc || '', styleAdd || ''),
   // основная версия песни: rootId — корень, headId — версия (0 — сам трек)
   setHead: (rootId, headId) => YueSetHead(rootId, headId || 0),
+  renameJob: (id, title) => YueRenameJob(id, title),
+  setJobFolder: (id, folder) => YueSetJobFolder(id, folder || ''),
   playFile: (id, file, dur) => YuePlayFile(id, file, dur),
   playAudio: (id) => YuePlayAudio(id),
   translate: (text) => YueTranslate(text),

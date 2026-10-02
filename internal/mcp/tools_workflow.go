@@ -28,15 +28,21 @@ func RegisterWorkflowTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "jobs",
-		Description: "Список джоб генерации: статусы (queued/running/done/error/canceled), стили, длительности.",
-		InputSchema: props(nil),
-		Handler: func(s *Server, _ map[string]any) (string, error) {
+		Name: "jobs",
+		Description: "Список джоб генерации: статусы (queued/running/done/error/canceled), стили, длительности, папки. " +
+			"Список большой — сужай: folder (песни папки с их версиями; \"-\" — без папки), limit (последние N), " +
+			"brief (только id/название/статус/длина/родитель/папка/дата).",
+		InputSchema: props(map[string]any{
+			"folder": prop("папка: «Альбом», «Основы», …; \"-\" — без папки; пусто — все", "string"),
+			"limit":  prop("сколько последних строк (0 — все)", "integer"),
+			"brief":  prop("краткие строки без стиля/текста/плана", "boolean"),
+		}),
+		Handler: func(s *Server, args map[string]any) (string, error) {
 			jobs, err := s.client.Jobs(context.Background())
 			if err != nil {
 				return "", err
 			}
-			return toJSON(jobs), nil
+			return toJSON(listJobs(jobs, argString(args, "folder"), int(argInt(args, "limit")), argBool(args, "brief"))), nil
 		},
 	})
 

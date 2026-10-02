@@ -361,7 +361,9 @@ export namespace yue {
 	    draft?: boolean;
 	    parent_id?: number;
 	    role?: string;
+	    overdub_of?: number;
 	    head_id?: number;
+	    folder?: string;
 	    voice_src?: number;
 	    stage?: string;
 	    tokens?: number;
@@ -394,7 +396,9 @@ export namespace yue {
 	        this.draft = source["draft"];
 	        this.parent_id = source["parent_id"];
 	        this.role = source["role"];
+	        this.overdub_of = source["overdub_of"];
 	        this.head_id = source["head_id"];
+	        this.folder = source["folder"];
 	        this.voice_src = source["voice_src"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];

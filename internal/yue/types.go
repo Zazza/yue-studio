@@ -57,6 +57,9 @@ type Service interface {
 	ContinueJob(ctx context.Context, jobID int64, fromSec float64, seed int64, abc, styleAdd string) (int64, error)
 	// SetHead — основная версия песни jobID: сам трек (headID 0) или потомок
 	SetHead(ctx context.Context, jobID, headID int64) error
+	// UpdateJob — подпись и папка трека (nil — поле не менять, folder "" —
+	// убрать из папки); ответ — трек после правки
+	UpdateJob(ctx context.Context, jobID int64, title, folder *string) (*Job, error)
 	DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error)
 	AudioURL(id int64, file string) string
 	FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error)
@@ -91,8 +94,12 @@ type Job struct {
 	// кусок», variant — вариант эффекта треком); в списке прячется под родителем
 	ParentID *int64 `json:"parent_id,omitempty"`
 	Role     string `json:"role,omitempty"`
+	// овердаб-партия: поверх какого трека (воркер микширует её в его вариант)
+	OverdubOf *int64 `json:"overdub_of,omitempty"`
 	// основная версия песни (у корня): её играет карточка и открывает студия
 	HeadID *int64 `json:"head_id,omitempty"`
+	// папка песни («Альбом», «Основы», …) — у корня; версии следуют за ним
+	Folder string `json:"folder,omitempty"`
 	// источник голоса: рендер, чей голос звучит в этой версии (у версии,
 	// созданной подстановкой голоса); пусто — голос свой или от родителя
 	VoiceSrc *int64 `json:"voice_src,omitempty"`

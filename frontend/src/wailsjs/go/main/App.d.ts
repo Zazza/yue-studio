@@ -93,11 +93,15 @@ export function YueRecognizeLyricsFile():Promise<yue.LyricsResult>;
 
 export function YueReferences():Promise<Array<yue.Reference>>;
 
+export function YueRenameJob(arg1:number,arg2:string):Promise<yue.Job>;
+
 export function YueSaveAudio(arg1:number,arg2:string):Promise<string>;
 
 export function YueSeekAudio(arg1:number):Promise<void>;
 
 export function YueSetHead(arg1:number,arg2:number):Promise<void>;
+
+export function YueSetJobFolder(arg1:number,arg2:string):Promise<yue.Job>;
 
 export function YueSetServerURL(arg1:string):Promise<void>;
 

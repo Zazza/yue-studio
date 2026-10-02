@@ -250,3 +250,20 @@ func toJSON(v any) string {
 	}
 	return string(b)
 }
+
+// optString — строковый аргумент, если он передан (в том числе пустой); nil — не передан.
+func optString(args map[string]any, key string) *string {
+	if _, ok := args[key]; !ok {
+		return nil
+	}
+	v := argString(args, key)
+	return &v
+}
+
+// nonEmpty — nil для пустой строки (после обрезки пробелов), иначе указатель на неё.
+func nonEmpty(v string) *string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return &v
+}

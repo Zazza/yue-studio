@@ -50,7 +50,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 
 ## Инструменты
 
-**Рабочий флоу**: `status` · `jobs` · `submit` (стиль/стих/сид/веер n) · `plan` (ABC до
+**Рабочий флоу**: `status` · `jobs` (фильтр `folder` — папка песни, `"-"` — без папки; `limit`; `brief` — краткие строки) · `job_update` (своё название и папка трека) · `submit` (стиль/стих/сид/веер n) · `plan` (ABC до
 рендера) · `render_abc` (`parent_id`/`role` — кусок для вклейки под родителем) · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
 возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент) ·
 `recognize_lyrics` (трек → текст) · `job_lyrics` (текст из аудио джобы) · `lyrics_adapt` (перевод под пение, слоги сохраняются).
@@ -69,7 +69,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 голосовые цепочки (`voice=true` в `dsp_chains`: мегафон/телефон/перегруз/слэпбэк) — громкость обработанной дорожки
 выравнивается по исходной (RMS), `db` сверху, крутилка `mix` — доля эффекта.
 
-**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` ·
+**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` (сразу с `title`/`folder`) ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `volume_envelope` (линия громкости
 `points [{t, db}]`, весь трек или дорожка `stem`; в `rebuild_sections` — спека с `envelope`) ·
 `analyze_job` (метрики) ·

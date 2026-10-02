@@ -140,6 +140,10 @@ def _migrate():
         # сейчас — её играет карточка и открывает студия; правки копятся от неё
         if "head_id" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN head_id INTEGER")
+        # папка песни («Альбом», «Основы», …): своя у корня, версии следуют
+        # за ним; пусто — без папки
+        if "folder" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN folder TEXT DEFAULT ''")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -713,6 +717,43 @@ def set_head(job_id: int, req: HeadIn):
                 raise HTTPException(422, "head must be the job itself or its descendant")
         conn.execute("UPDATE jobs SET head_id=? WHERE id=?", (head, job_id))
     return {"id": job_id, "head_id": head}
+
+
+JOB_TITLE_MAX = 200
+JOB_FOLDER_MAX = 60
+
+
+class JobPatchIn(BaseModel):
+    title: str | None = None    # None — не менять; пустое после strip — ошибка
+    folder: str | None = None   # None — не менять; "" — убрать из папки
+
+
+@app.patch("/jobs/{job_id}")
+def patch_job(job_id: int, req: JobPatchIn):
+    """Подпись трека и папка: человек ориентируется по названию, а не по номеру
+    (номер при переносе на другую машину меняется)."""
+    sets, vals = [], []
+    if req.title is not None:
+        title = req.title.strip()
+        if not title:
+            raise HTTPException(422, "title must not be empty")
+        if len(title) > JOB_TITLE_MAX:
+            raise HTTPException(422, f"title longer than {JOB_TITLE_MAX}")
+        sets.append("title=?")
+        vals.append(title)
+    if req.folder is not None:
+        folder = req.folder.strip()
+        if len(folder) > JOB_FOLDER_MAX:
+            raise HTTPException(422, f"folder longer than {JOB_FOLDER_MAX}")
+        sets.append("folder=?")
+        vals.append(folder)
+    with db_lock, db() as conn:
+        if conn.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone() is None:
+            raise HTTPException(404, "job not found")
+        if sets:
+            conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=?", (*vals, job_id))
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return _job_dict(row)
 
 
 @app.post("/plan")

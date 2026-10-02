@@ -1,6 +1,6 @@
 // Тесты фильтров и пейджера списка треков — по спецификации отбора.
 import { describe, it, expect } from 'vitest'
-import { defaultJobFilter, filterJobs, pageJobs, pageCount, QUEUE_PAGE_SIZE, groupJobs } from './jobFilter.js'
+import { defaultJobFilter, filterJobs, pageJobs, pageCount, QUEUE_PAGE_SIZE, groupJobs, folderNames, DEFAULT_FOLDERS, FOLDER_NONE } from './jobFilter.js'
 
 const NOW = Date.parse('2026-09-28T12:00:00Z')
 const j = (over = {}) => ({
@@ -148,5 +148,109 @@ describe('группировка по версиям (groupJobs)', () => {
     const jobs = [j({ id: 1, created_at: '2026-09-20T10:00:00Z' }), j({ id: 2, created_at: '2026-09-28T10:00:00Z' }),
       j({ id: 3, created_at: '2026-09-24T10:00:00Z' })]
     expect(groupJobs(jobs).top.map(x => x.id)).toEqual([2, 3, 1])
+  })
+})
+
+describe('папки: константы и фильтр по умолчанию', () => {
+  it('defaultJobFilter: folder all, остальные поля прежние', () => {
+    expect(defaultJobFilter()).toEqual({ status: 'all', period: 'all', dur: 'all', draft: 'all', q: '', folder: 'all' })
+  })
+
+  it('DEFAULT_FOLDERS в фиксированном порядке, FOLDER_NONE = "-"', () => {
+    expect(DEFAULT_FOLDERS).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+    expect(FOLDER_NONE).toBe('-')
+  })
+})
+
+describe('фильтр по папке (filterJobs)', () => {
+  const jobs = () => [
+    j({ id: 1, folder: 'Альбом' }),
+    j({ id: 2, folder: '  альбом ' }),
+    j({ id: 3, folder: 'Основы' }),
+    j({ id: 4 }),                       // поля нет
+    j({ id: 5, folder: '' }),
+    j({ id: 6, folder: '   ' }),
+    j({ id: 7, folder: 'Свои' }),
+  ]
+  const ids = (f) => filterJobs(jobs(), { ...defaultJobFilter(), ...f }).map(x => x.id)
+
+  it('all — не фильтрует по папке', () => {
+    expect(ids({ folder: 'all' })).toEqual([1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('поле folder отсутствует в фильтре — не фильтрует (старые сохранённые фильтры)', () => {
+    const f = defaultJobFilter()
+    delete f.folder
+    expect(filterJobs(jobs(), f).map(x => x.id)).toEqual([1, 2, 3, 4, 5, 6, 7])
+  })
+
+  it('FOLDER_NONE — только без папки: нет поля, пустая строка, одни пробелы', () => {
+    expect(ids({ folder: FOLDER_NONE })).toEqual([4, 5, 6])
+  })
+
+  it('имя папки — совпадение без учёта регистра и пробелов по краям', () => {
+    expect(ids({ folder: 'Альбом' })).toEqual([1, 2])
+    expect(ids({ folder: ' АЛЬБОМ ' })).toEqual([1, 2])
+    expect(ids({ folder: 'основы' })).toEqual([3])
+  })
+
+  it('несуществующая папка — пусто, частичное совпадение не проходит', () => {
+    expect(ids({ folder: 'Нет такой' })).toEqual([])
+    expect(ids({ folder: 'Альб' })).toEqual([])
+  })
+
+  it('папка комбинируется с остальными фильтрами через И', () => {
+    const list = [
+      j({ id: 1, folder: 'Альбом', status: 'done', title: 'дождь' }),
+      j({ id: 2, folder: 'Альбом', status: 'error', title: 'дождь' }),
+      j({ id: 3, folder: 'Основы', status: 'done', title: 'дождь' }),
+      j({ id: 4, folder: 'Альбом', status: 'done', title: 'утро' }),
+      j({ id: 5, status: 'done', title: 'дождь' }),
+    ]
+    expect(filterJobs(list, { ...defaultJobFilter(), folder: 'альбом', status: 'done', q: 'дождь' }).map(x => x.id)).toEqual([1])
+    expect(filterJobs(list, { ...defaultJobFilter(), folder: FOLDER_NONE, status: 'done' }).map(x => x.id)).toEqual([5])
+    expect(filterJobs(list, { ...defaultJobFilter(), folder: FOLDER_NONE, status: 'failed' }).map(x => x.id)).toEqual([])
+  })
+})
+
+describe('список папок (folderNames)', () => {
+  it('пустой/undefined вход — только дефолтные папки', () => {
+    expect(folderNames([])).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+    expect(folderNames(undefined)).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+  })
+
+  it('дефолтные всегда первыми в своём порядке, даже без треков в них', () => {
+    expect(folderNames([j({ folder: 'Эксперименты' })])).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+  })
+
+  it('свои папки — после дефолтных, по алфавиту (ru), пустые пропускаются', () => {
+    const jobs = [j({ id: 1, folder: 'Яблоко' }), j({ id: 2, folder: 'Ёлка' }), j({ id: 3, folder: 'Береза' }),
+      j({ id: 4 }), j({ id: 5, folder: '' }), j({ id: 6, folder: '  ' })]
+    const expected = ['Яблоко', 'Ёлка', 'Береза'].sort((a, b) => a.localeCompare(b, 'ru'))
+    expect(folderNames(jobs)).toEqual(['Альбом', 'Основы', 'Эксперименты', ...expected])
+  })
+
+  it('повторы без учёта регистра/пробелов схлопываются в первое написание, обрезанное', () => {
+    const jobs = [j({ id: 1, folder: '  Демо ' }), j({ id: 2, folder: 'демо' }), j({ id: 3, folder: 'ДЕМО  ' })]
+    expect(folderNames(jobs)).toEqual(['Альбом', 'Основы', 'Эксперименты', 'Демо'])
+  })
+
+  it('своя папка, совпадающая с дефолтной без учёта регистра, не дублирует её', () => {
+    const jobs = [j({ id: 1, folder: 'альбом' }), j({ id: 2, folder: ' ОСНОВЫ ' })]
+    expect(folderNames(jobs)).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+  })
+
+  it('вход не мутируется', () => {
+    const jobs = [j({ id: 1, folder: 'Зима' }), j({ id: 2, folder: ' альбом ' })]
+    const snapshot = JSON.parse(JSON.stringify(jobs))
+    folderNames(jobs)
+    expect(jobs).toEqual(snapshot)
+  })
+
+  it('возвращает новый массив: правка результата не портит DEFAULT_FOLDERS', () => {
+    const r = folderNames([])
+    r.push('мусор')
+    expect(DEFAULT_FOLDERS).toEqual(['Альбом', 'Основы', 'Эксперименты'])
+    expect(folderNames([])).toEqual(['Альбом', 'Основы', 'Эксперименты'])
   })
 })

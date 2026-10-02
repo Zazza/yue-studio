@@ -5,7 +5,30 @@ export const QUEUE_PAGE_SIZE = 20
 const DAY = 86_400_000
 
 export function defaultJobFilter() {
-  return { status: 'all', period: 'all', dur: 'all', draft: 'all', q: '' }
+  return { status: 'all', period: 'all', dur: 'all', draft: 'all', folder: 'all', q: '' }
+}
+
+// Папки песен: эти три есть всегда (даже пустые), свои — по именам у треков.
+export const DEFAULT_FOLDERS = ['Альбом', 'Основы', 'Эксперименты']
+// значение фильтра «только песни без папки»
+export const FOLDER_NONE = '-'
+
+const folderKey = (s) => String(s || '').trim().toLowerCase()
+
+// список папок для выбора: сначала DEFAULT_FOLDERS в их порядке, затем свои
+// по алфавиту; повтор без учёта регистра — одна папка (первое написание)
+export function folderNames(jobs) {
+  const seen = new Set(DEFAULT_FOLDERS.map(folderKey))
+  const own = []
+  for (const j of jobs || []) {
+    const name = String(j.folder || '').trim()
+    if (name && !seen.has(folderKey(name))) {
+      seen.add(folderKey(name))
+      own.push(name)
+    }
+  }
+  own.sort((a, b) => a.localeCompare(b, 'ru'))
+  return [...DEFAULT_FOLDERS, ...own]
 }
 
 // возраст джобы: без распознаваемой даты — бесконечность (в период не попадает)
@@ -34,6 +57,8 @@ export function filterJobs(jobs, f, now = Date.now()) {
     if (f.dur !== 'all' && !DUR_BUCKETS[f.dur](j.duration_sec || 0)) return false
     if (f.draft === 'only' && !j.draft) return false
     if (f.draft === 'hide' && j.draft) return false
+    if (f.folder === FOLDER_NONE && folderKey(j.folder)) return false
+    if (f.folder && f.folder !== 'all' && f.folder !== FOLDER_NONE && folderKey(j.folder) !== folderKey(f.folder)) return false
     if (q && !(`${j.title || ''} ${j.style || ''}`.toLowerCase().includes(q))) return false
     return true
   })

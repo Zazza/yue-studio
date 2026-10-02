@@ -8,7 +8,7 @@ import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './g
 import { slotKeys, slotHints, durOptions, durTokens } from './slotOptions.js'
 import { useI18n } from './i18n/index.js'
 import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
-import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount } from './jobFilter.js'
+import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount, folderNames, FOLDER_NONE } from './jobFilter.js'
 import { isResultJob, mixChildId, mixLabel } from './insertLabels.js'
 import { useInserts } from './composables/useInserts.js'
 // сервис «перепеть с места»: живёт всё время, как вклейки (студию закрывают)
@@ -276,6 +276,58 @@ async function makeHead(root, v) {
   } catch (e) {
     alert(String(e))
   }
+}
+// подпись и папка песни: своё название вместо номера, папки «Альбом/Основы/…»
+const titleEdit = ref(null) // { id, value } — трек, чьё название правится
+function startRename(j) { titleEdit.value = { id: j.id, value: j.title || '' } }
+async function saveRename(j) {
+  const e = titleEdit.value
+  titleEdit.value = null
+  if (!e || e.id !== j.id || !e.value.trim() || e.value.trim() === j.title) return
+  try {
+    const upd = await api.renameJob(j.id, e.value.trim())
+    j.title = upd.title
+  } catch (err) {
+    alert(String(err))
+  }
+}
+async function moveToFolder(j, folder) {
+  try {
+    const upd = await api.setJobFolder(j.id, folder === FOLDER_NONE ? '' : folder)
+    j.folder = upd.folder || ''
+  } catch (err) {
+    alert(String(err))
+  }
+}
+const folderList = computed(() => folderNames(grouped.value.top))
+const qFolderOptions = computed(() => [
+  { value: 'all', label: t('queue.folder.all') },
+  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })),
+  { value: FOLDER_NONE, label: t('queue.folder.none') },
+])
+const FOLDER_NEW = '\u0000new'
+const jobFolderOptions = computed(() => [
+  { value: FOLDER_NONE, label: t('queue.folder.none') },
+  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })),
+  { value: FOLDER_NEW, label: t('queue.folder.new') },
+])
+// своя папка: выбор «＋ новая папка…» открывает поле имени у этой песни
+const folderNew = ref(null) // { id, value }
+function pickFolder(j, v) {
+  if (v === FOLDER_NEW) { folderNew.value = { id: j.id, value: '' }; return }
+  moveToFolder(j, v)
+}
+async function saveNewFolder(j) {
+  const e = folderNew.value
+  folderNew.value = null
+  if (e && e.id === j.id && e.value.trim()) await moveToFolder(j, e.value.trim())
+}
+// время создания: «2026-10-01T17:26:05» → «01.10 17:26» (год — если не текущий)
+function fmtWhen(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(s || ''))
+  if (!m) return ''
+  const year = m[1] === String(new Date().getFullYear()) ? '' : '.' + m[1]
+  return `${m[3]}.${m[2]}${year} ${m[4]}:${m[5]}`
 }
 const kidMaterial = (id) => (grouped.value.children[id] || []).filter((k) => !isResultJob(k))
 function mixName(parentId, file) {
@@ -801,6 +853,7 @@ function onWindowClick(e) {
           <VSelect v-model="qf.period" :options="qPeriodOptions" />
           <VSelect v-model="qf.dur" :options="qDurOptions" />
           <VSelect v-model="qf.draft" :options="qDraftOptions" />
+          <VSelect v-model="qf.folder" :options="qFolderOptions" :title="t('queue.folder.tip')" />
           <input v-model="qf.q" :placeholder="t('queue.filter.search')" />
         </div>
         <p class="muted">{{ filteredJobs.length
@@ -808,7 +861,16 @@ function onWindowClick(e) {
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
         <article v-for="j in queuePage" :key="j.id" class="job" :class="j.status">
         <div class="job-head">
-          <strong>#{{ j.id }} {{ j.title }}</strong>
+          <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
+                 @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
+          <strong v-else :title="t('queue.rename.tip')" class="job-title" @dblclick="startRename(j)">#{{ j.id }} {{ j.title }}</strong>
+          <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)">✎</button>
+          <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
+                 :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
+                 @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
+          <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 150px"
+                   :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
+          <span v-if="fmtWhen(j.created_at)" class="muted" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
           <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
           <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
@@ -848,6 +910,7 @@ function onWindowClick(e) {
             <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
             <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
             <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
+            <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
             <span class="spacer"></span>
             <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" @click="togglePlay(v)">
               {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
@@ -860,7 +923,7 @@ function onWindowClick(e) {
             <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
               <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
               <span>{{ mixName(j.id, v.file) }}</span>
-              <span v-if="v.created_at" class="muted">{{ String(v.created_at).replace('T', ' ').slice(0, 16) }}</span>
+              <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
               <span class="spacer"></span>
               <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>
             </div>
@@ -872,6 +935,7 @@ function onWindowClick(e) {
               <span>{{ k.title }}</span>
               <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
               <span>{{ statusLabelC[k.status] || k.status }}</span>
+              <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
               <span class="spacer"></span>
               <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" @click="togglePlay(k)">
                 {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
@@ -1118,6 +1182,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 
 .job { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel2); }
 .job-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.job-head .title-edit { min-width: 280px; font-weight: 600; }
+.job-head .job-title { cursor: text; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border); }
 .status.done { background: rgba(255,190,61,.16); color: var(--lcd-text); text-shadow: 0 0 8px var(--lcd-glow); }
 .status.running { background: rgba(217,160,61,.2); color: var(--run); }

@@ -120,3 +120,19 @@ func (c *Client) SetHead(ctx context.Context, jobID, headID int64) error {
 	var out map[string]any
 	return c.postJSON(ctx, fmt.Sprintf("/jobs/%d/head", jobID), map[string]any{"head_id": headID}, requestTimeout, &out)
 }
+
+// UpdateJob — подпись и папка трека (PATCH /jobs/{id}): nil — поле не менять.
+func (c *Client) UpdateJob(ctx context.Context, jobID int64, title, folder *string) (*Job, error) {
+	body := map[string]any{}
+	if title != nil {
+		body["title"] = *title
+	}
+	if folder != nil {
+		body["folder"] = *folder
+	}
+	var out Job
+	if err := c.call(ctx, http.MethodPatch, fmt.Sprintf("/jobs/%d", jobID), requestTimeout, jsonReq(body), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

@@ -1430,3 +1430,143 @@ class TestPlanCheckEndpoint(_WorkerApiCase):
         expected = plancheck.plan_diff(_PLAN_OLD, _PLAN_NEW, 5.0)
         self.assertEqual(r.json(), expected)
         self.assertTrue(any("до отметки" in w for w in r.json()["warnings"]))
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestPatchJob(_WorkerApiCase):
+    """PATCH /jobs/{id} {title?, folder?}: правка названия и папки трека.
+    Пробелы по краям обрезаются; пустое title / title > 200 / folder > 60 → 422;
+    folder "" — убрать из папки; не переданное (или null) поле не меняется;
+    ответ 200 — трек целиком (как GET /jobs/{id}); нет трека → 404;
+    неуспешный запрос не меняет ничего."""
+
+    def _get(self, jid):
+        r = self.client.get(f"/jobs/{jid}")
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def _listed(self, jid):
+        r = self.client.get("/jobs")
+        self.assertEqual(r.status_code, 200, r.text)
+        return {j["id"]: j for j in r.json()}[jid]
+
+    def _set(self, jid, **body):
+        r = self.client.patch(f"/jobs/{jid}", json=body)
+        self.assertEqual(r.status_code, 200, (body, r.text))
+        return r.json()
+
+    # 1. title
+    def test_title_renamed_and_trimmed(self):
+        jid = self._job(semantic=False)
+        body = self._set(jid, title="  Новое имя  ")
+        self.assertEqual(body["title"], "Новое имя")
+        self.assertEqual(self._get(jid)["title"], "Новое имя")
+
+    def test_empty_title_422(self):
+        jid = self._job(semantic=False)
+        for bad in ("", "   ", " \t\n "):
+            r = self.client.patch(f"/jobs/{jid}", json={"title": bad})
+            self.assertEqual(r.status_code, 422, repr(bad))
+        self.assertEqual(self._get(jid)["title"], "t")
+
+    def test_title_length_limit(self):
+        jid = self._job(semantic=False)
+        self.assertEqual(self._set(jid, title="x" * 200)["title"], "x" * 200)
+        r = self.client.patch(f"/jobs/{jid}", json={"title": "y" * 201})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(self._get(jid)["title"], "x" * 200)
+
+    # 2. folder
+    def test_folder_set_and_trimmed(self):
+        jid = self._job(semantic=False)
+        body = self._set(jid, folder="  Альбом  ")
+        self.assertEqual(body["folder"], "Альбом")
+        self.assertEqual(self._get(jid)["folder"], "Альбом")
+
+    def test_empty_folder_removes_from_folder(self):
+        jid = self._job(semantic=False)
+        self._set(jid, folder="Альбом")
+        for empty in ("", "   "):
+            self._set(jid, folder="Альбом")
+            body = self._set(jid, folder=empty)
+            self.assertEqual(body["folder"], "", repr(empty))
+            self.assertEqual(self._get(jid)["folder"], "", repr(empty))
+
+    def test_folder_length_limit(self):
+        jid = self._job(semantic=False)
+        self.assertEqual(self._set(jid, folder="f" * 60)["folder"], "f" * 60)
+        r = self.client.patch(f"/jobs/{jid}", json={"folder": "g" * 61})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(self._get(jid)["folder"], "f" * 60)
+
+    # 3. не переданное / null поле не меняется
+    def test_omitted_field_unchanged(self):
+        jid = self._job(semantic=False)
+        self._set(jid, title="Имя", folder="Папка")
+        self.assertEqual(self._set(jid, title="Другое")["folder"], "Папка")
+        self.assertEqual(self._set(jid, folder="Другая")["title"], "Другое")
+        got = self._get(jid)
+        self.assertEqual((got["title"], got["folder"]), ("Другое", "Другая"))
+
+    def test_null_field_unchanged(self):
+        jid = self._job(semantic=False)
+        self._set(jid, title="Имя", folder="Папка")
+        body = self._set(jid, title=None, folder=None)
+        self.assertEqual((body["title"], body["folder"]), ("Имя", "Папка"))
+        got = self._get(jid)
+        self.assertEqual((got["title"], got["folder"]), ("Имя", "Папка"))
+
+    def test_empty_body_changes_nothing(self):
+        jid = self._job(semantic=False)
+        self._set(jid, title="Имя", folder="Папка")
+        before = self._get(jid)
+        body = self._set(jid)
+        self.assertEqual((body["title"], body["folder"]), ("Имя", "Папка"))
+        self.assertEqual(self._get(jid), before)
+
+    # 4. ответ — трек целиком, как GET /jobs/{id}
+    def test_response_is_whole_track(self):
+        jid = self._job(semantic=False)
+        body = self._set(jid, title="Имя", folder="Папка")
+        for key in ("id", "title", "folder", "status"):
+            self.assertIn(key, body)
+        self.assertEqual(body["id"], jid)
+        self.assertEqual(body["status"], "done")
+        self.assertEqual(body, self._get(jid))
+
+    # 5. нет трека
+    def test_missing_job_404(self):
+        r = self.client.patch("/jobs/9999", json={"title": "Имя"})
+        self.assertEqual(r.status_code, 404, r.text)
+        r = self.client.patch("/jobs/9999", json={})
+        self.assertEqual(r.status_code, 404, r.text)
+
+    # 6. новое значение видно в GET /jobs/{id} и GET /jobs
+    def test_visible_in_get_and_list(self):
+        jid = self._job(semantic=False)
+        other = self._job(semantic=False)
+        self._set(jid, title="Имя", folder="Папка")
+        got, listed = self._get(jid), self._listed(jid)
+        self.assertEqual((got["title"], got["folder"]), ("Имя", "Папка"))
+        self.assertEqual((listed["title"], listed["folder"]), ("Имя", "Папка"))
+        # соседний трек не задет
+        o = self._listed(other)
+        self.assertEqual((o["title"], o["folder"]), ("t", ""))
+
+    # 7. у новых треков folder — "" (не null)
+    def test_new_track_folder_empty_string(self):
+        jid = self._job(semantic=False)
+        self.assertEqual(self._get(jid)["folder"], "")
+        self.assertEqual(self._listed(jid)["folder"], "")
+
+    # 8. 422 не меняет ничего, даже валидное второе поле
+    def test_failed_request_changes_nothing(self):
+        jid = self._job(semantic=False)
+        self._set(jid, title="Имя", folder="Папка")
+        for bad in ({"title": "", "folder": "Новая"},
+                    {"title": "x" * 201, "folder": "Новая"},
+                    {"title": "Новое", "folder": "g" * 61}):
+            r = self.client.patch(f"/jobs/{jid}", json=bad)
+            self.assertEqual(r.status_code, 422, bad)
+            got = self._get(jid)
+            self.assertEqual((got["title"], got["folder"]), ("Имя", "Папка"), bad)

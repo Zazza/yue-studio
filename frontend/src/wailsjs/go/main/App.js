@@ -178,6 +178,10 @@ export function YueReferences() {
   return window['go']['main']['App']['YueReferences']();
 }
 
+export function YueRenameJob(arg1, arg2) {
+  return window['go']['main']['App']['YueRenameJob'](arg1, arg2);
+}
+
 export function YueSaveAudio(arg1, arg2) {
   return window['go']['main']['App']['YueSaveAudio'](arg1, arg2);
 }
@@ -188,6 +192,10 @@ export function YueSeekAudio(arg1) {
 
 export function YueSetHead(arg1, arg2) {
   return window['go']['main']['App']['YueSetHead'](arg1, arg2);
+}
+
+export function YueSetJobFolder(arg1, arg2) {
+  return window['go']['main']['App']['YueSetJobFolder'](arg1, arg2);
 }
 
 export function YueSetServerURL(arg1) {

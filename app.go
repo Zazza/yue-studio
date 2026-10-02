@@ -568,6 +568,16 @@ func (a *App) YueContinueJob(jobID int64, fromSec float64, seed int64, abc, styl
 	return a.yue.ContinueJob(a.ctx, jobID, fromSec, seed, abc, styleAdd)
 }
 
+// YueRenameJob — своё название трека вместо номера (номер при переносе меняется).
+func (a *App) YueRenameJob(jobID int64, title string) (*yue.Job, error) {
+	return a.yue.UpdateJob(a.ctx, jobID, &title, nil)
+}
+
+// YueSetJobFolder — папка песни («Альбом», «Основы», …); "" — без папки.
+func (a *App) YueSetJobFolder(jobID int64, folder string) (*yue.Job, error) {
+	return a.yue.UpdateJob(a.ctx, jobID, nil, &folder)
+}
+
 // YueSetHead — основная версия песни (0 — сам трек).
 func (a *App) YueSetHead(jobID, headID int64) error {
 	return a.yue.SetHead(a.ctx, jobID, headID)

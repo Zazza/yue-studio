@@ -340,6 +340,33 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "job_update",
+		Description: "Подпись и папка трека: человеческое название вместо номера (номер при переносе меняется) " +
+			"и папка песни («Альбом», «Основы», «Эксперименты» или своя; версии следуют за корнем). " +
+			"Поле не передано — не меняется; folder \"\" — убрать из папки.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека", "integer"),
+			"title":  prop("новое название (непустое)", "string"),
+			"folder": prop("папка; пустая строка — без папки", "string"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			title, folder := optString(args, "title"), optString(args, "folder")
+			if title == nil && folder == nil {
+				return "", fmt.Errorf("нечего менять: передай title и/или folder")
+			}
+			j, err := s.client.UpdateJob(context.Background(), argInt(args, "job_id"), title, folder)
+			if err != nil {
+				return "", err
+			}
+			where := "без папки"
+			if j.Folder != "" {
+				where = "папка «" + j.Folder + "»"
+			}
+			return fmt.Sprintf("#%d «%s», %s", j.ID, j.Title, where), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "make_minus",
 		Description: "Минус-трек: микс стемов без выбранных групп (напр. vocals для караоке).",
 		InputSchema: props(map[string]any{
@@ -445,6 +472,8 @@ func RegisterStudioTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"path":       prop("путь к аудиофайлу (flac/mp3/wav/ogg/m4a)", "string"),
 			"transcribe": prop("сделать транскрипцию (для пиано-ролла/овердаба)", "boolean"),
+			"title":      prop("название трека (пусто — имя файла)", "string"),
+			"folder":     prop("папка («Альбом», «Основы», …; пусто — без папки)", "string"),
 		}, "path"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			data, err := os.ReadFile(argString(args, "path"))
@@ -457,6 +486,15 @@ func RegisterStudioTools(s *Server) {
 			out, err := s.client.ImportTrack(context.Background(), filepath.Base(argString(args, "path")), data, argBool(args, "transcribe"))
 			if err != nil {
 				return "", err
+			}
+			// подпись и папка — отдельной правкой: у импорта на воркере их нет
+			title, folder := nonEmpty(argString(args, "title")), nonEmpty(argString(args, "folder"))
+			if id, ok := out["id"].(float64); ok && (title != nil || folder != nil) {
+				j, err := s.client.UpdateJob(context.Background(), int64(id), title, folder)
+				if err != nil {
+					return "", fmt.Errorf("трек #%d импортирован, но подпись/папка не сохранились: %w", int64(id), err)
+				}
+				out["title"], out["folder"] = j.Title, j.Folder
 			}
 			return toJSON(out), nil
 		},
