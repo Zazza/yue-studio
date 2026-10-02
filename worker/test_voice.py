@@ -88,80 +88,6 @@ class TestMatchGain(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
-class TestMix(unittest.TestCase):
-    def setUp(self):
-        import voice
-        self.v = voice
-
-    def test_sum_of_tracks_and_vocal_with_gain(self):
-        a = np.full((100, 2), 0.1, dtype=np.float32)
-        b = np.full((100, 2), 0.2, dtype=np.float32)
-        voc = np.full((100, 2), 0.1, dtype=np.float32)
-        out = self.v.mix([a, b], voc, gain=2.0)
-        self.assertEqual(out.dtype, np.float32)
-        self.assertEqual(out.shape, (100, 2))
-        np.testing.assert_allclose(out, 0.5, atol=1e-6)
-
-    def test_default_gain_is_one(self):
-        a = np.full((50, 2), 0.1, dtype=np.float32)
-        voc = np.full((50, 2), 0.2, dtype=np.float32)
-        np.testing.assert_allclose(self.v.mix([a], voc), 0.3, atol=1e-6)
-
-    def test_length_is_longest_instrumental(self):
-        a = np.full((100, 2), 0.1, dtype=np.float32)
-        b = np.full((80, 2), 0.1, dtype=np.float32)
-        out = self.v.mix([a, b], np.zeros((60, 2), dtype=np.float32))
-        self.assertEqual(out.shape, (100, 2))
-        np.testing.assert_allclose(out[:80], 0.2, atol=1e-6)
-        np.testing.assert_allclose(out[80:], 0.1, atol=1e-6)
-
-    def test_longer_vocal_trimmed(self):
-        a = np.zeros((100, 2), dtype=np.float32)
-        voc = np.full((150, 2), 0.3, dtype=np.float32)
-        out = self.v.mix([a], voc)
-        self.assertEqual(out.shape, (100, 2))
-        np.testing.assert_allclose(out, 0.3, atol=1e-6)
-
-    def test_shorter_vocal_padded_with_silence(self):
-        a = np.full((100, 2), 0.1, dtype=np.float32)
-        voc = np.full((40, 2), 0.3, dtype=np.float32)
-        out = self.v.mix([a], voc)
-        self.assertEqual(out.shape, (100, 2))
-        np.testing.assert_allclose(out[:40], 0.4, atol=1e-6)
-        np.testing.assert_allclose(out[40:], 0.1, atol=1e-6)
-
-    def test_mono_vocal_goes_to_both_channels(self):
-        a = np.zeros((SR // 10, 2), dtype=np.float32)
-        voc = _sine(0.3, sec=0.1)
-        out = self.v.mix([a], voc, gain=1.5)
-        self.assertEqual(out.shape, (SR // 10, 2))
-        np.testing.assert_allclose(out[:, 0], out[:, 1], atol=1e-7)
-        np.testing.assert_allclose(out[:, 0], voc * 1.5, atol=1e-6)
-
-    def test_peak_above_limit_scaled_to_099(self):
-        a = np.zeros((1000, 2), dtype=np.float32)
-        a[:, 0] = 0.8
-        a[:, 1] = 0.4
-        voc = np.full((1000, 2), 0.8, dtype=np.float32)
-        out = self.v.mix([a], voc)
-        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-4)
-        # масштаб общий, а не клип: соотношение каналов сохраняется (1.6 : 1.2)
-        self.assertAlmostEqual(float(out[0, 1] / out[0, 0]), 1.2 / 1.6, delta=1e-4)
-
-    def test_negative_peak_also_limited(self):
-        a = np.full((100, 2), -0.9, dtype=np.float32)
-        voc = np.full((100, 2), -0.9, dtype=np.float32)
-        out = self.v.mix([a], voc)
-        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-4)
-
-    def test_peak_within_limit_unchanged(self):
-        a = np.full((100, 2), 0.5, dtype=np.float32)
-        voc = np.full((100, 2), 0.49, dtype=np.float32)
-        out = self.v.mix([a], voc)
-        np.testing.assert_allclose(out, 0.99, atol=1e-6)
-
-
-@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
 class TestResample(unittest.TestCase):
     def setUp(self):
         import voice
@@ -449,6 +375,175 @@ class TestActivityMask(unittest.TestCase):
         m = self.v.activity_mask(x, SR)
         self.assertEqual(len(m), len(x))
         self.assertEqual(float(m.max()), 0.0)
+
+
+@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
+class TestReplaceVocal(unittest.TestCase):
+    """replace_vocal: в готовом миксе старый голос вычитается и добавляется новый
+    по маске (mix − mask·vocals + mask·gain·new); вне маски микс не трогается."""
+
+    N = 1000
+
+    def setUp(self):
+        import voice
+        self.v = voice
+
+    def _const(self, val, n=None, ch=None):
+        n = self.N if n is None else n
+        shape = (n,) if ch is None else (n, ch)
+        return np.full(shape, val, dtype=np.float32)
+
+    def _rand_mix(self, n=None, ch=2, seed=1):
+        rng = np.random.default_rng(seed)
+        n = self.N if n is None else n
+        return (rng.uniform(-0.4, 0.4, (n, ch))).astype(np.float32)
+
+    def test_returns_float32_frames_channels(self):
+        out = self.v.replace_vocal(self._rand_mix(), self._const(0.1), self._const(0.2),
+                                   self._const(1.0))
+        self.assertEqual(out.dtype, np.float32)
+        self.assertEqual(out.shape, (self.N, 2))
+
+    # 1. mask = 0 → бит в бит mix
+    def test_zero_mask_is_bit_exact_mix(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(7)
+        vocals = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        new = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        mask = np.zeros(self.N, dtype=np.float32)
+        out = self.v.replace_vocal(mix, vocals, new, mask, gain=2.0)
+        np.testing.assert_array_equal(out, mix.astype(np.float32))
+
+    def test_zero_mask_region_bit_exact_inside_partial_mask(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(3)
+        vocals = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        new = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        mask = np.zeros(self.N, dtype=np.float32)
+        mask[300:600] = 1.0
+        out = self.v.replace_vocal(mix, vocals, new, mask)
+        np.testing.assert_array_equal(out[:300], mix[:300])
+        np.testing.assert_array_equal(out[600:], mix[600:])
+
+    # 2. mask = 1, new = vocals, gain = 1 → mix
+    def test_replace_with_itself_is_mix(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(5)
+        vocals = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        out = self.v.replace_vocal(mix, vocals, vocals.copy(), self._const(1.0), gain=1.0)
+        np.testing.assert_allclose(out, mix, atol=1e-6)
+
+    # 3. mask = 1 → старый вычтен, новый добавлен с gain
+    def test_full_mask_subtracts_old_adds_new_with_gain(self):
+        out = self.v.replace_vocal(self._const(0.5, ch=2), self._const(0.3), self._const(0.2),
+                                   self._const(1.0), gain=0.5)
+        np.testing.assert_allclose(out, 0.5 - 0.3 + 0.5 * 0.2, atol=1e-6)
+
+    def test_default_gain_is_one(self):
+        out = self.v.replace_vocal(self._const(0.5, ch=2), self._const(0.3), self._const(0.2),
+                                   self._const(1.0))
+        np.testing.assert_allclose(out, 0.5 - 0.3 + 0.2, atol=1e-6)
+
+    def test_fractional_mask_blends(self):
+        out = self.v.replace_vocal(self._const(0.5, ch=2), self._const(0.3), self._const(0.2),
+                                   self._const(0.5), gain=1.0)
+        np.testing.assert_allclose(out, 0.5 - 0.5 * 0.3 + 0.5 * 0.2, atol=1e-6)
+
+    # 4. форма: моно в оба канала, длина = mix, паддинг/обрезка
+    def test_mono_1d_goes_to_both_channels(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(9)
+        vocals = rng.uniform(-0.2, 0.2, self.N).astype(np.float32)
+        new = rng.uniform(-0.2, 0.2, self.N).astype(np.float32)
+        out = self.v.replace_vocal(mix, vocals, new, self._const(1.0), gain=0.7)
+        for c in range(2):
+            np.testing.assert_allclose(out[:, c], mix[:, c] - vocals + 0.7 * new, atol=1e-6)
+
+    def test_mono_column_same_as_1d(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(11)
+        vocals = rng.uniform(-0.2, 0.2, self.N).astype(np.float32)
+        new = rng.uniform(-0.2, 0.2, self.N).astype(np.float32)
+        mask = self._const(1.0)
+        flat = self.v.replace_vocal(mix, vocals, new, mask)
+        col = self.v.replace_vocal(mix, vocals[:, None], new[:, None], mask)
+        self.assertEqual(col.shape, (self.N, 2))
+        np.testing.assert_allclose(col, flat, atol=1e-7)
+
+    def test_short_inputs_padded_with_zeros(self):
+        mix = self._rand_mix()
+        half = self.N // 2
+        out = self.v.replace_vocal(mix, self._const(0.3, n=half), self._const(0.2, n=half),
+                                   self._const(1.0, n=half))
+        self.assertEqual(out.shape, (self.N, 2))
+        np.testing.assert_allclose(out[:half], mix[:half] - 0.3 + 0.2, atol=1e-6)
+        # за концом маски маска = 0 → чистый mix
+        np.testing.assert_array_equal(out[half:], mix[half:])
+
+    def test_short_vocals_and_new_under_full_mask(self):
+        mix = self._rand_mix()
+        half = self.N // 2
+        out = self.v.replace_vocal(mix, self._const(0.3, n=half), self._const(0.2, n=half),
+                                   self._const(1.0))
+        np.testing.assert_allclose(out[half:], mix[half:], atol=1e-6)
+
+    def test_long_inputs_truncated(self):
+        mix = self._rand_mix()
+        n2 = self.N * 2
+        out = self.v.replace_vocal(mix, self._const(0.3, n=n2), self._const(0.2, n=n2),
+                                   self._const(1.0, n=n2))
+        self.assertEqual(out.shape, (self.N, 2))
+        np.testing.assert_allclose(out, mix - 0.3 + 0.2, atol=1e-6)
+
+    # 5. mix 1D → (frames, 1)
+    def test_mono_mix_gives_column(self):
+        mix = self._const(0.5)
+        out = self.v.replace_vocal(mix, self._const(0.3), self._const(0.2), self._const(1.0))
+        self.assertEqual(out.shape, (self.N, 1))
+        np.testing.assert_allclose(out[:, 0], 0.4, atol=1e-6)
+
+    # 6. пик > 0.99 → нормировка к 0.99 пропорционально
+    def test_peak_over_limit_scaled_to_099(self):
+        mix = self._const(0.5, ch=2)
+        mask = np.zeros(self.N, dtype=np.float32)
+        mask[:100] = 1.0
+        out = self.v.replace_vocal(mix, self._const(0.0), self._const(1.0), mask)
+        # без масштаба: 1.5 под маской, 0.5 вне — масштаб 0.99/1.5
+        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-5)
+        np.testing.assert_allclose(out[:100], 0.99, atol=1e-5)
+        np.testing.assert_allclose(out[100:], 0.5 * 0.99 / 1.5, atol=1e-5)
+
+    def test_negative_peak_over_limit_scaled(self):
+        mix = self._const(-0.5, ch=2)
+        mix[:, 1] = 0.25
+        out = self.v.replace_vocal(mix, self._const(0.5), self._const(-0.5),
+                                   self._const(1.0), gain=2.0)
+        # без масштаба: канал 0 = -2.0, канал 1 = -1.25
+        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-5)
+        np.testing.assert_allclose(out[:, 0], -0.99, atol=1e-5)
+        np.testing.assert_allclose(out[:, 1], -1.25 * 0.99 / 2.0, atol=1e-5)
+
+    def test_peak_within_limit_not_scaled(self):
+        out = self.v.replace_vocal(self._const(0.5, ch=2), self._const(0.1), self._const(0.5),
+                                   self._const(1.0))
+        np.testing.assert_allclose(out, 0.9, atol=1e-6)
+
+    def test_peak_exactly_099_not_scaled(self):
+        mix = self._const(0.49, ch=2)
+        out = self.v.replace_vocal(mix, self._const(0.0), self._const(0.5), self._const(1.0))
+        np.testing.assert_allclose(out, np.float32(0.49) + np.float32(0.5), atol=1e-6)
+
+    # 7. вход не мутируется
+    def test_inputs_not_mutated(self):
+        mix = self._rand_mix()
+        rng = np.random.default_rng(13)
+        vocals = rng.uniform(-0.3, 0.3, self.N).astype(np.float32)
+        new = rng.uniform(-0.9, 0.9, self.N).astype(np.float32)
+        mask = rng.uniform(0, 1, self.N).astype(np.float32)
+        copies = [a.copy() for a in (mix, vocals, new, mask)]
+        self.v.replace_vocal(mix, vocals, new, mask, gain=3.0)
+        for a, c in zip((mix, vocals, new, mask), copies, strict=True):
+            np.testing.assert_array_equal(a, c)
 
 
 if __name__ == "__main__":

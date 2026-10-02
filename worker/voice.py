@@ -21,7 +21,6 @@ RUNNER = Path(__file__).parent / "seedvc_run.py"
 
 REF_MIN_SEC, REF_MAX_SEC = 3.0, 30.0   # Seed-VC берёт образец до 30 с
 STEPS_MIN, STEPS_MAX = 10, 100
-INSTR_STEMS = ("drums", "bass", "other")
 
 
 def available() -> bool:
@@ -83,21 +82,34 @@ def match_gain(source: np.ndarray, converted: np.ndarray) -> float:
     return a / b if a > 0 and b > 0 else 1.0
 
 
-def mix(instrumental: list[np.ndarray], vocal: np.ndarray, gain: float = 1.0) -> np.ndarray:
-    """Сумма дорожек (frames, ch) и голоса: длина — по самой длинной дорожке
-    музыки (голос обрезается/дополняется тишиной), моно-голос — в оба канала;
-    пики выше 0.99 мягко прижимаются, чтобы не клиповать."""
-    length = max(len(s) for s in instrumental)
-    ch = max(s.shape[1] if s.ndim > 1 else 1 for s in instrumental)
-    out = np.zeros((length, ch), dtype=np.float64)
-    for s in instrumental:
-        s2 = s if s.ndim > 1 else s[:, None]
-        out[: len(s2)] += s2[:, :ch] if s2.shape[1] >= ch else np.repeat(s2, ch, axis=1)
-    v = vocal if vocal.ndim > 1 else vocal[:, None]
-    if v.shape[1] < ch:
-        v = np.repeat(v[:, :1], ch, axis=1)
-    n = min(length, len(v))
-    out[:n] += v[:n, :ch] * gain
+def replace_vocal(mix: np.ndarray, vocals: np.ndarray, new: np.ndarray, mask: np.ndarray,
+                  gain: float = 1.0) -> np.ndarray:
+    """Заменить голос в готовом миксе: mix − mask·vocals + mask·gain·new.
+    Микс берётся целиком, а не собирается из дорожек demucs (сумма дорожек ≠
+    микс — музыка портилась и там, где голоса нет): вне маски результат бит в
+    бит равен миксу. Все массивы — (frames[, ch]) одной частоты; моно-голос
+    идёт в оба канала; длина — как у микса (короткие дополняются тишиной).
+    Пик выше 0.99 — весь результат масштабируется до 0.99, без клипа."""
+    mix = np.asarray(mix, dtype=np.float64)
+    if mix.ndim == 1:
+        mix = mix[:, None]
+    n, ch = mix.shape
+
+    def fit(x):
+        x = np.asarray(x, dtype=np.float64)
+        if x.ndim == 1:
+            x = x[:, None]
+        if x.shape[1] < ch:
+            x = np.repeat(x[:, :1], ch, axis=1)
+        out = np.zeros((n, ch))
+        k = min(n, len(x))
+        out[:k] = x[:k, :ch]
+        return out
+
+    m = np.zeros(n)
+    k = min(n, len(mask))
+    m[:k] = np.asarray(mask, dtype=np.float64)[:k]
+    out = mix + m[:, None] * (gain * fit(new) - fit(vocals))
     peak = np.abs(out).max() if out.size else 0.0
     if peak > 0.99:
         out *= 0.99 / peak
@@ -127,12 +139,16 @@ def convert(source_wav: Path, ref_wav: Path, out_wav: Path, steps: int, timeout:
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-def run(src_dir: Path, ref_dir: Path, out_dir: Path, ref_from: float, ref_dur: float, steps: int) -> Path:
-    """Голос трека src_dir (дорожки stem-*.flac уже есть) — тембром голоса из
-    ref_dir в окне [ref_from, ref_from + ref_dur) → out_dir/audio.flac."""
+def run(src_dir: Path, audio_name: str, ref_dir: Path, out_dir: Path, ref_from: float, ref_dur: float,
+        steps: int) -> Path:
+    """Голос трека src_dir (микс audio_name и дорожка stem-vocals.flac уже есть) —
+    тембром голоса из ref_dir в окне [ref_from, ref_from + ref_dur) → out_dir/audio.flac."""
     import soundfile as sf
 
     vocals, sr = sf.read(str(src_dir / "stem-vocals.flac"), dtype="float32", always_2d=True)
+    mix, msr = sf.read(str(src_dir / audio_name), dtype="float32", always_2d=True)
+    if msr != sr:
+        mix = resample(mix, msr, sr)
     ref, rsr = sf.read(str(ref_dir / "stem-vocals.flac"), dtype="float32", always_2d=True)
     ref = ref[int(ref_from * rsr): int((ref_from + ref_dur) * rsr)].mean(axis=1)
     if len(ref) < REF_MIN_SEC * rsr:
@@ -145,12 +161,8 @@ def run(src_dir: Path, ref_dir: Path, out_dir: Path, ref_from: float, ref_dur: f
         vc, vsr = sf.read(str(t / "vc.wav"), dtype="float32", always_2d=True)
     vc = resample(vc, vsr, sr)   # Seed-VC поёт на 44.1 кГц, дорожки YuE — 48 кГц
     # новый голос — только там, где пел исходный: Seed-VC шумит на старте и
-    # «озвучивает» утечки гитар в паузах дорожки голоса
-    mask = activity_mask(vocals, sr)
-    k = min(len(vc), len(mask))
-    vc = vc[:k] * (mask[:k, None] if vc.ndim > 1 else mask[:k])
-    music = [sf.read(str(src_dir / f"stem-{s}.flac"), dtype="float32", always_2d=True)[0] for s in INSTR_STEMS]
-    out = mix(music, vc, match_gain(vocals, vc))
+    # «озвучивает» утечки гитар в паузах дорожки голоса; вне фраз — исходный микс
+    out = replace_vocal(mix, vocals, vc, activity_mask(vocals, sr), match_gain(vocals, vc))
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / "audio.flac"
     sf.write(str(dst), out, sr)

@@ -474,7 +474,9 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
         p = json.loads((job_dir / "voice.json").read_text())
         src = _ensure_stems(int(row["parent_id"]))
         ref = _ensure_stems(int(p["ref_job_id"]))
-        audio = voicevc.run(src, ref, job_dir, float(p["ref_from"]), float(p["ref_dur"]), int(p["steps"]))
+        parent = _job_row(int(row["parent_id"]))
+        audio = voicevc.run(src, parent["audio_file"], ref, job_dir,
+                            float(p["ref_from"]), float(p["ref_dur"]), int(p["steps"]))
         # ноты те же — ролл и превью работают по плану родителя
         for f in ("score.abc", "score.json"):
             if (src / f).is_file():
