@@ -429,6 +429,21 @@ func gateGraph(p map[string]float64) string {
 		gateSamples, p["depth"], fmt.Sprintf("mod(t-%g+%g*1000,%g)/%g", p["offset"], period, period, period), r, p["duty"])
 }
 
+var levelParams = []Param{
+	{ID: "gain", Label: "громкость, дБ (+ громче, − тише)", Min: -12, Max: 12, Step: 0.1, Default: 0},
+	{ID: "ceiling", Label: "потолок пиков, дБ", Min: -3, Max: -0.1, Step: 0.1, Default: -1.5},
+}
+
+// levelGraph — «Громкость альбома»: только сдвиг громкости и ограничитель пиков
+// на потолке ceiling — без перегруза, песка и разжатия, тембр и динамика те же.
+// Для выравнивания треков альбома к одной громкости (LUFS): пики выше потолка
+// при сжатии в mp3/стриминге хрипят, ограничитель трогает только их. latency=1 —
+// задержка упреждения ограничителя компенсируется: звук не сдвигается (тест поймал 5 мс).
+func levelGraph(p map[string]float64) string {
+	return fmt.Sprintf("[0:a]volume=%gdB,alimiter=limit=%g:attack=5:release=50:level=disabled:latency=1[out]",
+		p["gain"], math.Pow(10, p["ceiling"]/20))
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -508,6 +523,12 @@ var chains = []Chain{
 		ID: "warp", Name: "Варп-лента",
 		Note:   "Глубокое завывание и дрожь, глухой верх — плёночный брак как приём.",
 		Params: warpParams, graph: warpGraph,
+	},
+	{
+		ID: "level", Name: "Громкость альбома",
+		Note: "Только громкость на заданные дБ и ограничитель пиков на потолке — без перегруза, " +
+			"песка и разжатия: выровнять треки альбома к одной громкости, тембр и динамика те же.",
+		Params: levelParams, graph: levelGraph,
 	},
 	{
 		ID: "gate", Name: "Ритм-гейт",
