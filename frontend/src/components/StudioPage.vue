@@ -1563,7 +1563,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <summary>{{ t('studio.vc') }} <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted">{{ t('studio.vc.sub') }}</span></summary>
             <p class="muted">{{ t('studio.vc.desc') }}</p>
             <div class="od-row">
-              <VSelect v-model="vcRef" :options="vcRefOptions" :placeholder="t('studio.vc.ref')" style="width:320px" />
+              <VSelect v-model="vcRef" :options="vcRefOptions" searchable :placeholder="t('studio.vc.ref')" style="width:320px" />
               <button class="primary small" :disabled="vcBusy || !vcRef" @click="submitVoice">
                 {{ vcBusy ? '…' : t('studio.vc.go') }}
               </button>

@@ -4,19 +4,25 @@
 // Список телепортируется в body с position:fixed: absolute внутри
 // скроллящейся панели (студия трека) не накрывает контент, а удлиняет
 // скролл — «открыл селект, а прокручивать надо панель».
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { matchOptions } from './optionFilter.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   options: { type: Array, default: () => [] },        // [{value, label, disabled}]
   placeholder: { type: String, default: '— выберите —' },
   disabled: { type: Boolean, default: false },
+  // длинные списки (песни): поле поиска сверху, пункты фильтруются по словам
+  searchable: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 const open = ref(false)
 const root = ref(null)
 const drop = ref(null)
 const dropStyle = ref({})   // fixed-координаты по кнопке
+const query = ref('')
+const search = ref(null)
+const shown = computed(() => (props.searchable ? matchOptions(props.options, query.value) : props.options))
 
 function place() {
   if (!root.value) return
@@ -40,8 +46,10 @@ const toggle = async () => {
   if (props.disabled) return
   if (!open.value) {
     open.value = true
+    query.value = ''
     await nextTick()
     place()
+    if (search.value) search.value.focus()
   } else {
     open.value = false
   }
@@ -58,6 +66,15 @@ const pick = (o) => {
 }
 const onDocClick = (e) => {
   if (root.value && !root.value.contains(e.target) && drop.value && !drop.value.contains(e.target)) {
+    open.value = false
+  }
+}
+// Enter — первый подходящий пункт, Esc — закрыть
+const onSearchKey = (e) => {
+  if (e.key === 'Enter') {
+    const o = shown.value.find((x) => !x.disabled)
+    if (o) pick(o)
+  } else if (e.key === 'Escape') {
     open.value = false
   }
 }
@@ -88,7 +105,11 @@ onUnmounted(() => {
     </button>
     <Teleport to="body">
       <ul v-if="open && options.length" ref="drop" class="vselect-drop" :style="dropStyle">
-        <li v-for="o in options" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
+        <li v-if="searchable" class="vselect-search">
+          <input ref="search" v-model="query" placeholder="🔍" @keydown="onSearchKey" />
+        </li>
+        <li v-if="searchable && !shown.length" class="off">—</li>
+        <li v-for="o in shown" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
             @mousedown.prevent="pick(o)">{{ o.label }}</li>
       </ul>
     </Teleport>
@@ -116,4 +137,7 @@ onUnmounted(() => {
 .vselect-drop li:hover { background: var(--panel2); }
 .vselect-drop li.sel { color: var(--accent); font-weight: 600; }
 .vselect-drop li.off { opacity: .5; cursor: default; }
+.vselect-drop li.vselect-search { position: sticky; top: -4px; padding: 4px 6px; background: var(--panel); cursor: default; }
+.vselect-drop li.vselect-search:hover { background: var(--panel); }
+.vselect-search input { width: 100%; box-sizing: border-box; font-size: 13px; padding: 4px 8px; }
 </style>
