@@ -131,6 +131,8 @@ export function YueVariantToTrack(arg1:number,arg2:string,arg3:string,arg4:numbe
 
 export function YueVocalContour(arg1:number,arg2:number,arg3:number):Promise<yue.VocalContour>;
 
+export function YueVoiceConvert(arg1:number,arg2:yue.VoiceParams):Promise<number>;
+
 export function YueVoiceCreate(arg1:string,arg2:number,arg3:string,arg4:number):Promise<number>;
 
 export function YueVoiceDelete(arg1:number):Promise<boolean>;

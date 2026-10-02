@@ -44,7 +44,7 @@ func RegisterInstallTools(s *Server) {
 			"dry_run":    prop("показать план без выполнения (по умолчанию true)", "boolean"),
 			"confirm":    prop("выполнить установку (спроси пользователя)", "boolean"),
 			"hf_home":    prop("каталог кеша весов HF (по умолчанию ~/yue/hf-cache)", "string"),
-			"seedvc_dir": prop("поставить и Seed-VC («голос альбома», ~9 ГБ) в этот каталог (пусто — не ставить)", "string"),
+			"seedvc_dir": prop("поставить и Seed-VC («голос альбома», эксперимент; ~14 ГБ на установку, ~10 ГБ после) в этот каталог (пусто — не ставить)", "string"),
 		}),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			dryRun := true

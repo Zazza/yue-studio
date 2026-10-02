@@ -277,6 +277,23 @@ async function makeHead(root, v) {
     alert(String(e))
   }
 }
+// ЭКСПЕРИМЕНТ «голос альбома» (Seed-VC на воркере): голос основной версии
+// поётся тембром голоса другой песни; кусок образца воркер подбирает сам
+const seedvcOk = ref(false)
+const voiceRef = ref({})   // id песни → id песни-образца
+const voiceRefOptions = (j) => grouped.value.top
+  .filter((s) => s.id !== j.id && s.status === 'done' && s.audio_file)
+  .map((s) => ({ value: String(s.id), label: `#${s.id} ${s.title || ''}` }))
+async function voiceConvert(j) {
+  const refId = Number(voiceRef.value[j.id])
+  if (!refId) return
+  try {
+    await api.voiceConvert(headOf(j).id, { ref_job_id: refId })
+    await refresh()
+  } catch (e) {
+    alert(String(e))
+  }
+}
 // подпись и папка песни: своё название вместо номера, папки «Альбом/Основы/…»
 const titleEdit = ref(null) // { id, value } — трек, чьё название правится
 function startRename(j) { titleEdit.value = { id: j.id, value: j.title || '' } }
@@ -666,6 +683,7 @@ onMounted(async () => {
   serverURL.value = await api.getServerURL()
   refresh()
   loadVoiceCards()
+  api.workerConfig().then((c) => { seedvcOk.value = !!c?.seedvc_available }).catch(() => {})
   timer = setInterval(refresh, 3000)
   window.addEventListener('click', onWindowClick)
 })
@@ -921,6 +939,12 @@ function onWindowClick(e) {
             </button>
             <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
             <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
+          </div>
+          <div v-if="seedvcOk && headOf(j).status === 'done'" class="job-kid">
+            <span class="badge exp" :title="t('queue.voice.exp.tip')">{{ t('queue.voice.exp') }}</span>
+            <span>{{ t('queue.voice.label', { id: headOf(j).id }) }}</span>
+            <VSelect v-model="voiceRef[j.id]" :options="voiceRefOptions(j)" :placeholder="t('queue.voice.ref')" style="max-width: 260px" />
+            <button class="ghost small-btn" :disabled="!voiceRef[j.id]" :title="t('queue.voice.tip')" @click="voiceConvert(j)">{{ t('queue.voice.go') }}</button>
           </div>
           <details v-if="(kidMixes[j.id] || []).length" class="job-material">
             <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>

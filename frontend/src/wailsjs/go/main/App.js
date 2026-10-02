@@ -254,6 +254,10 @@ export function YueVocalContour(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueVocalContour'](arg1, arg2, arg3);
 }
 
+export function YueVoiceConvert(arg1, arg2) {
+  return window['go']['main']['App']['YueVoiceConvert'](arg1, arg2);
+}
+
 export function YueVoiceCreate(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['YueVoiceCreate'](arg1, arg2, arg3, arg4);
 }

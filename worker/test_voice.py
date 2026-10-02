@@ -251,7 +251,7 @@ class TestVoiceJobApi(_WorkerApiCase):
         self.assertEqual(row["lyrics"], parent["lyrics"])
         p = json.loads((self.jobs_dir / str(new_id) / "voice.json").read_text())
         self.assertEqual(p["ref_job_id"], ref)
-        self.assertEqual(float(p["ref_from"]), 0)
+        self.assertIsNone(p["ref_from"])   # не задано — окно подберёт воркер (best_window)
         self.assertEqual(float(p["ref_dur"]), 25)
         self.assertEqual(int(p["steps"]), 50)
 
@@ -711,6 +711,85 @@ class TestLimitPeaks(unittest.TestCase):
                 out = self.v.limit_peaks(np.zeros(shape, dtype=np.float32))
                 self.assertEqual(out.size, 0)
                 self.assertEqual(out.shape, shape)
+
+
+@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
+class TestBestWindow(unittest.TestCase):
+    """best_window: начало окна dur с наибольшей долей звучащего голоса, шаг 0.1 с."""
+
+    BSR = 16000
+
+    def setUp(self):
+        import voice
+        self.v = voice
+        self.rng = np.random.default_rng(7)
+
+    def _track(self, total, sung):
+        """Тихая утечка 1e-4 на всём треке + шумовое «пение» 0.3 в интервалах sung."""
+        n = int(total * self.BSR)
+        x = (1e-4 * self.rng.standard_normal(n)).astype(np.float32)
+        for a, b in sung:
+            i, j = int(a * self.BSR), int(b * self.BSR)
+            x[i:j] = (0.3 * self.rng.standard_normal(j - i)).astype(np.float32)
+        return x
+
+    def _assert_grid(self, got, x, dur):
+        self.assertAlmostEqual(got * 10, round(got * 10), delta=1e-9 * 10)
+        self.assertGreaterEqual(got, 0.0)
+        self.assertLessEqual(got, len(x) / self.BSR - dur + 1e-9)
+
+    def test_single_sung_region_window_inside(self):
+        x = self._track(60, [(30, 45)])
+        got = self.v.best_window(x, self.BSR, 10)
+        self.assertGreaterEqual(got, 30 - 1e-9)
+        self.assertLessEqual(got, 35 + 1e-9)
+
+    def test_prefers_longer_sung_region(self):
+        x = self._track(60, [(5, 10), (30, 50)])
+        got = self.v.best_window(x, self.BSR, 15)
+        self.assertGreaterEqual(got, 30 - 0.2)
+        self.assertLessEqual(got, 35 + 0.2)
+
+    def test_track_shorter_than_window_is_zero(self):
+        x = self._track(5, [(1, 4)])
+        self.assertEqual(self.v.best_window(x, self.BSR, 10), 0.0)
+
+    def test_track_equal_to_window_is_zero(self):
+        x = self._track(10, [(6, 9)])
+        self.assertEqual(self.v.best_window(x, self.BSR, 10), 0.0)
+
+    def test_empty_track_is_zero(self):
+        self.assertEqual(self.v.best_window(np.zeros(0, np.float32), self.BSR, 10), 0.0)
+
+    def test_stereo_same_as_mono_mix(self):
+        left = self._track(60, [(30, 45)])
+        right = self._track(60, [(30, 45)])
+        stereo = np.stack([left, right], axis=1)
+        self.assertAlmostEqual(self.v.best_window(stereo, self.BSR, 10),
+                               self.v.best_window(stereo.mean(axis=1), self.BSR, 10),
+                               delta=1e-9)
+
+    def test_stereo_singing_in_one_channel_found(self):
+        sung = self._track(60, [(30, 45)])
+        quiet = self._track(60, [])
+        got = self.v.best_window(np.stack([quiet, sung], axis=1), self.BSR, 10)
+        self.assertGreaterEqual(got, 30 - 1e-9)
+        self.assertLessEqual(got, 35 + 1e-9)
+
+    def test_result_on_grid_and_in_bounds(self):
+        cases = [(self._track(60, [(30, 45)]), 10),
+                 (self._track(60, [(5, 10), (30, 50)]), 15),
+                 (self._track(23.37, [(18.33, 23.37)]), 4.55),
+                 (self._track(20, [(0, 3)]), 7)]
+        for x, dur in cases:
+            with self.subTest(dur=dur):
+                self._assert_grid(self.v.best_window(x, self.BSR, dur), x, dur)
+
+    def test_singing_at_track_end_reaches_upper_bound(self):
+        x = self._track(30, [(22, 30)])
+        got = self.v.best_window(x, self.BSR, 10)
+        self.assertGreaterEqual(got, 20 - 0.2)
+        self.assertLessEqual(got, 20 + 1e-9)
 
 
 if __name__ == "__main__":

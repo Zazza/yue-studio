@@ -476,7 +476,8 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
         ref = _ensure_stems(int(p["ref_job_id"]))
         parent = _job_row(int(row["parent_id"]))
         audio = voicevc.run(src, parent["audio_file"], ref, job_dir,
-                            float(p["ref_from"]), float(p["ref_dur"]), int(p["steps"]))
+                            None if p.get("ref_from") is None else float(p["ref_from"]),
+                            float(p["ref_dur"]), int(p["steps"]))
         # ноты те же — ролл и превью работают по плану родителя
         for f in ("score.abc", "score.json"):
             if (src / f).is_file():
@@ -498,7 +499,8 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
 
 class VoiceIn(BaseModel):
     ref_job_id: int                                  # трек-образец: чей голос
-    ref_from: float = Field(default=0, ge=0)         # окно образца в его дорожке голоса, с
+    # окно образца в его дорожке голоса, с; не задано — самый плотный кусок пения
+    ref_from: float | None = Field(default=None, ge=0)
     ref_dur: float = Field(default=25, ge=voicevc.REF_MIN_SEC, le=voicevc.REF_MAX_SEC)
     steps: int = Field(default=50, ge=voicevc.STEPS_MIN, le=voicevc.STEPS_MAX)
     title: str = ""
@@ -506,8 +508,9 @@ class VoiceIn(BaseModel):
 
 @app.post("/jobs/{job_id}/voice")
 def voice_job(job_id: int, req: VoiceIn):
-    """«Голос альбома»: новая версия трека — голос спет тембром образца (Seed-VC,
-    отдельная установка), музыка и мелодия прежние. Джоба идёт в общую очередь."""
+    """«Голос альбома» (ЭКСПЕРИМЕНТ: голос узнаётся, но дрожит — свойство
+    Seed-VC): новая версия трека — голос спет тембром образца (отдельная
+    установка), музыка и мелодия прежние. Джоба идёт в общую очередь."""
     if not voicevc.available():
         raise HTTPException(503, f"Seed-VC не установлен ({voicevc.SEEDVC_DIR}): worker/seedvc_install.sh")
     with db_lock, db() as conn:

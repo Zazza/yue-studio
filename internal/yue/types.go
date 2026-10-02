@@ -275,7 +275,8 @@ type PlanCeiling struct {
 
 // VoiceParams — образец голоса для VoiceConvert: трек RefJobID, окно его дорожки
 // голоса [RefFrom, RefFrom+RefDur) (3–30 с), шаги диффузии Steps (10–100).
-// Нули — значения воркера по умолчанию (окно с 0 на 25 с, 50 шагов).
+// Нули — значения воркера по умолчанию: окно 25 с там, где голос звучит
+// плотнее всего (RefFrom 0 = подобрать само), 50 шагов.
 type VoiceParams struct {
 	RefJobID int64   `json:"ref_job_id"`
 	RefFrom  float64 `json:"ref_from,omitempty"`

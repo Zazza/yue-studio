@@ -235,6 +235,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .job-kid.current { padding: 4px 6px; border-radius: 6px; background: var(--accent-soft, rgba(120, 180, 255, 0.12)); }
 .badge.current { background: var(--accent, #4a8cff); color: #fff; }
+.badge.exp { background: #b7791f; color: #fff; }
 
 /* материал (рендеры кусков, проверки) — приглушённо: сырьё, не песня */
 .job-material.material, .job-material.material .badge { opacity: 0.55; }

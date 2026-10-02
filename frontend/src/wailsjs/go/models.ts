@@ -693,6 +693,26 @@ export namespace yue {
 	        this.has_audio = source["has_audio"];
 	    }
 	}
+	export class VoiceParams {
+	    ref_job_id: number;
+	    ref_from?: number;
+	    ref_dur?: number;
+	    steps?: number;
+	    title?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ref_job_id = source["ref_job_id"];
+	        this.ref_from = source["ref_from"];
+	        this.ref_dur = source["ref_dur"];
+	        this.steps = source["steps"];
+	        this.title = source["title"];
+	    }
+	}
 
 }
 

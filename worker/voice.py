@@ -76,6 +76,26 @@ def activity_mask(x: np.ndarray, sr: int) -> np.ndarray:
     return np.clip(m, 0.0, 1.0).astype(np.float32)
 
 
+def best_window(x: np.ndarray, sr: int, dur: float) -> float:
+    """Начало окна длиной dur (с), где голос звучит большую часть времени
+    (по кадрам 0.1 с; «звучит» — порог как у activity_mask: −30 дБ от громких
+    мест, не тише GATE_FLOOR_DB, — утечки в паузах не считаются, сколько бы
+    их ни было) — образец без пауз и проигрышей. Дорожка короче окна — 0."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    hop = max(1, int(sr * 0.1))
+    n = len(x) // hop
+    w = int(round(dur / 0.1))
+    if n <= w:
+        return 0.0
+    rms = np.sqrt((x[: n * hop].reshape(n, hop) ** 2).mean(axis=1))
+    db = 20 * np.log10(rms + 1e-12)
+    act = (db > max(GATE_FLOOR_DB, np.percentile(db, 95) - 30.0)).astype(np.float64)
+    sums = np.convolve(act, np.ones(w), mode="valid")   # голос в каждом окне
+    return float(np.argmax(sums)) * 0.1
+
+
 def match_gain(source: np.ndarray, converted: np.ndarray) -> float:
     """Множитель для converted, чтобы его активный уровень совпал с source."""
     a, b = active_rms(source), active_rms(converted)
@@ -157,10 +177,11 @@ def convert(source_wav: Path, ref_wav: Path, out_wav: Path, steps: int, timeout:
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-def run(src_dir: Path, audio_name: str, ref_dir: Path, out_dir: Path, ref_from: float, ref_dur: float,
+def run(src_dir: Path, audio_name: str, ref_dir: Path, out_dir: Path, ref_from: float | None, ref_dur: float,
         steps: int) -> Path:
     """Голос трека src_dir (микс audio_name и дорожка stem-vocals.flac уже есть) —
-    тембром голоса из ref_dir в окне [ref_from, ref_from + ref_dur) → out_dir/audio.flac."""
+    тембром голоса из ref_dir в окне [ref_from, ref_from + ref_dur) → out_dir/audio.flac.
+    ref_from None — окно подбирается само (best_window)."""
     import soundfile as sf
 
     vocals, sr = sf.read(str(src_dir / "stem-vocals.flac"), dtype="float32", always_2d=True)
@@ -168,6 +189,8 @@ def run(src_dir: Path, audio_name: str, ref_dir: Path, out_dir: Path, ref_from: 
     if msr != sr:
         mix = resample(mix, msr, sr)
     ref, rsr = sf.read(str(ref_dir / "stem-vocals.flac"), dtype="float32", always_2d=True)
+    if ref_from is None:
+        ref_from = best_window(ref, rsr, ref_dur)
     ref = ref[int(ref_from * rsr): int((ref_from + ref_dur) * rsr)].mean(axis=1)
     if len(ref) < REF_MIN_SEC * rsr:
         raise ValueError("образец голоса короче 3 с — сдвинь начало окна")
