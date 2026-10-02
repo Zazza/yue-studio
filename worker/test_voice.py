@@ -502,26 +502,54 @@ class TestReplaceVocal(unittest.TestCase):
         self.assertEqual(out.shape, (self.N, 1))
         np.testing.assert_allclose(out[:, 0], 0.4, atol=1e-6)
 
-    # 6. пик > 0.99 → нормировка к 0.99 пропорционально
-    def test_peak_over_limit_scaled_to_099(self):
-        mix = self._const(0.5, ch=2)
-        mask = np.zeros(self.N, dtype=np.float32)
-        mask[:100] = 1.0
-        out = self.v.replace_vocal(mix, self._const(0.0), self._const(1.0), mask)
-        # без масштаба: 1.5 под маской, 0.5 вне — масштаб 0.99/1.5
-        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-5)
-        np.testing.assert_allclose(out[:100], 0.99, atol=1e-5)
-        np.testing.assert_allclose(out[100:], 0.5 * 0.99 / 1.5, atol=1e-5)
+    # 6. пик > 0.99 → локальный ограничитель: |out| ≤ 0.99, трек целиком не масштабируется
+    def _far_from(self, over, n, dist):
+        """Булева маска сэмплов дальше dist от любого индекса из over."""
+        far = np.ones(n, dtype=bool)
+        for i in np.flatnonzero(over):
+            far[max(0, i - dist):i + dist + 1] = False
+        return far
 
-    def test_negative_peak_over_limit_scaled(self):
+    def test_peak_over_limit_clamped_locally(self):
+        n = 6000
+        # значения точно представимы в float32: 0.25 − 0.125 + 0.5 = 0.625 в любом порядке
+        mix = np.full((n, 2), 0.25, dtype=np.float32)
+        vocals = np.full(n, 0.125, dtype=np.float32)
+        new = np.full(n, 0.5, dtype=np.float32)
+        new[3000:3050] = 1.5          # под маской: 0.25 − 0.125 + 1.5 = 1.625 > 0.99
+        mask = np.ones(n, dtype=np.float32)
+        out = self.v.replace_vocal(mix, vocals, new, mask)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-7)  # float32: 0.99 = 0.9900000095
+        over = np.zeros(n, dtype=bool)
+        over[3000:3050] = True
+        far = self._far_from(over, n, 3 * self.v.LIMIT_WIN)
+        self.assertTrue(far.any())
+        # вдали от пика — формула бит в бит, без общего приглушения
+        np.testing.assert_array_equal(out[far], np.full((int(far.sum()), 2), 0.625,
+                                                        dtype=np.float32))
+
+    def test_peak_outside_mask_far_region_is_bit_exact_mix(self):
+        n = 6000
+        mix = self._rand_mix(n=n)
+        mask = np.zeros(n, dtype=np.float32)
+        mask[3000:3100] = 1.0
+        new = np.full(n, 1.5, dtype=np.float32)
+        out = self.v.replace_vocal(mix, np.zeros(n, dtype=np.float32), new, mask)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-7)  # float32: 0.99 = 0.9900000095
+        w3 = 3 * self.v.LIMIT_WIN
+        np.testing.assert_array_equal(out[:3000 - w3 - 1], mix[:3000 - w3 - 1])
+        np.testing.assert_array_equal(out[3100 + w3 + 1:], mix[3100 + w3 + 1:])
+
+    def test_negative_peak_over_limit_clamped(self):
         mix = self._const(-0.5, ch=2)
         mix[:, 1] = 0.25
         out = self.v.replace_vocal(mix, self._const(0.5), self._const(-0.5),
                                    self._const(1.0), gain=2.0)
-        # без масштаба: канал 0 = -2.0, канал 1 = -1.25
-        self.assertAlmostEqual(float(np.max(np.abs(out))), 0.99, delta=1e-5)
-        np.testing.assert_allclose(out[:, 0], -0.99, atol=1e-5)
-        np.testing.assert_allclose(out[:, 1], -1.25 * 0.99 / 2.0, atol=1e-5)
+        # без ограничителя: канал 0 = −2.0, канал 1 = −1.25 на всей длине
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-7)  # float32: 0.99 = 0.9900000095
+        self.assertTrue(np.all(out[:, 0] < 0))
+        # усиление общее для каналов — отношение сохраняется
+        np.testing.assert_allclose(out[:, 1] / out[:, 0], 1.25 / 2.0, rtol=1e-5)
 
     def test_peak_within_limit_not_scaled(self):
         out = self.v.replace_vocal(self._const(0.5, ch=2), self._const(0.1), self._const(0.5),
@@ -544,6 +572,145 @@ class TestReplaceVocal(unittest.TestCase):
         self.v.replace_vocal(mix, vocals, new, mask, gain=3.0)
         for a, c in zip((mix, vocals, new, mask), copies, strict=True):
             np.testing.assert_array_equal(a, c)
+
+
+@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
+class TestLimitPeaks(unittest.TestCase):
+    """limit_peaks: прижать только пики выше limit плавным локальным усилением;
+    вдали от пиков (> 3·win) сигнал не меняется, ниже limit — не меняется вовсе."""
+
+    def setUp(self):
+        import voice
+        self.v = voice
+
+    @staticmethod
+    def _far(x, limit, dist):
+        """Маска кадров дальше dist от любого кадра, где |x| > limit."""
+        a = np.abs(x) if x.ndim == 1 else np.max(np.abs(x), axis=1)
+        far = np.ones(len(a), dtype=bool)
+        for i in np.flatnonzero(a > limit):
+            far[max(0, i - dist):i + dist + 1] = False
+        return far
+
+    @staticmethod
+    def _smooth(n=20000, base=0.8, amp=0.5, period=8000.0):
+        # гладкий, положительный (0.3…1.3): усиление out/x определено везде
+        t = np.arange(n)
+        return (base + amp * np.sin(2 * np.pi * t / period)).astype(np.float32)
+
+    # ниже/на пороге — без изменений
+    def test_within_limit_unchanged_stereo(self):
+        x = np.random.default_rng(1).uniform(-0.9, 0.9, (5000, 2)).astype(np.float32)
+        np.testing.assert_array_equal(self.v.limit_peaks(x), x)
+
+    def test_within_limit_unchanged_1d(self):
+        x = _sine(amp=0.9, sec=0.2)
+        np.testing.assert_array_equal(self.v.limit_peaks(x), x)
+
+    def test_peak_exactly_at_limit_unchanged(self):
+        x = np.zeros(3000, dtype=np.float64)
+        x[1500] = 0.99
+        x[1600] = -0.99
+        np.testing.assert_array_equal(self.v.limit_peaks(x), x)
+
+    def test_custom_limit_within_unchanged(self):
+        x = _sine(amp=0.4, sec=0.2)
+        np.testing.assert_array_equal(self.v.limit_peaks(x, limit=0.5), x)
+
+    # над порогом — |out| ≤ limit
+    def test_over_limit_clamped_1d(self):
+        x = self._smooth()
+        out = self.v.limit_peaks(x)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+
+    def test_negative_peaks_clamped(self):
+        x = -self._smooth()
+        out = self.v.limit_peaks(x)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+
+    def test_single_sample_spike_clamped(self):
+        x = np.zeros(4000, dtype=np.float32)
+        x[2000] = 2.0
+        out = self.v.limit_peaks(x)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+
+    def test_all_samples_over_limit(self):
+        x = np.full((3000, 2), 1.5, dtype=np.float32)
+        out = self.v.limit_peaks(x)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+
+    def test_custom_limit_respected(self):
+        x = _sine(amp=0.9, sec=0.5)
+        out = self.v.limit_peaks(x, limit=0.5)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.5 + 1e-9)
+
+    # вдали от пиков — точное равенство
+    def test_far_from_peak_bit_exact_1d(self):
+        x = _sine(amp=0.5, sec=0.5)
+        x[10000:10050] *= 3.0
+        out = self.v.limit_peaks(x)
+        far = self._far(x, 0.99, 3 * self.v.LIMIT_WIN)
+        self.assertGreater(int(far.sum()), 0)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+        np.testing.assert_array_equal(out[far], x[far])
+
+    def test_far_from_peak_bit_exact_stereo(self):
+        x = np.random.default_rng(2).uniform(-0.6, 0.6, (12000, 2)).astype(np.float32)
+        x[3000, 0] = 1.4
+        x[8000, 1] = -1.7
+        out = self.v.limit_peaks(x)
+        far = self._far(x, 0.99, 3 * self.v.LIMIT_WIN)
+        self.assertGreater(int(far.sum()), 0)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+        np.testing.assert_array_equal(out[far], x[far])
+
+    def test_far_region_scales_with_custom_win(self):
+        x = _sine(amp=0.5, sec=0.5)
+        x[10000:10010] = 1.5
+        win = 64
+        out = self.v.limit_peaks(x, win=win)
+        far = self._far(x, 0.99, 3 * win)
+        np.testing.assert_array_equal(out[far], x[far])
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+
+    # плавность усиления
+    def test_gain_changes_smoothly(self):
+        x = self._smooth()
+        out = self.v.limit_peaks(x)
+        g = out.astype(np.float64) / x.astype(np.float64)
+        self.assertLess(float(np.max(np.abs(np.diff(g)))), 0.01)
+
+    def test_gain_smooth_around_short_burst(self):
+        # гладкий сигнал с резким, но коротким превышением: усиление всё равно без ступенек
+        x = np.full(8000, 0.6, dtype=np.float64)
+        x[4000:4100] = 1.2
+        out = self.v.limit_peaks(x)
+        g = out / x
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+        self.assertLess(float(np.max(np.abs(np.diff(g)))), 0.01)
+
+    # стерео: общее усиление
+    def test_stereo_gain_shared_between_channels(self):
+        left = self._smooth()
+        x = np.stack([left, 0.5 * left], axis=1).astype(np.float32)
+        out = self.v.limit_peaks(x)
+        self.assertLessEqual(float(np.max(np.abs(out))), 0.99 + 1e-9)
+        np.testing.assert_allclose(out[:, 1] / out[:, 0], 0.5, rtol=1e-5)
+
+    # форма
+    def test_shape_preserved(self):
+        for shape in ((5000,), (5000, 1), (5000, 2)):
+            x = np.full(shape, 1.3, dtype=np.float32)
+            x[:2500] = 0.2
+            with self.subTest(shape=shape):
+                self.assertEqual(self.v.limit_peaks(x).shape, shape)
+
+    def test_empty_input(self):
+        for shape in ((0,), (0, 2)):
+            with self.subTest(shape=shape):
+                out = self.v.limit_peaks(np.zeros(shape, dtype=np.float32))
+                self.assertEqual(out.size, 0)
+                self.assertEqual(out.shape, shape)
 
 
 if __name__ == "__main__":

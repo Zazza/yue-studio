@@ -89,7 +89,7 @@ def replace_vocal(mix: np.ndarray, vocals: np.ndarray, new: np.ndarray, mask: np
     микс — музыка портилась и там, где голоса нет): вне маски результат бит в
     бит равен миксу. Все массивы — (frames[, ch]) одной частоты; моно-голос
     идёт в оба канала; длина — как у микса (короткие дополняются тишиной).
-    Пик выше 0.99 — весь результат масштабируется до 0.99, без клипа."""
+    Пики выше 0.99 прижимаются локально (limit_peaks), остальное не меняется."""
     mix = np.asarray(mix, dtype=np.float64)
     if mix.ndim == 1:
         mix = mix[:, None]
@@ -110,10 +110,28 @@ def replace_vocal(mix: np.ndarray, vocals: np.ndarray, new: np.ndarray, mask: np
     k = min(n, len(mask))
     m[:k] = np.asarray(mask, dtype=np.float64)[:k]
     out = mix + m[:, None] * (gain * fit(new) - fit(vocals))
-    peak = np.abs(out).max() if out.size else 0.0
-    if peak > 0.99:
-        out *= 0.99 / peak
-    return out.astype(np.float32)
+    return limit_peaks(out).astype(np.float32)
+
+
+LIMIT = 0.99
+LIMIT_WIN = 256   # сэмплов (~5 мс на 48 кГц): ширина плавного края ограничителя
+
+
+def limit_peaks(x: np.ndarray, limit: float = LIMIT, win: int = LIMIT_WIN) -> np.ndarray:
+    """Прижать только пики выше limit — локальным усилением с плавным краем
+    (минимум по окну 2·win + сглаживание по win), не приглушая весь трек: дальше
+    win сэмплов от пиков сигнал не меняется бит в бит."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.size == 0:
+        return x
+    mag = np.abs(x).max(axis=1) if x.ndim > 1 else np.abs(x)
+    if mag.max() <= limit:
+        return x
+    from scipy.ndimage import minimum_filter1d, uniform_filter1d
+    need = np.minimum(1.0, limit / np.maximum(mag, 1e-12))
+    g = uniform_filter1d(minimum_filter1d(need, size=2 * win + 1, mode="nearest"), size=win + 1, mode="nearest")
+    g = np.minimum(g, need)        # сглаживание не должно поднять усиление над нужным
+    return x * (g[:, None] if x.ndim > 1 else g)
 
 
 def resample(x: np.ndarray, sr_from: int, sr_to: int) -> np.ndarray:
