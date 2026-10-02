@@ -16,6 +16,7 @@
   GET  /audio/{id}/{f}   — артефакты задачи (audio.flac, score.abc, request.abc, ...)
 """
 import json
+import shutil
 import logging
 import os
 import re
@@ -40,6 +41,7 @@ from plancheck import plan_diff
 from dsp import analyze_file
 from sheetsage import transcribe as ss_transcribe
 from stems import separate as demucs_separate
+import voice as voicevc
 
 log = logging.getLogger("yue-worker")
 logging.basicConfig(level=logging.INFO)
@@ -352,6 +354,9 @@ def _run_job(job_id: int):
     budget = 450 if row["draft"] else MAX_SEM_TOKENS   # ~18 с превью
     if not row["draft"] and row["max_tokens"]:
         budget = max(500, min(int(row["max_tokens"]), 30000))
+    if row["role"] == "voice":
+        _run_voice_job(job_id, row, job_dir)
+        return
     watch_stop = _progress_watcher(job_id, counters, time.time(), budget)
     try:  # noqa: SIM105 - очистка состояния после любого исхода
         with _pipe_lock:
@@ -439,6 +444,81 @@ def _run_job(job_id: int):
         with _state_lock:
             _cancel_flags.pop(job_id, None)
             _progress.pop(job_id, None)
+
+
+def _ensure_stems(job_id: int) -> Path:
+    """Дорожки demucs трека (делаются, если их ещё нет) → каталог трека."""
+    row = _job_row(job_id)
+    jdir = JOBS_DIR / str(job_id)
+    if not (jdir / "stem-vocals.flac").is_file():
+        if row is None or not row["audio_file"]:
+            raise RuntimeError(f"у трека #{job_id} нет звука")
+        demucs_separate(jdir / row["audio_file"], jdir)
+    return jdir
+
+
+def _run_voice_job(job_id: int, row, job_dir: Path):
+    """«Голос альбома»: голос родителя — тембром образца (Seed-VC), музыка та же."""
+    t0 = time.time()
+    try:
+        p = json.loads((job_dir / "voice.json").read_text())
+        src = _ensure_stems(int(row["parent_id"]))
+        ref = _ensure_stems(int(p["ref_job_id"]))
+        audio = voicevc.run(src, ref, job_dir, float(p["ref_from"]), float(p["ref_dur"]), int(p["steps"]))
+        # ноты те же — ролл и превью работают по плану родителя
+        for f in ("score.abc", "score.json"):
+            if (src / f).is_file():
+                shutil.copy2(src / f, job_dir / f)
+        mp3, wav = _make_formats(job_dir)
+        with db_lock, db() as conn:
+            conn.execute(
+                "UPDATE jobs SET status='done', duration_sec=?, audio_file=?, mp3_file=?, wav_file=?, abc_file=?, finished_at=? WHERE id=?",  # noqa: E501
+                (_audio_duration(audio), audio.name, mp3, wav,
+                 "score.abc" if (job_dir / "score.abc").exists() else "",
+                 time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+        log.info("voice job %s done in %.1fs", job_id, time.time() - t0)
+    except Exception as e:  # noqa: BLE001
+        log.exception("voice job %s failed", job_id)
+        with db_lock, db() as conn:
+            conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
+                         (str(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+
+
+class VoiceIn(BaseModel):
+    ref_job_id: int                                  # трек-образец: чей голос
+    ref_from: float = Field(default=0, ge=0)         # окно образца в его дорожке голоса, с
+    ref_dur: float = Field(default=25, ge=voicevc.REF_MIN_SEC, le=voicevc.REF_MAX_SEC)
+    steps: int = Field(default=50, ge=voicevc.STEPS_MIN, le=voicevc.STEPS_MAX)
+    title: str = ""
+
+
+@app.post("/jobs/{job_id}/voice")
+def voice_job(job_id: int, req: VoiceIn):
+    """«Голос альбома»: новая версия трека — голос спет тембром образца (Seed-VC,
+    отдельная установка), музыка и мелодия прежние. Джоба идёт в общую очередь."""
+    if not voicevc.available():
+        raise HTTPException(503, f"Seed-VC не установлен ({voicevc.SEEDVC_DIR}): worker/seedvc_install.sh")
+    with db_lock, db() as conn:
+        rows = {r["id"]: r for r in conn.execute(
+            "SELECT * FROM jobs WHERE id IN (?, ?)", (job_id, req.ref_job_id))}
+        for jid in (job_id, req.ref_job_id):
+            r = rows.get(jid)
+            if r is None or r["status"] != "done" or not r["audio_file"]:
+                raise HTTPException(404, f"job {jid} not found or not done")
+        src = rows[job_id]
+        cur = conn.execute(
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (req.title or f"{src['title']} · голос #{req.ref_job_id}", "queued", src["style"],
+             src["lyrics"], src["seed"], src["cot"], job_id, "voice", time.strftime("%Y-%m-%dT%H:%M:%S")))
+        new_id = cur.lastrowid
+        # параметры — под тем же замком: очередь забирает джобы только через него
+        # и не увидит «голос» без voice.json
+        jdir = JOBS_DIR / str(new_id)
+        jdir.mkdir(parents=True, exist_ok=True)
+        (jdir / "voice.json").write_text(json.dumps(
+            {"ref_job_id": req.ref_job_id, "ref_from": req.ref_from, "ref_dur": req.ref_dur, "steps": req.steps}))
+    return {"id": new_id}
 
 
 def queue_loop():
@@ -544,6 +624,8 @@ def get_config():
         "data_dir": str(DATA_DIR),
         "whisper_py": str(WHISPER_PY),
         "whisper_available": WHISPER_PY.is_file(),
+        "seedvc_dir": str(voicevc.SEEDVC_DIR),
+        "seedvc_available": voicevc.available(),
     }
 
 

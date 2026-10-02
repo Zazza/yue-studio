@@ -9,7 +9,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueSetJobFolder, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -86,6 +86,8 @@ export const api = {
   setHead: (rootId, headId) => YueSetHead(rootId, headId || 0),
   renameJob: (id, title) => YueRenameJob(id, title),
   setJobFolder: (id, folder) => YueSetJobFolder(id, folder || ''),
+  // «голос альбома»: { ref_job_id, ref_from?, ref_dur?, steps?, title? } → id джобы
+  voiceConvert: (id, params) => YueVoiceConvert(id, params),
   playFile: (id, file, dur) => YuePlayFile(id, file, dur),
   playAudio: (id) => YuePlayAudio(id),
   translate: (text) => YueTranslate(text),

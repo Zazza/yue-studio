@@ -60,6 +60,9 @@ type Service interface {
 	// UpdateJob — подпись и папка трека (nil — поле не менять, folder "" —
 	// убрать из папки); ответ — трек после правки
 	UpdateJob(ctx context.Context, jobID int64, title, folder *string) (*Job, error)
+	// VoiceConvert — «голос альбома»: новая версия трека, голос спет тембром
+	// образца (Seed-VC на воркере), музыка прежняя; ответ — id джобы в очереди
+	VoiceConvert(ctx context.Context, jobID int64, p VoiceParams) (int64, error)
 	DspVariantDelete(ctx context.Context, id int64, fname string) (bool, error)
 	AudioURL(id int64, file string) string
 	FetchAudio(ctx context.Context, id int64, file string) (io.ReadCloser, string, error)
@@ -268,4 +271,15 @@ type PlanCeiling struct {
 	Top     string `json:"top"`
 	Ceiling string `json:"ceiling"`
 	NewTop  string `json:"new_top"`
+}
+
+// VoiceParams — образец голоса для VoiceConvert: трек RefJobID, окно его дорожки
+// голоса [RefFrom, RefFrom+RefDur) (3–30 с), шаги диффузии Steps (10–100).
+// Нули — значения воркера по умолчанию (окно с 0 на 25 с, 50 шагов).
+type VoiceParams struct {
+	RefJobID int64   `json:"ref_job_id"`
+	RefFrom  float64 `json:"ref_from,omitempty"`
+	RefDur   float64 `json:"ref_dur,omitempty"`
+	Steps    int     `json:"steps,omitempty"`
+	Title    string  `json:"title,omitempty"`
 }

@@ -69,7 +69,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 голосовые цепочки (`voice=true` в `dsp_chains`: мегафон/телефон/перегруз/слэпбэк) — громкость обработанной дорожки
 выравнивается по исходной (RMS), `db` сверху, крутилка `mix` — доля эффекта.
 
-**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` (сразу с `title`/`folder`) ·
+**Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` (сразу с `title`/`folder`) · `voice_convert` («голос альбома»: голос трека тембром образца, Seed-VC на воркере — docs/deployment.md) ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `volume_envelope` (линия громкости
 `points [{t, db}]`, весь трек или дорожка `stem`; в `rebuild_sections` — спека с `envelope`) ·
 `analyze_job` (метрики) ·

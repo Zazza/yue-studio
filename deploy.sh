@@ -19,6 +19,7 @@ if [[ "$CMD" == "worker" ]]; then
 EOF'
   scp -q worker/yue_worker.py worker/arc.py worker/plancheck.py worker/dsp.py worker/sheetsage.py worker/stems.py \
         worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py worker/waveform.py \
+        worker/voice.py worker/seedvc_run.py worker/seedvc_install.sh worker/requirements-seedvc.txt \
         "$HOST:~/yue-studio/"
   scp -q deploy/units/yue-worker.service "$HOST:~/yue-studio/units/"
   ssh "$HOST" '

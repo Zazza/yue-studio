@@ -573,6 +573,12 @@ func (a *App) YueRenameJob(jobID int64, title string) (*yue.Job, error) {
 	return a.yue.UpdateJob(a.ctx, jobID, &title, nil)
 }
 
+// YueVoiceConvert — «голос альбома»: голос трека тембром образца (Seed-VC на
+// воркере, отдельная установка); новая версия появится в очереди.
+func (a *App) YueVoiceConvert(jobID int64, p yue.VoiceParams) (int64, error) {
+	return a.yue.VoiceConvert(a.ctx, jobID, p)
+}
+
 // YueSetJobFolder — папка песни («Альбом», «Основы», …); "" — без папки.
 func (a *App) YueSetJobFolder(jobID int64, folder string) (*yue.Job, error) {
 	return a.yue.UpdateJob(a.ctx, jobID, nil, &folder)

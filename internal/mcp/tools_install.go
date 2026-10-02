@@ -28,6 +28,7 @@ func RegisterInstallTools(s *Server) {
 				{"Go (сборка приложения)", "go version"},
 				{"Node (сборка фронта)", "node --version"},
 				{"HF-токен (веса YuE2, gated)", "test -f ~/.cache/huggingface/token && echo токен есть || echo нет (нужен huggingface-cli login)"},
+				{"Seed-VC («голос альбома», необязательно)", fmt.Sprintf("curl -sf --max-time 5 %s/config | grep -o '\"seedvc_[a-z]*\": *[^,}]*'", s.client.GetURL())},
 			})
 			return out, nil
 		},
@@ -39,10 +40,11 @@ func RegisterInstallTools(s *Server) {
 			"whisper-venv, systemd-юнит. По умолчанию сухой прогон (dry_run=true) — покажи план пользователю; " +
 			"выполнение только с confirm=true. Пустой host = всё на этом ПК.",
 		InputSchema: props(map[string]any{
-			"host":    prop("user@gpu-host (пусто = локально на этой машине)", "string"),
-			"dry_run": prop("показать план без выполнения (по умолчанию true)", "boolean"),
-			"confirm": prop("выполнить установку (спроси пользователя)", "boolean"),
-			"hf_home": prop("каталог кеша весов HF (по умолчанию ~/yue/hf-cache)", "string"),
+			"host":       prop("user@gpu-host (пусто = локально на этой машине)", "string"),
+			"dry_run":    prop("показать план без выполнения (по умолчанию true)", "boolean"),
+			"confirm":    prop("выполнить установку (спроси пользователя)", "boolean"),
+			"hf_home":    prop("каталог кеша весов HF (по умолчанию ~/yue/hf-cache)", "string"),
+			"seedvc_dir": prop("поставить и Seed-VC («голос альбома», ~9 ГБ) в этот каталог (пусто — не ставить)", "string"),
 		}),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			dryRun := true
@@ -65,9 +67,13 @@ func RegisterInstallTools(s *Server) {
 				{"systemd-юнит", "cp ~/yue-studio/units/yue-worker.service ~/.config/systemd/user/ 2>/dev/null && systemctl --user daemon-reload && systemctl --user enable --now yue-worker || echo юнит пропущен (запуск вручную: ~/yue/.venv/bin/python ~/yue-studio/yue_worker.py)"},
 				{"health", "sleep 3 && curl -sf --max-time 10 http://localhost:8091/health"},
 			}
+			if d := argString(args, "seedvc_dir"); d != "" {
+				steps = append(steps, step{"Seed-VC («голос альбома»)", fmt.Sprintf(
+					"~/yue-studio/seedvc_install.sh %q && (grep -q '^YUE_SEEDVC_DIR=' ~/yue-studio/worker.env || echo 'YUE_SEEDVC_DIR=%s' >> ~/yue-studio/worker.env)", d, d)})
+			}
 			if argString(args, "host") == "" {
 				steps = append([]step{
-					{"скопировать файлы воркера", "cp worker/*.py worker/requirements.txt ~/yue-studio/ 2>/dev/null || echo 'запусти из корня репозитория Yue Studio'"},
+					{"скопировать файлы воркера", "cp worker/*.py worker/requirements.txt worker/requirements-seedvc.txt worker/seedvc_install.sh ~/yue-studio/ 2>/dev/null || echo 'запусти из корня репозитория Yue Studio'"},
 				}, steps...)
 			}
 			out, err := runSteps(s, argString(args, "host"), steps)

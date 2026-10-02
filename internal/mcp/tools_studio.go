@@ -367,6 +367,36 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "voice_convert",
+		Description: "«Голос альбома»: новая версия трека — голос спет тембром образца (Seed-VC на воркере, " +
+			"отдельная установка worker/seedvc_install.sh), музыка и мелодия прежние. Образец — окно дорожки " +
+			"голоса другого трека: ref_job_id, ref_from (с), ref_dur (3–30 с, по умолчанию 25; лучше место, " +
+			"где голос поёт без пауз). Джоба идёт в очередь; дорожки делаются сами. Без Seed-VC — ошибка 503.",
+		InputSchema: props(map[string]any{
+			"job_id":     prop("ID трека, чей голос заменить", "integer"),
+			"ref_job_id": prop("ID трека-образца (чей голос)", "integer"),
+			"ref_from":   prop("начало окна образца, с (по умолчанию 0)", "number"),
+			"ref_dur":    prop("длина окна образца, с (3–30, по умолчанию 25)", "number"),
+			"steps":      prop("шаги диффузии (10–100, по умолчанию 50: меньше — быстрее, больше дрожи)", "integer"),
+			"title":      prop("название версии", "string"),
+		}, "job_id", "ref_job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			// обязательность в схеме клиент MCP может не проверить — без id запрос ушёл бы с нулём
+			if argInt(args, "job_id") <= 0 || argInt(args, "ref_job_id") <= 0 {
+				return "", fmt.Errorf("нужны job_id (чей голос заменить) и ref_job_id (трек-образец)")
+			}
+			id, err := s.client.VoiceConvert(context.Background(), argInt(args, "job_id"), yue.VoiceParams{
+				RefJobID: argInt(args, "ref_job_id"), RefFrom: argFloat(args, "ref_from"),
+				RefDur: argFloat(args, "ref_dur"), Steps: int(argInt(args, "steps")), Title: argString(args, "title"),
+			})
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("джоба «голос» #%d в очереди (статус: jobs)", id), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "make_minus",
 		Description: "Минус-трек: микс стемов без выбранных групп (напр. vocals для караоке).",
 		InputSchema: props(map[string]any{

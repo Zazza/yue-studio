@@ -136,3 +136,14 @@ func (c *Client) UpdateJob(ctx context.Context, jobID int64, title, folder *stri
 	}
 	return &out, nil
 }
+
+// VoiceConvert — «голос альбома» (POST /jobs/{id}/voice): джоба в очереди воркера.
+func (c *Client) VoiceConvert(ctx context.Context, jobID int64, p VoiceParams) (int64, error) {
+	var out struct {
+		ID int64 `json:"id"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/voice", jobID), p, requestTimeout, &out); err != nil {
+		return 0, err
+	}
+	return out.ID, nil
+}

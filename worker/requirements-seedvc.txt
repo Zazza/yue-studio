@@ -1,0 +1,15 @@
+# venv Seed-VC (замена тембра голоса, необязательно) — только то, что нужно для
+# вывода; версии — на которых проверено (2026-10-02). torch/torchaudio ставит
+# seedvc_install.sh с индекса PyTorch под CUDA машины.
+transformers==4.46.3
+librosa==1.0.0
+scipy==1.18.1
+huggingface-hub==0.36.2
+munch==4.0.0
+einops==0.8.2
+soundfile==0.14.0
+pyyaml==6.0.3
+descript-audio-codec==1.0.0
+pydub==0.25.1
+tqdm==4.70.1
+numpy==2.2.6
