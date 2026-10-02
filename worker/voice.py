@@ -43,6 +43,40 @@ def active_rms(x: np.ndarray, frame: int = 2048) -> float:
     return float(np.sqrt((rms[loud] ** 2).mean())) if loud.any() else 0.0
 
 
+GATE_FRAME_SEC = 0.02    # шаг огибающей голоса
+GATE_HOLD_SEC = 0.15     # запас по краям фраз: вдохи и окончания не обрубаются
+GATE_FADE_SEC = 0.03     # мягкий край ворот, без щелчка
+GATE_FLOOR_DB = -55.0    # тише этого (dBFS) — голоса нет при любом треке
+
+
+def activity_mask(x: np.ndarray, sr: int) -> np.ndarray:
+    """Где в дорожке голоса действительно поют: 1.0 — голос, 0.0 — пауза, по
+    сэмплу. Порог — выше и абсолютного пола GATE_FLOOR_DB, и уровня пауз
+    трека (−30 дБ от громких мест); голос расширяется на GATE_HOLD_SEC в обе
+    стороны, края сглажены на GATE_FADE_SEC. Тишина/пустой вход — нули."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    n = len(x)
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+    hop = max(1, int(GATE_FRAME_SEC * sr))
+    frames = -(-n // hop)
+    pad = np.zeros(frames * hop)
+    pad[:n] = x
+    rms = np.sqrt((pad.reshape(frames, hop) ** 2).mean(axis=1))
+    db = 20 * np.log10(rms + 1e-12)
+    thr = max(GATE_FLOOR_DB, np.percentile(db, 95) - 30.0)
+    on = db > thr
+    hold = int(round(GATE_HOLD_SEC / GATE_FRAME_SEC))
+    if hold and on.any():
+        on = np.convolve(on.astype(float), np.ones(2 * hold + 1), mode="same") > 0
+    m = np.repeat(on.astype(np.float64), hop)[:n]
+    fade = max(1, int(GATE_FADE_SEC * sr))
+    m = np.convolve(m, np.ones(fade) / fade, mode="same")
+    return np.clip(m, 0.0, 1.0).astype(np.float32)
+
+
 def match_gain(source: np.ndarray, converted: np.ndarray) -> float:
     """Множитель для converted, чтобы его активный уровень совпал с source."""
     a, b = active_rms(source), active_rms(converted)
@@ -110,6 +144,11 @@ def run(src_dir: Path, ref_dir: Path, out_dir: Path, ref_from: float, ref_dur: f
         convert(t / "src.wav", t / "ref.wav", t / "vc.wav", steps)
         vc, vsr = sf.read(str(t / "vc.wav"), dtype="float32", always_2d=True)
     vc = resample(vc, vsr, sr)   # Seed-VC поёт на 44.1 кГц, дорожки YuE — 48 кГц
+    # новый голос — только там, где пел исходный: Seed-VC шумит на старте и
+    # «озвучивает» утечки гитар в паузах дорожки голоса
+    mask = activity_mask(vocals, sr)
+    k = min(len(vc), len(mask))
+    vc = vc[:k] * (mask[:k, None] if vc.ndim > 1 else mask[:k])
     music = [sf.read(str(src_dir / f"stem-{s}.flac"), dtype="float32", always_2d=True)[0] for s in INSTR_STEMS]
     out = mix(music, vc, match_gain(vocals, vc))
     out_dir.mkdir(parents=True, exist_ok=True)

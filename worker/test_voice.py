@@ -353,5 +353,103 @@ class TestVoiceJobApi(_WorkerApiCase):
         self.assertIsInstance(cfg["seedvc_available"], bool)
 
 
+@unittest.skipUnless(_HAS_NUMPY, "нужен numpy (окружение воркера)")
+class TestActivityMask(unittest.TestCase):
+    """activity_mask: 1 где голос (с запасом по краям), 0 в длинной тишине,
+    плавный переход; абсолютный пол -55 dBFS и относительный порог по треку."""
+
+    HOLD = 0.15   # GATE_HOLD_SEC
+    FADE = 0.03   # GATE_FADE_SEC
+    FRAME = 0.02  # GATE_FRAME_SEC
+
+    def setUp(self):
+        import voice
+        self.v = voice
+
+    def _silence(self, sec):
+        return np.zeros(int(sec * SR), dtype=np.float32)
+
+    def _voiced(self, pre=1.0, voice_sec=1.0, post=1.0, amp=0.5):
+        """тишина pre, громкий синус voice_sec, тишина post."""
+        return np.concatenate([self._silence(pre), _sine(amp, sec=voice_sec), self._silence(post)])
+
+    def _at(self, sec):
+        return int(sec * SR)
+
+    def test_length_dtype_and_range(self):
+        x = np.concatenate([self._voiced(), np.zeros(7, dtype=np.float32)])
+        m = self.v.activity_mask(x, SR)
+        self.assertEqual(len(m), len(x))
+        self.assertEqual(m.dtype, np.float32)
+        self.assertGreaterEqual(float(m.min()), 0.0)
+        self.assertLessEqual(float(m.max()), 1.0)
+
+    def test_stereo_input_one_value_per_frame(self):
+        mono = self._voiced()
+        x = np.stack([mono, mono], axis=1)
+        m = self.v.activity_mask(x, SR)
+        self.assertEqual(m.shape, (len(mono),))
+        np.testing.assert_allclose(m, self.v.activity_mask(mono, SR), atol=1e-6)
+
+    def test_stereo_channels_are_averaged(self):
+        # противофазные каналы в среднем дают тишину — голоса нет
+        mono = self._voiced()
+        m = self.v.activity_mask(np.stack([mono, -mono], axis=1), SR)
+        self.assertEqual(len(m), len(mono))
+        self.assertEqual(float(m.max()), 0.0)
+
+    def test_voice_is_one_long_silence_is_zero(self):
+        m = self.v.activity_mask(self._voiced(pre=1.0, voice_sec=1.0, post=1.0), SR)
+        # громкий участок 1.0..2.0 с
+        self.assertTrue(np.all(m[self._at(1.05):self._at(1.95)] == 1.0))
+        # дальше HOLD+FADE от голоса (с запасом на кадр) — ноль
+        far = self.HOLD + self.FADE + 3 * self.FRAME
+        self.assertTrue(np.all(m[:self._at(1.0 - far)] == 0.0))
+        self.assertTrue(np.all(m[self._at(2.0 + far):] == 0.0))
+
+    def test_hold_keeps_mask_open_around_voice(self):
+        m = self.v.activity_mask(self._voiced(pre=1.0, voice_sec=1.0, post=1.0), SR)
+        margin = self.HOLD - 2 * self.FRAME  # ~0.11 с — внутри запаса
+        # до начала голоса (вдох) и после конца (окончание) — ещё 1.0
+        self.assertTrue(np.all(m[self._at(1.0 - margin):self._at(1.0)] == 1.0))
+        self.assertTrue(np.all(m[self._at(2.0):self._at(2.0 + margin)] == 1.0))
+
+    def test_transition_is_smooth(self):
+        m = self.v.activity_mask(self._voiced(), SR)
+        # нет скачка 1→0 между соседними сэмплами
+        self.assertLess(float(np.max(np.abs(np.diff(m)))), 0.5)
+        # есть промежуточные значения на обоих краях
+        mid = (m > 0.0) & (m < 1.0)
+        self.assertTrue(mid[:self._at(1.0)].any(), "нет плавного входа")
+        self.assertTrue(mid[self._at(2.0):].any(), "нет плавного выхода")
+
+    def test_absolute_floor_quiet_signal_is_zero(self):
+        # синус 1e-4 ≈ -83 dBFS, ниже пола -55 — голоса нет, хотя он «громкий» относительно себя
+        m = self.v.activity_mask(_sine(1e-4, sec=2.0), SR)
+        self.assertEqual(len(m), self._at(2.0))
+        self.assertEqual(float(m.max()), 0.0)
+
+    def test_relative_threshold_leak_is_zero(self):
+        # громко 0.5 → тишина → «утечка» на 40 дБ тише (0.005 ≈ -49 dBFS, выше пола)
+        x = np.concatenate([
+            _sine(0.5, sec=1.0), self._silence(1.0),
+            _sine(0.005, sec=1.0), self._silence(1.0)])
+        m = self.v.activity_mask(x, SR)
+        self.assertTrue(np.all(m[self._at(0.05):self._at(0.95)] == 1.0))
+        far = self.HOLD + self.FADE + 3 * self.FRAME
+        # вся утечка 2.0..3.0 с — дальше запаса от громкого места
+        self.assertTrue(np.all(m[self._at(1.0 + far):] == 0.0))
+
+    def test_empty_input(self):
+        m = self.v.activity_mask(np.zeros(0, dtype=np.float32), SR)
+        self.assertEqual(len(m), 0)
+
+    def test_full_silence_all_zeros(self):
+        x = self._silence(2.0)
+        m = self.v.activity_mask(x, SR)
+        self.assertEqual(len(m), len(x))
+        self.assertEqual(float(m.max()), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
