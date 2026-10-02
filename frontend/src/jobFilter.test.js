@@ -254,3 +254,77 @@ describe('список папок (folderNames)', () => {
     expect(folderNames([])).toEqual(['Альбом', 'Основы', 'Эксперименты'])
   })
 })
+
+describe('поиск: номер песни и версии (filterJobs, f.q)', () => {
+  const F = (q) => ({ ...defaultJobFilter(), q })
+  const ids = (jobs, q, children) => (children === undefined
+    ? filterJobs(jobs, F(q), NOW)
+    : filterJobs(jobs, F(q), NOW, children)).map(x => x.id)
+
+  it('подстрока названия или стиля без учёта регистра', () => {
+    const jobs = [j({ id: 1, title: 'Ночной Дождь', style: 'synth' }), j({ id: 2, title: 'утро', style: 'Ambient' })]
+    expect(ids(jobs, 'дождь')).toEqual([1])
+    expect(ids(jobs, 'AMBIENT')).toEqual([2])
+    expect(ids(jobs, 'нет такого')).toEqual([])
+  })
+
+  it('«425» и «#425» находят песню с id 425 точно: не 4250 и не 42', () => {
+    const jobs = [j({ id: 42 }), j({ id: 425 }), j({ id: 4250 })]
+    expect(ids(jobs, '425')).toEqual([425])
+    expect(ids(jobs, '#425')).toEqual([425])
+    expect(ids(jobs, '42')).toEqual([42])
+  })
+
+  it('число в названии/стиле находит песню подстрокой, даже если id другой', () => {
+    const jobs = [j({ id: 1, title: 'демо 425 bpm' }), j({ id: 2, style: 'lofi425' }), j({ id: 3 })]
+    expect(ids(jobs, '425')).toEqual([1, 2])
+  })
+
+  it('несуществующий номер — пусто', () => {
+    expect(ids([j({ id: 1 }), j({ id: 2 })], '#999')).toEqual([])
+  })
+
+  it('песня проходит, если совпала её версия по номеру; в результате только песни верхнего уровня', () => {
+    const jobs = [j({ id: 1 }), j({ id: 2 })]
+    const children = { 1: [{ id: 10, title: 'версия', style: 'rock' }, { id: 11, title: 'ещё', style: 'rock' }] }
+    expect(ids(jobs, '11', children)).toEqual([1])
+    expect(ids(jobs, '#10', children)).toEqual([1])
+    expect(ids(jobs, '1', children)).toEqual([1])   // сама песня 1; версии не добавляются
+  })
+
+  it('песня проходит, если совпала подстрока названия или стиля версии', () => {
+    const jobs = [j({ id: 1, title: 'основа' }), j({ id: 2, title: 'другая' })]
+    const children = { 2: [{ id: 20, title: 'Финал с ГИТАРОЙ', style: 'rock' }, { id: 21, title: 'x', style: 'Blues' }] }
+    expect(ids(jobs, 'гитарой', children)).toEqual([2])
+    expect(ids(jobs, 'blues', children)).toEqual([2])
+    expect(ids(jobs, 'нет такого', children)).toEqual([])
+  })
+
+  it('номер версии ищется точно: 20 не находит версию 200', () => {
+    const jobs = [j({ id: 1 }), j({ id: 2 })]
+    const children = { 1: [{ id: 200, title: 'в', style: 'rock' }] }
+    expect(ids(jobs, '20', children)).toEqual([])
+  })
+
+  it('children не передан — поиск только по самой песне', () => {
+    const jobs = [j({ id: 1 }), j({ id: 2, title: 'гитара' })]
+    expect(ids(jobs, '10')).toEqual([])
+    expect(ids(jobs, '#1')).toEqual([1])
+    expect(ids(jobs, 'гитара')).toEqual([2])
+  })
+
+  it('поиск по версии комбинируется со статусом через И', () => {
+    const jobs = [j({ id: 1, status: 'done' }), j({ id: 2, status: 'error' })]
+    const children = { 1: [{ id: 30, title: 'в', style: 'rock' }], 2: [{ id: 31, title: 'в', style: 'rock' }] }
+    const f = (q) => ({ ...defaultJobFilter(), status: 'done', q })
+    expect(filterJobs(jobs, f('31'), NOW, children).map(x => x.id)).toEqual([])
+    expect(filterJobs(jobs, f('#30'), NOW, children).map(x => x.id)).toEqual([1])
+  })
+
+  it('пустой q или одни пробелы — не фильтрует', () => {
+    const jobs = [j({ id: 1 }), j({ id: 2 }), j({ id: 3 })]
+    const children = { 1: [{ id: 10, title: 'в', style: 'rock' }] }
+    expect(ids(jobs, '')).toEqual([1, 2, 3])
+    expect(ids(jobs, '   ', children)).toEqual([1, 2, 3])
+  })
+})

@@ -5,7 +5,7 @@
 import { TRICK_INSTRUMENTS } from './abcEdit.js'
 
 // роли производных треков: результаты слушают, материал — сырьё для вклеек
-export const RESULT_ROLES = ['variant', 'rebuild', 'continue']
+export const RESULT_ROLES = ['variant', 'rebuild', 'continue', 'voice']
 
 export function isResultJob(j) {
   return RESULT_ROLES.includes(j.role)

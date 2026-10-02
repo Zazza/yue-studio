@@ -243,7 +243,7 @@ const qf = ref(defaultJobFilter())
 const qPage = ref(1)
 // производные треки (куски для вклеек, пересборки, варианты) — под родителем
 const grouped = computed(() => groupJobs(jobs.value))
-const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value))
+const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
 const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
 // готовые миксы с вклейками (файлы эффектов родителя overdub-inst-*) — по раскрытию
 const kidMixes = ref({})

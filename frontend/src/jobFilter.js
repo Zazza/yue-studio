@@ -45,7 +45,16 @@ const DUR_BUCKETS = {
   long: (d) => d > 360,
 }
 
-export function filterJobs(jobs, f, now = Date.now()) {
+// совпадение поиска: номер («425» или «#425» — точно) либо подстрока названия/стиля
+function matchesQuery(j, q) {
+  const num = /^#?(\d+)$/.exec(q)
+  if (num && String(j.id) === num[1]) return true
+  return `${j.title || ''} ${j.style || ''}`.toLowerCase().includes(q)
+}
+
+// children — версии песен ({ [rootId]: [...] }, как groupJobs().children):
+// поиск смотрит и в них — песня видна, если совпала любая её версия
+export function filterJobs(jobs, f, now = Date.now(), children = {}) {
   const q = (f.q || '').trim().toLowerCase()
   return (jobs || []).filter((j) => {
     if (f.status === 'active' && !['queued', 'running'].includes(j.status)) return false
@@ -59,7 +68,7 @@ export function filterJobs(jobs, f, now = Date.now()) {
     if (f.draft === 'hide' && j.draft) return false
     if (f.folder === FOLDER_NONE && folderKey(j.folder)) return false
     if (f.folder && f.folder !== 'all' && f.folder !== FOLDER_NONE && folderKey(j.folder) !== folderKey(f.folder)) return false
-    if (q && !(`${j.title || ''} ${j.style || ''}`.toLowerCase().includes(q))) return false
+    if (q && !matchesQuery(j, q) && !(children[j.id] || []).some((k) => matchesQuery(k, q))) return false
     return true
   })
 }
