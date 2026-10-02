@@ -58,3 +58,31 @@ describe('styleRows', () => {
     expect(styleRows('138 BPM')).toEqual([['bpm', ['138 BPM']]])
   })
 })
+
+describe('parseStyleTags — точность групп', () => {
+  const groupOf = (phrase) => Object.keys(parseStyleTags(phrase))[0]
+
+  it('побеждает самое длинное совпадение со словарём, а не первое поле по порядку', () => {
+    // «slow» есть в ритме, но фраза про акустическую гитару
+    expect(groupOf('slow sparse fingerpicked acoustic guitar arpeggios')).toBe('guitars')
+  })
+
+  it('названный инструмент сильнее прилагательного из жанра/ритма', () => {
+    expect(groupOf('calm slow detuned blues slide guitar floating above the rhythm')).toBe('guitars')
+    expect(groupOf('icy synth washes far behind')).toBe('keys')
+    // без инструмента жанр остаётся жанром
+    expect(groupOf('garage blues')).toBe('genre')
+  })
+
+  it('настроение узнаётся по основе слова', () => {
+    expect(groupOf('gentle melancholic')).toBe('mood')
+    expect(groupOf('nostalgic haze')).toBe('mood')
+    expect(groupOf('tense')).toBe('mood')
+  })
+
+  it('приёмы гитары и бас — в гитарах, «Instrumental» — в голосе', () => {
+    expect(groupOf('dirty slide and string bends')).toBe('guitars')
+    expect(groupOf('fast melodic picked bass')).toBe('guitars')
+    expect(groupOf('Instrumental')).toBe('vocals')
+  })
+})
