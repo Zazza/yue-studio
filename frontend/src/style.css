@@ -239,3 +239,9 @@ input[type="range"]::-webkit-slider-thumb {
 /* материал (рендеры кусков, проверки) — приглушённо: сырьё, не песня */
 .job-material.material, .job-material.material .badge { opacity: 0.55; }
 .cont-style { min-width: 240px; flex: 1 1 240px; }
+
+/* что сейчас играет: полоса слева и мягкая подсветка у песни/версии,
+   кнопка «■ стоп» — зелёная (--ok), видно издалека */
+.job.playing { box-shadow: inset 3px 0 0 var(--ok); }
+.job-kid.playing { padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--ok) 16%, transparent); }
+button.is-playing { background: var(--ok); border-color: var(--ok); color: #fff; }

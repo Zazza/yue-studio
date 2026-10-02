@@ -103,3 +103,52 @@ describe('▶ шапки: играть выделенное (togglePlay)', () =>
     })
   })
 })
+
+// playbackEnded(state) по контракту: true только когда трек доиграл до конца —
+// не играет, длительность > 0 и позиция не дальше полсекунды от конца
+// (допуск на округление таймера). Остальное — false.
+describe('playbackEnded: трек доиграл до конца', () => {
+  let playbackEnded
+  beforeEach(async () => {
+    vi.stubGlobal('localStorage', new MemStorage())
+    vi.resetModules()
+    ;({ playbackEnded } = await import('./usePlayer.js'))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const st = (s) => ({ playing: false, position_sec: 0, duration_sec: 180, job_id: 15, ...s })
+
+  it('остановлен ровно на конце — true', () => {
+    expect(playbackEnded(st({ position_sec: 180 }))).toBe(true)
+  })
+
+  it('играет — false, даже на последней секунде и на самом конце', () => {
+    expect(playbackEnded(st({ playing: true, position_sec: 179.8 }))).toBe(false)
+    expect(playbackEnded(st({ playing: true, position_sec: 180 }))).toBe(false)
+  })
+
+  it('пауза в середине — false', () => {
+    expect(playbackEnded(st({ position_sec: 90 }))).toBe(false)
+  })
+
+  it('ничего не загружено: duration 0 или нет — false', () => {
+    expect(playbackEnded(st({ duration_sec: 0, position_sec: 0 }))).toBe(false)
+    const noDur = st({ position_sec: 0 })
+    delete noDur.duration_sec
+    expect(playbackEnded(noDur)).toBe(false)
+  })
+
+  it('state null/undefined — false', () => {
+    expect(playbackEnded(null)).toBe(false)
+    expect(playbackEnded(undefined)).toBe(false)
+  })
+
+  it('граница допуска: duration-0.5 — true, duration-0.6 — false', () => {
+    expect(playbackEnded(st({ position_sec: 179.5 }))).toBe(true)
+    expect(playbackEnded(st({ position_sec: 179.4 }))).toBe(false)
+  })
+
+  it('позиция больше длительности — true', () => {
+    expect(playbackEnded(st({ position_sec: 181 }))).toBe(true)
+  })
+})

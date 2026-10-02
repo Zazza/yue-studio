@@ -299,6 +299,8 @@ async function moveToFolder(j, folder) {
     alert(String(err))
   }
 }
+// песня «играет», если играет любая её версия или материал
+const songPlaying = (j) => [j, ...(grouped.value.children[j.id] || [])].some((v) => isPlaying('m' + v.id))
 const folderList = computed(() => folderNames(grouped.value.top))
 const qFolderOptions = computed(() => [
   { value: 'all', label: t('queue.folder.all') },
@@ -702,6 +704,8 @@ function onWindowClick(e) {
     </div>
   </header>
 
+  <!-- всё под шапкой прокручивается само: шапка с плеером всегда на виду -->
+  <div class="app-body">
   <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
                 @close="settingsPage = false" @saved="refresh" />
   <LibraryPage v-else-if="libraryPage" @close="libraryPage = false" />
@@ -859,7 +863,7 @@ function onWindowClick(e) {
         <p class="muted">{{ filteredJobs.length
           ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
-        <article v-for="j in queuePage" :key="j.id" class="job" :class="j.status">
+        <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
         <div class="job-head">
           <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
                  @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
@@ -901,7 +905,7 @@ function onWindowClick(e) {
         <p class="muted style">{{ j.style }}</p>
         <div v-if="openKids.has(j.id)" class="job-kids">
           <span class="muted">{{ t('queue.kids.versions') }}</span>
-          <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id }">
+          <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
             <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
             <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
                     @click="makeHead(j, v)">☆ {{ t('queue.head.make') }}</button>
@@ -912,7 +916,7 @@ function onWindowClick(e) {
             <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
             <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
             <span class="spacer"></span>
-            <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" @click="togglePlay(v)">
+            <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + v.id) }" @click="togglePlay(v)">
               {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
             </button>
             <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
@@ -930,14 +934,14 @@ function onWindowClick(e) {
           </details>
           <details v-if="kidMaterial(j.id).length" class="job-material material">
             <summary>{{ t('queue.kids.material', { n: kidMaterial(j.id).length }) }}</summary>
-            <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid">
+            <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid" :class="{ playing: isPlaying('m' + k.id) }">
               <span>#{{ k.id }}</span>
               <span>{{ k.title }}</span>
               <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
               <span>{{ statusLabelC[k.status] || k.status }}</span>
               <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
               <span class="spacer"></span>
-              <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" @click="togglePlay(k)">
+              <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + k.id) }" @click="togglePlay(k)">
                 {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
               </button>
               <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)">✕</button>
@@ -946,7 +950,7 @@ function onWindowClick(e) {
         </div>
         <p v-if="j.error" class="error">{{ j.error }}</p>
         <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
-          <button class="play-main" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
+          <button class="play-main" :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
             {{ playBtn('m' + headOf(j).id) === '…' ? t('queue.loading') : (isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play')) }}
           </button>
           <button class="ghost stopbtn" :title="t('player.stop')" @click="stopAll()">■</button>
@@ -969,6 +973,7 @@ function onWindowClick(e) {
       </template>
     </section>
   </main>
+  </div>
 
   <PlanModal v-model:abc="planAbc" :open="planOpen" :busy="planBusy" :err="planErr"
              :submitting="submitting" :info="planInfo"
@@ -982,6 +987,12 @@ function onWindowClick(e) {
 <style>
 /* Стили приложения — глобальные: экранные компоненты (components/) рендерятся
    внутри этого корня и пользуются теми же классами. */
+/* раскладка окна: шапка сверху неподвижна, под ней .app-body со своей прокруткой */
+html, body, #app { height: 100%; }
+body { overflow: hidden; }
+#app { display: flex; flex-direction: column; }
+.app-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+header { flex: 0 0 auto; }
 header {
   /* выше панелей main (стекинг-контексты из backdrop-filter), но ниже модалок (z-index 10) */
   position: relative; z-index: 5; flex-wrap: wrap;

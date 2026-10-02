@@ -25,6 +25,15 @@ function onRefresh(fn) { refreshCb = fn }
 
 async function refreshPlayer() {
   try { playerState.value = await api.audioState() } catch {}
+  // трек доиграл до конца: плеер держит его загруженным (позиция = длительность),
+  // но кнопки должны вернуться в «▶»; пауза в середине — по-прежнему «играет»
+  if (playbackEnded(playerState.value)) nowPlayingKey.value = ''
+}
+
+// конец воспроизведения: не играет и позиция у самого конца (полсекунды запаса
+// на округление таймера плеера)
+export function playbackEnded(st) {
+  return !!st && !st.playing && st.duration_sec > 0 && st.position_sec >= st.duration_sec - 0.5
 }
 
 function isPlaying(key) {
