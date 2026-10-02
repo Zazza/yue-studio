@@ -403,6 +403,32 @@ func slapbackGraph(p map[string]float64) string {
 		p["delay"], p["echo"])
 }
 
+var gateParams = []Param{
+	{ID: "bpm", Label: "темп трека, BPM", Min: 40, Max: 240, Step: 0.5, Default: 120},
+	{ID: "div", Label: "ударов на долю (2 — восьмые, 4 — шестнадцатые)", Min: 1, Max: 8, Step: 1, Default: 4},
+	{ID: "duty", Label: "доля открытого звука в ударе", Min: 0.1, Max: 0.9, Step: 0.05, Default: 0.5},
+	{ID: "depth", Label: "глубина (1 — полная тишина между ударами)", Min: 0, Max: 1, Step: 0.05, Default: 0.9},
+	{ID: "smooth", Label: "мягкость краёв, мс", Min: 1, Max: 30, Step: 1, Default: 5},
+	{ID: "offset", Label: "сдвиг сетки, с (где начинается доля)", Min: 0, Max: 10, Step: 0.005, Default: 0},
+}
+
+// gateSamples — длина аудиокадра для гейта: volume с eval=frame считает
+// выражение раз на кадр, а кадр ffmpeg по умолчанию ~1024 сэмпла (21 мс на
+// 48 кГц) — на шестнадцатых в 138 BPM (109 мс) край ступенькой. 64 сэмпла — ~1 мс;
+// p=0 — последний кадр не дополняется тишиной (иначе выход длиннее входа).
+const gateSamples = 64
+
+// gateGraph — «Ритм-гейт» (транс-гейт): громкость открывается на duty каждого
+// удара сетки (bpm × div ударов в минуту, сетка от offset) и закрывается до
+// 1−depth между ними; края — линейные рампы smooth мс. Тянущийся звук (пэд,
+// гитара с сустейном) становится пульсирующим синт-ритмом на тех же аккордах.
+func gateGraph(p map[string]float64) string {
+	period := 60 / (p["bpm"] * p["div"]) // длина удара, с
+	r := math.Min(p["smooth"]/1000/period, p["duty"]/2)
+	return fmt.Sprintf("[0:a]asetnsamples=n=%d:p=0,volume='1-%[2]g*(1-clip(min(%[3]s/%[4]g,(%[5]g-%[3]s)/%[4]g),0,1))':eval=frame[out]",
+		gateSamples, p["depth"], fmt.Sprintf("mod(t-%g+%g*1000,%g)/%g", p["offset"], period, period, period), r, p["duty"])
+}
+
 var chains = []Chain{
 	{
 		ID: "wall", Name: "Стена/шум/песок",
@@ -482,6 +508,13 @@ var chains = []Chain{
 		ID: "warp", Name: "Варп-лента",
 		Note:   "Глубокое завывание и дрожь, глухой верх — плёночный брак как приём.",
 		Params: warpParams, graph: warpGraph,
+	},
+	{
+		ID: "gate", Name: "Ритм-гейт",
+		Note: "Громкость открывается и закрывается в такт (bpm × удары на долю, сетка от сдвига): " +
+			"тянущийся звук — пэд, гитара с сустейном — становится пульсирующим синт-ритмом на тех же " +
+			"аккордах. Ставить на дорожку (обычно «прочее») в окне.",
+		Params: gateParams, graph: gateGraph,
 	},
 	{
 		ID: "megaphone", Name: "Мегафон",
