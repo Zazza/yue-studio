@@ -22,25 +22,39 @@
   --lcd-text: #ffbe3d;
   --lcd-dim: #4a3a15;
   --lcd-glow: rgba(255, 190, 61, .35);
+  /* главные кнопки (▶ играть, «В очередь») — янтарь LCD */
+  --play-grad: linear-gradient(180deg, #ffd27a, var(--lcd-text) 45%, #c98a1a);
+  --play-fg: #1a1408;
+  /* бейджи «черновик»/«свой ABC» */
+  --badge-bg: rgba(120,140,255,.15);
+  --badge-fg: #9aa5ff;
 }
 [data-theme="light"] {
-  --bg: #e7e3da;
-  --panel: #fbfaf6;
-  --panel2: #f2efe7;
-  --panel3: #e8e4d8;
-  --border: #c7c1b2;
+  --bg: #f9f9fb;
+  --panel: #ffffff;
+  --panel2: #f0f0f3;
+  --panel3: #e8e8ec;
+  --border: #d9d9e0;
   --bevel-hi: #ffffff;
-  --bevel-lo: #d0cabd;
-  --text: #26231c;
-  --muted: #6b6455;
-  --accent: #c94f2f;
-  --ok: #2f8f5b;
-  --err: #c4402e;
-  --run: #a8761c;
-  --lcd-bg: #f7efdc;
-  --lcd-text: #7a4e00;
-  --lcd-dim: #d9c9a3;
-  --lcd-glow: rgba(122, 78, 0, .25);
+  --bevel-lo: #e0e1e6;
+  --text: #1c2024;
+  --muted: #60646c;
+  --accent: #c2410c;
+  --ok: #15803d;
+  --err: #b91c1c;
+  --run: #a16207;
+  /* LCD-дисплеи — «физическое железо»: тёмные с янтарём и в светлой теме,
+     как экран прибора, а не фон всего интерфейса */
+  --lcd-bg: #191b1f;
+  --lcd-text: #ffbe3d;
+  --lcd-dim: #4a3a15;
+  --lcd-glow: rgba(255, 190, 61, .35);
+  /* главные кнопки — коралловый градиент (янтарь уходит с фона в LCD) */
+  --play-grad: linear-gradient(180deg, color-mix(in srgb, var(--accent) 55%, #ffffff), var(--accent) 45%, #9a340a);
+  --play-fg: #ffffff;
+  /* бейджи — читаемый синий вместо светло-голубого на белом */
+  --badge-bg: rgba(63,81,181,.10);
+  --badge-fg: #4a5ac9;
 }
 * { box-sizing: border-box; }
 body {
@@ -186,19 +200,20 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* Светлая тема: стеклянные контролы — полу-прозрачный белый + blur (2026, а не 1997).
-   Фаски остаются: характер винампа читается через грани и рельсы. */
+   Фаски остаются: характер винампа читается через грани и рельсы. Тени — холодные,
+   без тёплого подтона (палитра ушла от бежа к холодному серому). */
 [data-theme="light"] button {
-  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.38) 60%, rgba(240,236,226,.5));
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.38) 60%, rgba(244,245,248,.5));
   backdrop-filter: blur(10px) saturate(1.2);
   -webkit-backdrop-filter: blur(10px) saturate(1.2);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(90,80,60,.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 3px rgba(15,20,35,.14);
   border-top-color: rgba(255,255,255,.95);
   border-left-color: rgba(255,255,255,.95);
 }
 [data-theme="light"] button:hover { filter: brightness(1.05) saturate(1.05); }
 [data-theme="light"] button:active:not(:disabled) {
-  background: linear-gradient(180deg, rgba(240,236,226,.75), rgba(255,255,255,.45));
-  box-shadow: inset 0 1px 2px rgba(90,80,60,.2);
+  background: linear-gradient(180deg, rgba(244,245,248,.75), rgba(255,255,255,.45));
+  box-shadow: inset 0 1px 2px rgba(15,20,35,.16);
 }
 [data-theme="light"] button.icon-btn {
   background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: none;
@@ -208,19 +223,31 @@ input[type="range"]::-webkit-slider-thumb {
   background: linear-gradient(180deg, rgba(255,255,255,.5), rgba(255,255,255,.22));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
 }
+/* главные кнопки — не стекло: стеклянный оверрайд выше перебивает их фон
+   (специфичность 0,1,1 против 0,1,0 у .primary/.play-main), возвращаем градиент;
+   .alt — контурная кнопка, её не трогаем */
+[data-theme="light"] button.primary:not(.alt),
+[data-theme="light"] button.play-main {
+  background: var(--play-grad); color: var(--play-fg);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+}
+/* «что играет» — зелёная, тоже перебивалась стеклом */
+[data-theme="light"] button.is-playing {
+  background: var(--ok); border-color: var(--ok); color: #fff;
+}
 [data-theme="light"] input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
 [data-theme="light"] textarea {
   background: rgba(255,255,255,.55);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: inset 1px 1px 3px rgba(90,80,60,.15), 0 1px 0 rgba(255,255,255,.8);
+  box-shadow: inset 1px 1px 3px rgba(15,20,35,.12), 0 1px 0 rgba(255,255,255,.8);
 }
 [data-theme="light"] .vselect-btn {
   background: linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,.3));
 }
 [data-theme="light"] .vselect-drop,
 [data-theme="light"] .slot-drop {
-  background: rgba(251,250,246,.92);
+  background: rgba(255,255,255,.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -229,8 +256,16 @@ input[type="range"]::-webkit-slider-thumb {
 .insert-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .insert-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-/* вложения трека (производные: куски, пересборки, варианты) */
-.job-kids { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px 12px; padding-left: 8px; border-left: 2px solid var(--border, #444); }
+/* вложения трека (производные: куски, пересборки, варианты) — отдельный блок:
+   рамка и фон, чтобы не сливался с карточкой; заголовок с кнопкой «свернуть» */
+.job-kids {
+  display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; padding: 8px 10px;
+  border: 1px solid var(--border, #444); border-radius: 6px;
+  background: color-mix(in srgb, var(--panel, #2a2a2a) 55%, transparent);
+}
+/* раскрытие версий — своей строкой под таблицей стиля; стрелка показывает состояние */
+.kids-toggle { margin: 4px 0 0; }
+.kids-toggle.on { border-color: var(--accent); color: var(--accent); }
 .job-kid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.92em; }
 
 .job-kid.current { padding: 4px 6px; border-radius: 6px; background: var(--accent-soft, rgba(120, 180, 255, 0.12)); }

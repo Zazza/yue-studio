@@ -1,6 +1,6 @@
 <script setup>
 // Страница настроек: воркер + Ollama + пути воркера.
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../i18n/index.js'
 const { t } = useI18n()
 import { api } from '../api.js'
@@ -8,6 +8,11 @@ import VSelect from '../VSelect.vue'
 
 const serverURL = defineModel('serverURL')
 const emit = defineEmits(['close', 'saved'])
+
+// модалка: Esc закрывает
+const onKey = (e) => { if (e.key === 'Escape') emit('close') }
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 const ollamaURL = ref('')
 const ollamaModel = ref('')
@@ -84,9 +89,13 @@ async function save() {
 </script>
 
 <template>
-  <main class="settings-page settings-wide">
-    <section class="panel">
-      <h2>{{ t('settings.title') }}</h2>
+  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+    <section class="panel page-modal">
+      <div class="page-modal-head">
+        <h2>{{ t('settings.title') }}</h2>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+      </div>
+      <div class="page-modal-body">
 
       <h3 class="set-h">{{ t('settings.worker') }}</h3>
       <div class="set-row">
@@ -119,8 +128,8 @@ async function save() {
       <div v-if="saved" class="ok">сохранено</div>
       <div class="set-actions">
         <button @click="save">{{ t('common.save') }}</button>
-        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
+      </div>
       </div>
     </section>
-  </main>
+  </div>
 </template>

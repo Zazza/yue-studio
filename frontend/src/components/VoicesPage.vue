@@ -40,6 +40,10 @@ async function loadVoices() {
 }
 
 onMounted(loadVoices)
+// модалка: Esc закрывает
+const onKey = (e) => { if (e.key === 'Escape') emit('close') }
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 onBeforeUnmount(stopPoll)
 
 function stopPoll() {
@@ -157,9 +161,13 @@ function cleanProbes() {
 </script>
 
 <template>
-  <main class="settings-page">
-    <section class="panel">
-      <h2>{{ t('voicelab.title') }}</h2>
+  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+    <section class="panel page-modal">
+      <div class="page-modal-head">
+        <h2>{{ t('voicelab.title') }}</h2>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+      </div>
+      <div class="page-modal-body">
       <p class="muted">{{ t('voicelab.desc') }}</p>
 
       <div class="voice-presets">
@@ -243,10 +251,7 @@ function cleanProbes() {
         <button class="ghost small-btn" @click="del(v)">✕</button>
       </div>
       <p v-if="!voices.length" class="muted">{{ t('voicelab.empty') }}</p>
-
-      <div class="set-actions">
-        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
-  </main>
+  </div>
 </template>

@@ -26,6 +26,7 @@ const props = defineProps({
   mode: { type: String, default: 'amp' },           // 'amp' | 'spectrum'
   spectrumUrl: { type: String, default: '' },
   envelope: { type: Array, default: null },         // [{t, db}] — линия громкости; null — выкл
+  color: { type: String, default: '' },             // цвет волны/выделения/курсора; '' — акцент темы
 })
 const emit = defineEmits(['seek', 'select', 'envelope'])
 const { t } = useI18n()
@@ -50,6 +51,15 @@ const zoomX = computed(() => (win.value.span > 0 ? dur.value / win.value.span : 
 function cssVar(name, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return v || fallback
+}
+
+// цвет волны — выбор пользователя (янтарь/коралл/…); '' = акцент темы.
+// hex → rgba с альфой для заливок выделения и линий сетки
+function withAlpha(color, a) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(color).trim())
+  if (!m) return color
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
 }
 
 // выделение во время протяжки — по пикселям, прилипание только на отпускании
@@ -85,6 +95,7 @@ function draw() {
   ctx.clearRect(0, 0, w, h)
   const accent = cssVar('--accent', '#e05d3d')
   const muted = cssVar('--muted', '#8a8f98')
+  const wave = props.color || accent
   const wv = win.value
   const x = (sec) => viewSecToPx(sec, wv, w)
   const mid = h / 2
@@ -96,7 +107,7 @@ function draw() {
     if (m.sec < t0 - 1 || m.sec > t1) continue
     const mx = Math.round(x(m.sec)) + 0.5
     const strong = !!m.section
-    ctx.strokeStyle = strong ? 'rgba(224,93,61,.45)' : 'rgba(128,128,128,.18)'
+    ctx.strokeStyle = strong ? withAlpha(wave, .45) : 'rgba(128,128,128,.18)'
     ctx.lineWidth = strong ? 1.5 : 1
     ctx.beginPath()
     ctx.moveTo(mx, 0)
@@ -114,7 +125,7 @@ function draw() {
     if (peaks.length && dur.value > 0) {
       const secPerPx = wv.span / w
       const binsPerSec = peaks.length / dur.value
-      ctx.strokeStyle = accent
+      ctx.strokeStyle = wave
       ctx.lineWidth = 1
       ctx.beginPath()
       for (let px = 0; px < w; px++) {
@@ -147,9 +158,9 @@ function draw() {
   if (sel && sel.to > sel.from) {
     const x1 = x(sel.from), x2 = x(sel.to)
     if (x2 > 0 && x1 < w) {
-      ctx.fillStyle = 'rgba(224,93,61,.18)'
+      ctx.fillStyle = withAlpha(wave, .18)
       ctx.fillRect(x1, 0, x2 - x1, h)
-      ctx.strokeStyle = 'rgba(224,93,61,.6)'
+      ctx.strokeStyle = withAlpha(wave, .6)
       ctx.lineWidth = 1
       ctx.strokeRect(Math.round(x1) + 0.5, 0.5, Math.max(x2 - x1 - 1, 1), h - 1)
     }
@@ -190,7 +201,7 @@ function draw() {
   if (props.cursorSec > 0) {
     const cx = Math.round(x(props.cursorSec)) + 0.5
     if (cx >= 0 && cx <= w) {
-      ctx.strokeStyle = accent
+      ctx.strokeStyle = wave
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(cx, 0)
@@ -333,7 +344,7 @@ onMounted(() => {
 })
 onUnmounted(() => { if (ro) ro.disconnect() })
 
-watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, drag.value, props.spectrumUrl, win.value, envPts.value, envDrag.value], redraw, { deep: false })
+watch(() => [props.peaks, props.marks, props.cursorSec, props.selection, props.mode, props.color, drag.value, props.spectrumUrl, win.value, envPts.value, envDrag.value], redraw, { deep: false })
 </script>
 
 <template>

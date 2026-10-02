@@ -1,11 +1,16 @@
 <script setup>
 // Страница «Свои треки»: импорт трека в студию + профили исполнителей из корпусов.
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../i18n/index.js'
 const { t } = useI18n()
 import { api } from '../api.js'
 
 const emit = defineEmits(['close', 'imported', 'apply-style', 'apply-abc', 'style-to-library'])
+
+// модалка: Esc закрывает
+const onKey = (e) => { if (e.key === 'Escape') emit('close') }
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 const importBusy = ref(false)
 const corpora = ref([])
@@ -86,9 +91,13 @@ function applyAbc(p) {
 </script>
 
 <template>
-  <main class="settings-page corpus-page-wide">
-    <section class="panel lib">
-      <h2>{{ t('corpus.import.title') }}</h2>
+  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+    <section class="panel lib page-modal">
+      <div class="page-modal-head">
+        <h2>{{ t('corpus.title') }} · {{ t('corpus.import.title') }}</h2>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+      </div>
+      <div class="page-modal-body">
       <p class="muted">
         {{ t('corpus.import.desc') }}
       </p>
@@ -140,9 +149,7 @@ function applyAbc(p) {
         </div>
       </div>
       <p v-if="!corpora.length" class="muted">{{ t('corpus.desc') }}</p>
-      <div class="set-actions">
-        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
-  </main>
+  </div>
 </template>

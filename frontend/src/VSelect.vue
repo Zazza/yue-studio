@@ -31,10 +31,14 @@ function place() {
   const above = r.top
   const up = below < 260 && above > below
   const maxH = Math.max(120, Math.min(220, (up ? above : below) - 12))
+  // ширина — по самому длинному пункту, но не уже кнопки и не шире экрана:
+  // список, равный кнопке, ломал длинные варианты переносом строк
   dropStyle.value = {
     position: 'fixed',
     left: r.left + 'px',
-    width: r.width + 'px',
+    minWidth: r.width + 'px',
+    width: 'max-content',
+    maxWidth: Math.max(r.width, window.innerWidth - r.left - 12) + 'px',
     ...(up
       ? { bottom: (window.innerHeight - r.top + 2) + 'px', boxShadow: '0 -8px 24px rgba(0,0,0,.4)' }
       : { top: (r.bottom + 2) + 'px', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }),
@@ -64,11 +68,6 @@ const pick = (o) => {
   open.value = false
   emit('update:modelValue', o.value)
 }
-const onDocClick = (e) => {
-  if (root.value && !root.value.contains(e.target) && drop.value && !drop.value.contains(e.target)) {
-    open.value = false
-  }
-}
 // Enter — первый подходящий пункт, Esc — закрыть
 const onSearchKey = (e) => {
   if (e.key === 'Enter') {
@@ -79,6 +78,12 @@ const onSearchKey = (e) => {
   }
 }
 // скролл/ресайз уводят fixed-список от кнопки — закрываем, это честнее сдвига.
+const onDocClick = (e) => {
+  if (root.value && !root.value.contains(e.target) && drop.value && !drop.value.contains(e.target)) {
+    open.value = false
+  }
+}
+
 // Но прокрутка САМОГО списка (длинные группы стилей) — не закрывает
 const onReflow = (e) => {
   if (!open.value) return
@@ -133,7 +138,7 @@ onUnmounted(() => {
   list-style: none; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   overflow-y: auto;
 }
-.vselect-drop li { padding: 5px 10px; font-size: 13px; cursor: pointer; }
+.vselect-drop li { padding: 5px 10px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .vselect-drop li:hover { background: var(--panel2); }
 .vselect-drop li.sel { color: var(--accent); font-weight: 600; }
 .vselect-drop li.off { opacity: .5; cursor: default; }

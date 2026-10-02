@@ -9,6 +9,7 @@ import { slotKeys, slotHints, durOptions, durTokens } from './slotOptions.js'
 import { useI18n } from './i18n/index.js'
 import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
 import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount, folderNames, FOLDER_NONE } from './jobFilter.js'
+import { styleRows } from './styleTags.js'
 import { isResultJob, mixChildId, mixLabel } from './insertLabels.js'
 import { useInserts } from './composables/useInserts.js'
 // сервис «перепеть с места»: живёт всё время, как вклейки (студию закрывают)
@@ -39,6 +40,24 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', theme.value)
 }
 
+// размер окна: восстанавливаем сохранённый при запуске, изменения пишем с дебаунсом
+// (вне wails — в браузере/тестах — рантайма нет, тихо пропускаем)
+import { WindowGetSize, WindowSetSize } from './wailsjs/runtime/runtime.js'
+try {
+  const saved = JSON.parse(localStorage.getItem('yue_window') || 'null')
+  if (saved && saved.w >= 900 && saved.h >= 600) WindowSetSize(saved.w, saved.h)
+} catch { /* первый запуск или повреждённая запись — дефолт из main.go */ }
+let winSizeTimer = 0
+window.addEventListener('resize', () => {
+  clearTimeout(winSizeTimer)
+  winSizeTimer = setTimeout(async () => {
+    try {
+      const s = await WindowGetSize()
+      if (s.w >= 900 && s.h >= 600) localStorage.setItem('yue_window', JSON.stringify({ w: s.w, h: s.h }))
+    } catch { /* не wails — сохранять нечего */ }
+  }, 700)
+})
+
 const { playerState, playBusy, isPlaying, playBtn, toggleArtifact, onVolume, onRefresh } = usePlayer()
 const { locale, t, setLocale } = useI18n()
 const healthTitle = computed(() => health.value
@@ -48,6 +67,8 @@ const statusLabelC = computed(() => ({
   queued: t('queue.status.queued'), running: t('queue.status.running'), done: t('queue.status.done'),
   error: t('queue.status.error'), canceled: t('queue.status.canceled'),
 }))
+// короткая метка группы строки стиля: жанр, ритм, голос и т.д.
+const styleTagLabel = (slot) => t('style.tag.' + slot)
 const { askConfirm } = useConfirm()
 
 // ---------- Форма новой композиции ----------
@@ -304,13 +325,13 @@ const songPlaying = (j) => [j, ...(grouped.value.children[j.id] || [])].some((v)
 const folderList = computed(() => folderNames(grouped.value.top))
 const qFolderOptions = computed(() => [
   { value: 'all', label: t('queue.folder.all') },
-  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })),
+  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })), // после 📁 неразрывный пробел: обычный даёт перенос сразу за иконкой
   { value: FOLDER_NONE, label: t('queue.folder.none') },
 ])
 const FOLDER_NEW = '\u0000new'
 const jobFolderOptions = computed(() => [
   { value: FOLDER_NONE, label: t('queue.folder.none') },
-  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })),
+  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })), // после 📁 неразрывный пробел: обычный даёт перенос сразу за иконкой
   { value: FOLDER_NEW, label: t('queue.folder.new') },
 ])
 // своя папка: выбор «＋ новая папка…» открывает поле имени у этой песни
@@ -387,11 +408,6 @@ onRefresh(refresh)
 
 async function togglePlay(j) {
   await toggleArtifact(`m${j.id}`, `#${j.id} ${j.title}`, () => api.playAudio(j.id))
-}
-
-async function stopAll() {
-  await api.stopAudio()
-  await refresh()
 }
 
 async function cancel(id) {
@@ -706,18 +722,7 @@ function onWindowClick(e) {
 
   <!-- всё под шапкой прокручивается само: шапка с плеером всегда на виду -->
   <div class="app-body">
-  <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
-                @close="settingsPage = false" @saved="refresh" />
-  <LibraryPage v-else-if="libraryPage" @close="libraryPage = false" />
-  <CorpusPage v-else-if="corpusPage"
-              @close="corpusPage = false"
-              @imported="onImported"
-              @apply-style="applyProfileStyle"
-              @apply-abc="(abc) => setPlanAbc(abc, { seed: null, seconds: null, truncated: false, fromProfile: true })"
-              @style-to-library="profileStyleToLibrary" />
-  <VoicesPage v-else-if="voicesPage"
-              @close="voicesPage = false; loadVoiceCards()"
-              @apply-voice="applyVoice" />
+  <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
   <StudioPage v-else-if="studioJob" :job="studioJob" :auto-translate="autoTranslate"
               @close="studioJob = null; refresh()"
               @open-metrics="openMetrics" />
@@ -864,24 +869,23 @@ function onWindowClick(e) {
           ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
         <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
-        <div class="job-head">
+        <!-- название с номером — шапка карточки во всю ширину, без отступа от краёв -->
+        <div class="job-title-row">
           <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
                  @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
           <strong v-else :title="t('queue.rename.tip')" class="job-title" @dblclick="startRename(j)">#{{ j.id }} {{ j.title }}</strong>
           <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)">✎</button>
-          <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
-                 :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
-                 @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
-          <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 150px"
-                   :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
-          <span v-if="fmtWhen(j.created_at)" class="muted" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
-          <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
+        </div>
+        <!-- служебная строка: статус, дата, сид, папка — отдельная информация -->
+        <div class="job-meta">
           <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
-          <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
+          <span v-if="fmtWhen(j.created_at)" class="muted" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
           <span v-if="j.cot && j.cot !== 'full'" class="muted">cot {{ j.cot }}</span>
+          <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
+          <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
           <span v-if="j.status === 'running'" class="progress-wrap" role="progressbar"
                 :aria-valuenow="j.progress_pct ?? undefined" :title="progressTip(j)">
             <span class="progress-track" :class="{ indet: j.progress_pct == null }">
@@ -894,66 +898,81 @@ function onWindowClick(e) {
               <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
             </span>
           </span>
+          <span class="spacer"></span>
+          <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
+                 :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
+                 @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
+          <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 200px"
+                   :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
           <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
                   :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
-          <button v-if="(grouped.children[j.id] || []).length" class="ghost small-btn" :class="{ on: openKids.has(j.id) }"
-                  :title="t('queue.kids.tip')" @click="toggleKids(j.id)">📎 {{ grouped.children[j.id].length }}</button>
-          <span class="spacer"></span>
           <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
           <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
         </div>
-        <p class="muted style">{{ j.style }}</p>
-        <div v-if="openKids.has(j.id)" class="job-kids">
-          <span class="muted">{{ t('queue.kids.versions') }}</span>
-          <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
-            <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
-            <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
-                    @click="makeHead(j, v)">☆ {{ t('queue.head.make') }}</button>
-            <span class="muted">#{{ v.id }}</span>
-            <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
-            <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
-            <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
-            <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
-            <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
-            <span class="spacer"></span>
-            <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + v.id) }" @click="togglePlay(v)">
-              {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
-            </button>
-            <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
-            <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
+        <div class="job-body">
+          <!-- строка стиля по смыслу: язык, жанр, ритм… — таблица «что где» -->
+          <div v-if="j.style" class="style-tags" :title="j.style">
+            <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
+              <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
+              <span class="style-tag-val">{{ parts.join(', ') }}</span>
+            </template>
           </div>
-          <details v-if="(kidMixes[j.id] || []).length" class="job-material">
-            <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
-            <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
-              <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
-              <span>{{ mixName(j.id, v.file) }}</span>
+          <!-- версии/материал: раскрытие — строкой под стилем, стрелка = состояние -->
+          <button v-if="(grouped.children[j.id] || []).length" class="ghost small-btn kids-toggle"
+                  :class="{ on: openKids.has(j.id) }"
+                  :title="t('queue.kids.tip')" @click="toggleKids(j.id)">
+            {{ t('queue.kids.versions') }} · {{ grouped.children[j.id].length }} {{ openKids.has(j.id) ? '▲' : '▾' }}
+          </button>
+          <div v-if="openKids.has(j.id)" class="job-kids">
+            <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
+              <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
+              <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
+                      @click="makeHead(j, v)">☆ {{ t('queue.head.make') }}</button>
+              <span class="muted">#{{ v.id }}</span>
+              <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
+              <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
+              <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
+              <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
               <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
               <span class="spacer"></span>
-              <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>
-            </div>
-          </details>
-          <details v-if="kidMaterial(j.id).length" class="job-material material">
-            <summary>{{ t('queue.kids.material', { n: kidMaterial(j.id).length }) }}</summary>
-            <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid" :class="{ playing: isPlaying('m' + k.id) }">
-              <span>#{{ k.id }}</span>
-              <span>{{ k.title }}</span>
-              <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
-              <span>{{ statusLabelC[k.status] || k.status }}</span>
-              <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
-              <span class="spacer"></span>
-              <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + k.id) }" @click="togglePlay(k)">
-                {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
+              <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + v.id) }" @click="togglePlay(v)">
+                {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
               </button>
-              <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)">✕</button>
+              <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
+              <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
             </div>
-          </details>
+            <details v-if="(kidMixes[j.id] || []).length" class="job-material">
+              <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
+              <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
+                <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
+                <span>{{ mixName(j.id, v.file) }}</span>
+                <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
+                <span class="spacer"></span>
+                <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>
+              </div>
+            </details>
+            <details v-if="kidMaterial(j.id).length" class="job-material material">
+              <summary>{{ t('queue.kids.material', { n: kidMaterial(j.id).length }) }}</summary>
+              <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid" :class="{ playing: isPlaying('m' + k.id) }">
+                <span>#{{ k.id }}</span>
+                <span>{{ k.title }}</span>
+                <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
+                <span>{{ statusLabelC[k.status] || k.status }}</span>
+                <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
+                <span class="spacer"></span>
+                <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + k.id) }" @click="togglePlay(k)">
+                  {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
+                </button>
+                <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)">✕</button>
+              </div>
+            </details>
+          </div>
+          <p v-if="j.error" class="error">{{ j.error }}</p>
         </div>
-        <p v-if="j.error" class="error">{{ j.error }}</p>
         <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
           <button class="play-main" :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
             {{ playBtn('m' + headOf(j).id) === '…' ? t('queue.loading') : (isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play')) }}
           </button>
-          <button class="ghost stopbtn" :title="t('player.stop')" @click="stopAll()">■</button>
           <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
           <!-- всё на карточке — про основную версию песни: играть, скачать, ноты -->
           <button class="ghost" @click="openListen(headOf(j))" :title="t('queue.browser.tip')">{{ t('queue.browser') }}</button>
@@ -974,6 +993,19 @@ function onWindowClick(e) {
     </section>
   </main>
   </div>
+
+  <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
+  <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
+                @close="settingsPage = false" @saved="refresh" />
+  <CorpusPage v-if="corpusPage"
+              @close="corpusPage = false"
+              @imported="onImported"
+              @apply-style="applyProfileStyle"
+              @apply-abc="(abc) => setPlanAbc(abc, { seed: null, seconds: null, truncated: false, fromProfile: true })"
+              @style-to-library="profileStyleToLibrary" />
+  <VoicesPage v-if="voicesPage"
+              @close="voicesPage = false; loadVoiceCards()"
+              @apply-voice="applyVoice" />
 
   <PlanModal v-model:abc="planAbc" :open="planOpen" :busy="planBusy" :err="planErr"
              :submitting="submitting" :info="planInfo"
@@ -1033,7 +1065,22 @@ h2 {
 .panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
 /* очередь — правая колонка сетки: растягивается на всё свободное место */
 .panel.list { width: auto; }
-.trick-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+/* приёмы студии — группы по смыслу: подпись сверху, кнопки заворачиваются
+   внутри своей карточки; фон плотный, группа читается на фоне секции */
+.trick-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin-top: 0; }
+.trick-group {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 6px 8px 7px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel2);
+}
+.trick-cap {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); user-select: none; white-space: nowrap;
+}
+.trick-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.trick-btns .cont-style { min-width: 170px; flex: 0 1 220px; }
+.trick-group.assemble { flex-basis: 100%; flex-direction: row; align-items: center; gap: 10px; }
+.trick-group.assemble .trick-btns { flex: 1; }
 .trick-hint { font-size: 11px; margin: 4px 0 0; }
 /* живой отклик: пульсирующая нота, пока кусок генерится */
 .pulse { display: inline-block; animation: trickpulse 1.2s ease-in-out infinite; }
@@ -1084,7 +1131,7 @@ h2 {
 .set-hint { font-size: 12px; }
 .set-info { font-size: 11px; line-height: 1.6; word-break: break-all; }
 .set-actions { display: flex; gap: 8px; margin-top: 8px; }
-.settings-page .ok { color: var(--ok); font-size: 12px; }
+.ok { color: var(--ok); font-size: 12px; }
 .player-center {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   max-width: min(56vw, 720px); min-width: 0; z-index: 2;
@@ -1173,13 +1220,15 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .actions { display: flex; gap: 8px; }
 .actions .primary { flex: 0 0 auto; }
 .primary {
-  background: linear-gradient(180deg, #ffd27a, var(--lcd-text) 45%, #c98a1a);
-  color: #1a1408; padding: 6px 16px; text-shadow: none;
+  background: var(--play-grad);
+  color: var(--play-fg); padding: 6px 16px; text-shadow: none;
 }
 .primary.alt {
   background: linear-gradient(180deg, var(--panel3), var(--panel2));
   border: 1px solid var(--lcd-text); color: var(--lcd-text);
 }
+/* светлая: янтарная обводка alt-кнопки на белом блёклая — акцент темы */
+[data-theme="light"] .primary.alt { border-color: var(--accent); color: var(--accent); }
 
 .progress-wrap { display: inline-flex; align-items: center; gap: 8px; min-width: 180px; }
 .progress-track { display: inline-block; width: 110px; height: 8px; border-radius: 4px;
@@ -1191,32 +1240,78 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 @keyframes progress-slide { to { left: 100%; } }
 .progress-label { font-size: 11px; white-space: nowrap; }
 
-.job { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel2); }
-.job-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.job-head .title-edit { min-width: 280px; font-weight: 600; }
-.job-head .job-title { cursor: text; }
+/* карточка — колонка без паддинга: шапка и панель кнопок прижаты к краям */
+.job {
+  border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-bottom: 10px;
+  background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
+}
+/* название — шапка карточки во всю ширину */
+.job-title-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.05);
+}
+.job-title-row .title-edit { flex: 1; min-width: 280px; font-weight: 600; }
+.job-title-row .job-title { cursor: text; }
+/* служебная строка: статус, дата, сид — приглушённым текстом, свой отступ */
+.job-meta {
+  display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted);
+  padding: 8px 12px 0;
+}
+.job-meta .title-edit { min-width: 280px; }
+.job-body { padding: 2px 12px 8px; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border); }
 .status.done { background: rgba(255,190,61,.16); color: var(--lcd-text); text-shadow: 0 0 8px var(--lcd-glow); }
+/* светлая: чип «готово» — мини-тёмный LCD, янтарный текст на белом не читается */
+[data-theme="light"] .status.done { background: var(--lcd-bg); }
 .status.running { background: rgba(217,160,61,.2); color: var(--run); }
 .status.error { background: rgba(224,93,61,.2); color: var(--err); }
-.style { font-size: 12px; margin: 6px 0; }
+/* строка стиля — таблица «что где»: колонка меток и колонка значений */
+.style-tags { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0; align-items: baseline; }
+.style-tag-key {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--muted); user-select: none; white-space: nowrap;
+}
+.style-tag-val { font-size: 12px; color: var(--muted); min-width: 0; }
 .error { color: var(--err); font-size: 13px; }
-.job-actions { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; align-items: center; }
+/* панель управления — футер карточки во всю ширину, прижат к низу */
+.job-actions {
+  display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center;
+  padding: 8px 12px; margin-top: 2px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border-top: 1px solid var(--border);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.05);
+}
 .job-actions button { min-width: 0; }
 .job .play-main { flex: none; }
 .job-actions button { font-size: 12px; padding: 4px 10px; }
 .muted { color: var(--muted); }
-.badge.draft { background: rgba(120,140,255,.15); color: #9aa5ff; font-style: italic; }
-.badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: rgba(120,140,255,.15); color: #9aa5ff; }
+.badge.draft { background: var(--badge-bg); color: var(--badge-fg); font-style: italic; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--badge-bg); color: var(--badge-fg); }
 .play-main {
-  background: linear-gradient(180deg, #ffd27a, var(--lcd-text) 45%, #c98a1a);
-  color: #1a1408; padding: 6px 16px; min-width: 44px;
+  background: var(--play-grad);
+  color: var(--play-fg); padding: 6px 16px; min-width: 44px;
   text-shadow: none;
 }
 .ghost.icon { padding: 2px 8px; font-size: 13px; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(760px, 92vw); max-height: 90vh; display: flex; flex-direction: column; gap: 10px; }
+/* страницы-модалки (настройки/свои треки/голоса) поверх основного контента:
+   закрываются ✕, Esc и кликом по фону — кнопка «Вернуться» не нужна */
+.page-backdrop { z-index: 60; padding: 24px; }
+.page-modal { width: min(1100px, 96vw); max-width: 96vw; max-height: calc(100vh - 48px); overflow: hidden; }
+.page-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: -16px -16px 0; padding: 6px 12px;
+  background: linear-gradient(180deg, var(--panel3), var(--panel2));
+  border-bottom: 1px solid var(--bevel-lo);
+}
+.page-modal-head h2 { margin: 0; padding: 0; background: none; border: none; flex: 1; }
+/* боковой паддинг тела = паддингу панели: внутренние h2 (поля −16px для стыковки
+   с панелью) ложатся вровень с шапкой и не выпирают горизонтальным скроллом */
+.page-modal-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 8px; }
 .modal-head { display: flex; align-items: baseline; gap: 12px; }
 .modal-head h2 { margin: 0; }
 .plan-meta { font-size: 12px; }
@@ -1246,7 +1341,6 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .dsp-variant .deltas { font-variant-numeric: tabular-nums; }
 .play-mini { padding: 2px 9px; }
 .play-mini.stop { color: var(--err); font-weight: bold; }
-.stopbtn { color: var(--err); font-weight: bold; }
 .primary.small { padding: 4px 12px; font-size: 12px; }
 
 .lyrics-head { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
@@ -1283,21 +1377,44 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .corpus-track .track-lyrics { width: 100%; margin: 0; color: var(--muted); font-style: italic; opacity: .8; }
 
 /* пиано-ролл */
-.roll-block { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; overflow-x: auto; }
+/* контейнер секций студии (бывшая рамка-«форма» убрана: блоки на фоне страницы).
+   min-width: 0 — иначе минимальная ширина ролл-сетки (сотни тактов) растягивает
+   студию шире окна вместо прокрутки внутри roll-scroll */
+.roll-block { margin-top: 8px; padding: 0; min-width: 0; overflow-x: auto; }
 .roll-voices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 12px; }
-/* min-width: 0 — иначе минимальная ширина ролл-сетки (сотни тактов) растягивает
-   всю панель студии шире окна вместо прокрутки внутри roll-scroll */
-.studio-page .roll-block { border: none; padding: 0; min-width: 0; }
-.studio-page, .corpus-page-wide, .settings-wide { justify-content: stretch; }
-.studio-page .panel, .corpus-page-wide .panel, .settings-wide .panel { width: auto; max-width: none; flex: 1; margin: 0 16px; min-width: 0; }
+.studio-page { justify-content: stretch; }
+/* студия — без общей панели (секции-блоки лежат прямо на фоне страницы,
+   не «форма в форме»); заголовок — строкой, без плашки h2 */
+.studio-page .studio-sheet { width: auto; max-width: none; flex: 1; margin: 0 16px; min-width: 0; padding-bottom: 12px; }
+.studio-sheet > h2 {
+  margin: 8px 2px 2px; padding: 0; background: none; border: none; text-shadow: none;
+}
 .corpus-list { max-width: none; }
-.studio-sec { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--border); }
-.studio-sec summary { cursor: pointer; font-size: 13px; margin-bottom: 6px; }
+/* секции студии (звук/план/правки/вклейки/стемы/овердаб/эффекты) — рамка
+   со шапкой с фоном, как заголовок карточки трека */
+.studio-box {
+  border: 1px solid var(--border); border-radius: 6px; margin-top: 12px;
+  overflow: hidden; background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.studio-box-head {
+  display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.05);
+  font-size: 12px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--muted);
+}
+.studio-box-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; }
+.studio-box-tools { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; }
+.studio-box-body { padding: 8px 10px; }
+/* раскрываемые секции (овердаб, эффекты): стрелка вместо маркера details */
+details.studio-box > summary { cursor: pointer; list-style: none; }
+details.studio-box > summary::-webkit-details-marker { display: none; }
+details.studio-box > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+details.studio-box[open] > summary::before { transform: rotate(90deg); }
+details.studio-box[open] > .studio-box-head { margin-bottom: 0; }
 .abc-help { margin-bottom: 8px; font-size: 12px; }
 .abc-help summary { cursor: pointer; color: var(--muted); }
 .abc-help p { margin: 6px 0 0; line-height: 1.6; }
 .roll-voice-edit { display: flex; align-items: center; gap: 4px; }
-.roll-stems { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .stems-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
 .stem-toggle { display: inline-flex; }
 .roll-meta { margin: 0 0 8px; font-size: 12px; }
@@ -1313,15 +1430,19 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .roll-cell.sel { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
 .roll-cell.off { opacity: .3; }
 .roll-chord { font-size: 9px; color: var(--muted); text-align: center; overflow: hidden; }
-.roll-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; }
 
 /* волна громкости (первая канва проекта): сетка/выделение/курсор рисует
    canvas, спектрограмма — <img> воркера под ним, ось X у обоих 0..длительность */
-.panel-caption { display: flex; align-items: baseline; gap: 10px; margin: 10px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--muted); }
+/* студия: секции-блоки .studio-box выше; зум ролла — вправо в шапке секции */
 .roll-zoom { margin-left: auto; display: inline-flex; gap: 4px; }
-.wave-panel { margin: 0 0 6px; }
-.wave-panel .panel-caption { margin-top: 0; }
 .wave-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; }
+/* выбор цвета волны: кружки-свотчи, активный — с обводкой */
+.wave-colors { display: inline-flex; align-items: center; gap: 5px; }
+.wave-swatch {
+  width: 15px; height: 15px; min-width: 15px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border); cursor: pointer;
+}
+.wave-swatch.on { outline: 2px solid var(--text); outline-offset: 1px; }
 .wave-toolbar .ghost.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .wave-snap { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
 .wave-hint { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }

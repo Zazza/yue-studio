@@ -124,6 +124,18 @@ const waveFiles = computed(() => {
 
 const waveKey = computed(() => `w${props.job.id}:${waveFile.value || 'main'}`)
 
+// цвет волны (амплитуда, выделение, курсор): янтарь/коралл — наши, плюс классика.
+// Выбор живёт между запусками; '' = акцент темы не входит в список — янтарь по умолчанию
+const waveColors = [
+  { id: 'amber', hex: '#ffbe3d' },
+  { id: 'coral', hex: '#e05d3d' },
+  { id: 'blue', hex: '#4a9ede' },
+  { id: 'red', hex: '#e03131' },
+  { id: 'green', hex: '#4caf7d' },
+]
+const waveColor = ref(localStorage.getItem('yue_wave_color') || '#ffbe3d')
+watch(waveColor, (v) => localStorage.setItem('yue_wave_color', v))
+
 // ширина такта ролла (масштаб): ролл — одна прокручиваемая строка
 const rollCellW = ref(16)
 function rollZoom(delta) { rollCellW.value = Math.min(48, Math.max(8, rollCellW.value + delta)) }
@@ -1302,7 +1314,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
 
 <template>
   <main class="settings-page studio-page">
-    <section class="panel">
+    <section class="studio-sheet">
       <h2>{{ t('studio.title') }} <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
@@ -1313,11 +1325,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             {{ posCount }} тактов · ~{{ fmtDur(rollData.duration_sec) }}
             <template v-if="selRange"> · выделено {{ selRange.from.toFixed(0) }}–{{ selRange.to.toFixed(0) }} с</template>
           </p>
-          <div class="wave-panel">
-            <div class="panel-caption">
+          <div class="studio-box wave-panel">
+            <div class="studio-box-head">
               <span>{{ t('studio.wave.caption') }}</span>
               <span class="muted wave-hint">{{ t('studio.wave.hint') }}</span>
             </div>
+            <div class="studio-box-body">
             <div class="wave-toolbar">
               <VSelect v-model="waveFile" :options="waveFiles" style="width:220px" />
               <button class="ghost small-btn" :class="{ on: waveMode === 'amp' }"
@@ -1344,21 +1357,29 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <span v-if="waveBusy" class="muted">{{ t('studio.wave.loading') }}</span>
               <span v-if="waveErr" class="error">{{ waveErr }}</span>
             </div>
+            <span class="wave-colors" :title="t('studio.wave.color.tip')">
+              <button v-for="c in waveColors" :key="c.id" class="wave-swatch" :class="{ on: waveColor === c.hex }"
+                      :style="{ background: c.hex }" :aria-label="c.id"
+                      @click="waveColor = c.hex"></button>
+            </span>
             <WaveView v-if="wavePeaks" :peaks="wavePeaks" :duration="waveDuration"
                       :marks="waveMarks" :edges="waveEdges" :snap="waveSnap"
-                      :mode="waveMode" :spectrum-url="spectrumUrl"
+                      :mode="waveMode" :spectrum-url="spectrumUrl" :color="waveColor"
                       :cursor-sec="waveCursor" :selection="selRange"
                       :envelope="envOn ? envPts : null"
                       @seek="onWaveSeek" @select="onWaveSelect" @envelope="(v) => (envPts = v)" />
             <p v-if="envOn" class="muted wave-hint">{{ t('studio.wave.env.hint') }}</p>
+            </div>
           </div>
-          <div class="panel-caption">
-            <span>{{ t('studio.roll.caption') }}</span>
-            <span class="roll-zoom">
-              <button class="ghost small-btn" :title="t('studio.roll.zoom.out')" @click="rollZoom(-4)">−</button>
-              <button class="ghost small-btn" :title="t('studio.roll.zoom.in')" @click="rollZoom(4)">+</button>
-            </span>
-          </div>
+          <div class="studio-box">
+            <div class="studio-box-head">
+              <span>{{ t('studio.roll.caption') }}</span>
+              <span class="roll-zoom">
+                <button class="ghost small-btn" :title="t('studio.roll.zoom.out')" @click="rollZoom(-4)">−</button>
+                <button class="ghost small-btn" :title="t('studio.roll.zoom.in')" @click="rollZoom(4)">+</button>
+              </span>
+            </div>
+            <div class="studio-box-body">
           <div class="roll-scroll" @wheel="onRollWheel">
             <div class="roll-grid" :style="{ gridTemplateColumns: `70px repeat(${posCount}, minmax(${rollCellW}px, 1fr))` }">
               <div></div>
@@ -1373,72 +1394,106 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <div class="roll-voice">{{ t('studio.chords') }}</div>
               <div v-for="pos in rollPositions" :key="'c' + pos" class="roll-chord">{{ posChord(pos) }}</div>
             </div>
+            </div>
+            </div>
           </div>
-          <div class="trick-row">
-            <span class="muted">{{ t('studio.novocal.label') }}</span>
-            <button class="primary small" :disabled="!hasVocals || trickBusy"
-                    :title="t('studio.novocal.tip')" @click="renderInstrumental">{{ t('studio.novocal') }}</button>
+          <!-- правки: секция с шапкой, приёмы — по смысловым группам -->
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('studio.trick.caption') }}</span></div>
+            <div class="studio-box-body">
+          <div class="trick-bar">
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.listen') }}</span>
+              <div class="trick-btns">
+                <button class="primary small" :disabled="!selRange || previewBusy" @click="makePreview">
+                  {{ previewBusy ? t('studio.preview.busy') : t('studio.preview') }}
+                </button>
+              </div>
+            </div>
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.harmony') }}</span>
+              <div class="trick-btns">
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.chord.dark.tip')" @click="runTrick('chord', { flavor: 'dark' })">{{ t('studio.trick.chord.dark') }}</button>
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.chord.lift.tip')" @click="runTrick('chord', { flavor: 'lift' })">{{ t('studio.trick.chord.lift') }}</button>
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.chord.tense.tip')" @click="runTrick('chord', { flavor: 'tense' })">{{ t('studio.trick.chord.tense') }}</button>
+              </div>
+            </div>
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.arrange') }}</span>
+              <div class="trick-btns">
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.rest.tip')" @click="runTrick('rest')">{{ t('studio.trick.rest') }}</button>
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.cut.tip')" @click="runTrick('cut')">{{ t('studio.trick.cut') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy || !rollData"
+                        :title="t('studio.sparse.tip')" @click="sparseVerses">{{ t('studio.sparse') }}</button>
+              </div>
+            </div>
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.tempo') }}</span>
+              <div class="trick-btns">
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.tempo.up.tip')" @click="runTrick('tempo', { dir: 'up' })">{{ t('studio.trick.tempo.up') }}</button>
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.tempo.down.tip')" @click="runTrick('tempo', { dir: 'down' })">{{ t('studio.trick.tempo.down') }}</button>
+              </div>
+            </div>
+            <div v-if="hasVocalSel" class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.voice') }}</span>
+              <div class="trick-btns">
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.oct.up.tip')" @click="runTrick('octave', { dir: 'up' })">{{ t('studio.trick.oct.up') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.oct.down.tip')" @click="runTrick('octave', { dir: 'down' })">{{ t('studio.trick.oct.down') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.vocalUp.tip')" @click="runTrick('vocalUp')">{{ t('studio.trick.vocalUp') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
+              </div>
+            </div>
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.instrument') }}</span>
+              <div class="trick-btns">
+                <VSelect v-model="instSel" :options="instOptions" :title="t('studio.trick.inst.tip')" style="width:150px" />
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.trick.inst.tip')" @click="runTrick('instrument', { inst: instSel })">{{ t('studio.trick.inst.add') }}</button>
+              </div>
+            </div>
+            <div class="trick-group">
+              <span class="trick-cap">{{ t('studio.group.continue') }}</span>
+              <div class="trick-btns">
+                <input v-model="contStyle" class="cont-style" :placeholder="t('studio.cont.style.ph')" :title="t('studio.cont.style.tip')" />
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
+                        :title="t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
+              </div>
+            </div>
+            <!-- сборка — на всю ширину: финальные действия над треком -->
+            <div class="trick-group assemble">
+              <span class="trick-cap">{{ t('studio.group.assemble') }}</span>
+              <div class="trick-btns">
+                <button class="ghost small-btn" :disabled="trickBusy || !(selTimeRange() || pendingSpecs.length)"
+                        :title="t('studio.trick.fragment.tip')" @click="renderFragment">
+                  {{ trickBusy ? '…' : t('studio.trick.fragment') }}</button>
+                <button class="primary small" :disabled="trickBusy"
+                        :title="t('studio.trick.rebuild.tip')" @click="rebuild(false)">{{ t('studio.trick.rebuild') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.redraft.tip')" @click="rebuild(true)">{{ t('studio.trick.redraft') }}</button>
+                <button class="ghost small-btn" :disabled="!hasVocals || trickBusy"
+                        :title="t('studio.novocal.tip')" @click="renderInstrumental">{{ t('studio.novocal') }}</button>
+                <span class="spacer"></span>
+                <button class="ghost small-btn" :disabled="!pickableCount || trickBusy"
+                        :title="t('studio.trick.unpick.tip')" @click="unpickSelection">{{ t('studio.trick.unpick') }}</button>
+                <button class="ghost small-btn" :disabled="!planDraft || trickBusy"
+                        :title="t('studio.trick.reset.tip')" @click="resetDraft">{{ t('studio.trick.reset') }}</button>
+              </div>
+            </div>
           </div>
-
-          <div class="roll-actions">
-            <button class="primary small" :disabled="!selRange || previewBusy" @click="makePreview">
-              {{ previewBusy ? t('studio.preview.busy') : t('studio.preview') }}
-            </button>
-            <span class="muted">{{ t('studio.preview.hint') }}</span>
-          </div>
-
-          <div class="trick-row">
-            <span class="muted">{{ t('studio.trick.label') }}</span>
-            <span class="muted">{{ t('studio.trick.chord') }}</span>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.chord.dark.tip')" @click="runTrick('chord', { flavor: 'dark' })">{{ t('studio.trick.chord.dark') }}</button>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.chord.lift.tip')" @click="runTrick('chord', { flavor: 'lift' })">{{ t('studio.trick.chord.lift') }}</button>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.chord.tense.tip')" @click="runTrick('chord', { flavor: 'tense' })">{{ t('studio.trick.chord.tense') }}</button>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.rest.tip')" @click="runTrick('rest')">{{ t('studio.trick.rest') }}</button>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.cut.tip')" @click="runTrick('cut')">{{ t('studio.trick.cut') }}</button>
-            <template v-if="hasVocalSel">
-              <button class="ghost small-btn" :disabled="trickBusy"
-                      :title="t('studio.trick.oct.up.tip')" @click="runTrick('octave', { dir: 'up' })">{{ t('studio.trick.oct.up') }}</button>
-              <button class="ghost small-btn" :disabled="trickBusy"
-                      :title="t('studio.trick.oct.down.tip')" @click="runTrick('octave', { dir: 'down' })">{{ t('studio.trick.oct.down') }}</button>
-              <button class="ghost small-btn" :disabled="trickBusy"
-                      :title="t('studio.trick.vocalUp.tip')" @click="runTrick('vocalUp')">{{ t('studio.trick.vocalUp') }}</button>
-              <button class="ghost small-btn" :disabled="trickBusy"
-                      :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
-              <button class="ghost small-btn" :disabled="trickBusy"
-                      :title="t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
-            </template>
-            <span class="muted" style="margin-left:8px">{{ t('studio.trick.inst.label') }}</span>
-            <VSelect v-model="instSel" :options="instOptions" :title="t('studio.trick.inst.tip')" style="width:150px" />
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.inst.tip')" @click="runTrick('instrument', { inst: instSel })">{{ t('studio.trick.inst.add') }}</button>
-            <input v-model="contStyle" class="cont-style" :placeholder="t('studio.cont.style.ph')" :title="t('studio.cont.style.tip')" />
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
-            <button class="ghost small-btn" :disabled="trickBusy || !rollData"
-                    :title="t('studio.sparse.tip')" @click="sparseVerses">{{ t('studio.sparse') }}</button>
-            <span class="muted">{{ t('studio.trick.tempo.label') }}</span>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.tempo.up.tip')" @click="runTrick('tempo', { dir: 'up' })">{{ t('studio.trick.tempo.up') }}</button>
-            <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                    :title="t('studio.trick.tempo.down.tip')" @click="runTrick('tempo', { dir: 'down' })">{{ t('studio.trick.tempo.down') }}</button>
-            <span class="spacer"></span>
-            <button class="ghost small-btn" :disabled="trickBusy || !(selTimeRange() || pendingSpecs.length)"
-                    :title="t('studio.trick.fragment.tip')" @click="renderFragment">
-              {{ trickBusy ? '…' : t('studio.trick.fragment') }}</button>
-            <button class="ghost small-btn" :disabled="trickBusy"
-                    :title="t('studio.trick.redraft.tip')" @click="rebuild(true)">{{ t('studio.trick.redraft') }}</button>
-            <button class="primary small" :disabled="trickBusy"
-                    :title="t('studio.trick.rebuild.tip')" @click="rebuild(false)">{{ t('studio.trick.rebuild') }}</button>
-            <button class="ghost small-btn" :disabled="!pickableCount || trickBusy"
-                    :title="t('studio.trick.unpick.tip')" @click="unpickSelection">{{ t('studio.trick.unpick') }}</button>
-            <button class="ghost small-btn" :disabled="!planDraft || trickBusy"
-                    :title="t('studio.trick.reset.tip')" @click="resetDraft">{{ t('studio.trick.reset') }}</button>
-          </div>
+          <p class="muted trick-hint">{{ t('studio.preview.hint') }}</p>
           <p class="muted trick-hint">{{ t('studio.trick.hint') }}</p>
           <p v-if="trickMsg" class="ok trick-hint">{{ trickMsg }}</p>
           <p v-if="fragJob" class="trick-hint" :class="fragJob.status === 'error' ? 'error' : 'muted'">
@@ -1484,8 +1539,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </template>
             <template v-else-if="instJob.status === 'error'">{{ instJob.error }}</template>
           </p>
-          <div v-if="appliedInserts.length" class="insert-list">
-            <span class="muted">{{ t('studio.inserts.title') }}</span>
+            </div>
+          </div>
+          <div v-if="appliedInserts.length" class="studio-box">
+            <div class="studio-box-head"><span>{{ t('studio.inserts.title') }}</span></div>
+            <div class="studio-box-body insert-list">
             <div v-for="it in appliedInserts" :key="it.instId + ':' + it.from" class="insert-row">
               <strong>{{ insertTitle(it, insertNames) }}</strong>
               <span class="muted">{{ insertWindow(it, insertWin) }}</span>
@@ -1503,9 +1561,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button v-if="!it.chain" class="ghost small-btn" :disabled="dbBusy || trickBusy" :title="t('studio.inserts.more.tip')"
                       @click="moreVariant(it)">↻ {{ t('studio.inserts.more') }}</button>
             </div>
+            </div>
           </div>
 
-          <div class="roll-stems">
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('studio.stems') }}</span></div>
+            <div class="studio-box-body">
             <div class="stems-inline">
               <span class="muted">{{ t('studio.stems') }}</span>
               <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
@@ -1528,10 +1589,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               </button>
               <strong>{{ st.name }}</strong>
             </div>
+            </div>
           </div>
 
-          <details class="studio-sec">
-            <summary>{{ t('studio.overdub') }} <span class="muted">{{ t('studio.overdub.sub') }}</span></summary>
+          <details class="studio-box">
+            <summary class="studio-box-head"><span>{{ t('studio.overdub') }}</span> <span class="muted studio-box-hint">{{ t('studio.overdub.sub') }}</span></summary>
+            <div class="studio-box-body">
             <p class="muted">{{ t('studio.overdub.desc') }}</p>
             <div class="od-chips">
               <button v-for="(c, ci) in odPartyChips" :key="ci" class="toggle"
@@ -1557,10 +1620,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 {{ odBusy ? '…' : t('studio.overdub.generate') }}
               </button>
             </div>
+            </div>
           </details>
 
-          <details v-if="seedvcOk" class="studio-sec">
-            <summary>{{ t('studio.vc') }} <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted">{{ t('studio.vc.sub') }}</span></summary>
+          <details v-if="seedvcOk" class="studio-box">
+            <summary class="studio-box-head"><span>{{ t('studio.vc') }}</span> <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted studio-box-hint">{{ t('studio.vc.sub') }}</span></summary>
+            <div class="studio-box-body">
             <p class="muted">{{ t('studio.vc.desc') }}</p>
             <div class="od-row">
               <VSelect v-model="vcRef" :options="vcRefOptions" searchable :placeholder="t('studio.vc.ref')" style="width:320px" />
@@ -1568,10 +1633,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 {{ vcBusy ? '…' : t('studio.vc.go') }}
               </button>
             </div>
+            </div>
           </details>
 
-          <details class="studio-sec">
-            <summary>{{ t('studio.dsp') }} <span class="muted">{{ t('studio.dsp.sub') }}</span></summary>
+          <details class="studio-box">
+            <summary class="studio-box-head"><span>{{ t('studio.dsp') }}</span> <span class="muted studio-box-hint">{{ t('studio.dsp.sub') }}</span></summary>
+            <div class="studio-box-body">
             <div class="dsp-row">
               <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyOneClick('master')">
                 {{ dspBusy ? '…' : t('studio.dsp.master') }}
@@ -1628,6 +1695,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       @click="variantToTrack(v)">→ в треки</button>
               <button class="ghost small-btn" :title="t('studio.dsp.del.tip')" :disabled="dspBusy"
                       @click="delVariant(v)">✕</button>
+            </div>
             </div>
           </details>
         </template>
