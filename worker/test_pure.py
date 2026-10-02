@@ -4,6 +4,7 @@
 или: cd worker && python3 -m unittest test_pure
 """
 import time
+import contextlib
 import unittest
 from pathlib import Path
 
@@ -359,11 +360,18 @@ class _WorkerDbCase(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    @contextlib.contextmanager
     def _conn(self):
+        """Соединение на блок `with`: фиксация/откат как у sqlite3 и закрытие
+        (контекст sqlite3 сам не закрывает — ResourceWarning в каждом тесте)."""
         import sqlite3
         c = sqlite3.connect(self.db_path)
         c.row_factory = sqlite3.Row
-        return c
+        try:
+            with c:
+                yield c
+        finally:
+            c.close()
 
     def _cols(self):
         with self._conn() as c:

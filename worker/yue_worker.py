@@ -17,6 +17,8 @@
 """
 import json
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 import logging
 import os
 import re
@@ -76,10 +78,18 @@ _load_error: str | None = None
 db_lock = threading.Lock()
 
 
-def db() -> sqlite3.Connection:
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
+    """Соединение с БД на один блок `with`: фиксация при успехе, откат при
+    ошибке (как контекст sqlite3) и закрытие. Сам контекст sqlite3 соединение не
+    закрывает — каждый запрос оставлял открытым файл БД до сборки мусора."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
