@@ -1134,21 +1134,46 @@ h2 {
 .ok { color: var(--ok); font-size: 12px; }
 .player-center {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  max-width: min(56vw, 720px); min-width: 0; z-index: 2;
+  /* ширина, а не max-width: абсолютный контейнер сжимается под содержимое,
+     и flex-полоса прокрутки не могла расти — запаса не было */
+  width: min(56vw, 720px); min-width: 0; z-index: 2;
 }
 @media (max-width: 1150px) {
   .player-center {
     position: static; transform: none; order: 9; flex-basis: 100%;
-    justify-content: flex-start; z-index: auto;
+    width: auto; justify-content: flex-start; z-index: auto;
   }
 }
 .playerbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.playerbar .seek { width: 180px; }
+/* полоса прокрутки растягивается на свободное место шапки; под ней —
+   метки минут-секунд: плеер здесь — навигация по треку, не просто индикатор */
+.playerbar .seek-wrap { flex: 1 1 auto; min-width: 160px; display: flex; flex-direction: column; }
+.playerbar .seek { width: 100%; }
+.seek-ticks { position: relative; height: 11px; margin-top: -1px; }
+.seek-tick {
+  position: absolute; transform: translateX(-50%); top: 0;
+  font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums;
+  pointer-events: none; user-select: none;
+}
 .playerbar .vol { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .playerbar .vol input { width: 80px; }
-.playerbar .now { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* название — фиксированной ширины: длина названия не двигает полосу прокрутки;
+   длинное бежит строкой (две копии подряд, сдвиг на половину — без шва) */
+.playerbar .now { flex: none; width: 220px; overflow: hidden; white-space: nowrap; }
+.playerbar .now-track { display: inline-flex; }
+.playerbar .now-track.scroll { animation: now-marquee linear infinite; }
+.playerbar .now-track.scroll .now-text { padding-right: 3em; }
+.playerbar .now:hover .now-track { animation-play-state: paused; }
+@keyframes now-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .playerbar .now-track.scroll { animation: none; }
+  .playerbar .now { text-overflow: ellipsis; }
+}
 .playerbar .pos {
   font-variant-numeric: tabular-nums; white-space: nowrap; flex: none;
+  /* ширина под самую длинную надпись («10:00 / 10:00»): «→ 1:23» при наведении
+     короче — без фиксированной ширины полоса прокрутки рядом прыгала */
+  width: 13ch; box-sizing: content-box; text-align: center;
   background: var(--lcd-bg); color: var(--lcd-text);
   font-family: 'DejaVu Sans Mono', 'Consolas', monospace;
   padding: 2px 8px; border-radius: 2px; border: 1px solid var(--border);
