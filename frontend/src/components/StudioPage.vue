@@ -172,6 +172,7 @@ onMounted(async () => {
   // для подписей вклеек из старых файлов (рендер куска → инструмент)
   try { allJobs.value = (await api.jobs()) || [] } catch { /* без списка — подпись по номеру */ }
   reloadVariants()
+  api.workerConfig().then((c) => { seedvcOk.value = !!c?.seedvc_available }).catch(() => {})
   // восстановить промежуточное состояние студии (переживает перезапуск)
   try {
     const st = JSON.parse(localStorage.getItem('yue_studio_state') || '{}')
@@ -1067,6 +1068,26 @@ async function submitOverdub() {
   } finally { odBusy.value = false }
 }
 
+// ---------- ЭКСПЕРИМЕНТ «голос альбома» (Seed-VC на воркере) ----------
+// голос этого трека поётся тембром голоса другой песни; кусок образца воркер
+// подбирает сам. Блок виден, только если Seed-VC установлен.
+const seedvcOk = ref(false)
+const vcRef = ref('')
+const vcBusy = ref(false)
+const vcRefOptions = computed(() => allJobs.value
+  .filter((j) => !j.parent_id && j.id !== props.job.id && j.status === 'done' && j.audio_file)
+  .map((j) => ({ value: String(j.id), label: `#${j.id} ${j.title || ''}` })))
+async function submitVoice() {
+  if (!Number(vcRef.value)) return
+  vcBusy.value = true
+  try {
+    await api.voiceConvert(props.job.id, { ref_job_id: Number(vcRef.value) })
+    emit('close')
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally { vcBusy.value = false }
+}
+
 // ---------- DSP ----------
 
 function chainLabel(file) {
@@ -1534,6 +1555,17 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="od-row">
               <button class="primary small" :disabled="odBusy || (!odStyle.trim() && odChips.size === 0)" @click="submitOverdub">
                 {{ odBusy ? '…' : t('studio.overdub.generate') }}
+              </button>
+            </div>
+          </details>
+
+          <details v-if="seedvcOk" class="studio-sec">
+            <summary>{{ t('studio.vc') }} <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted">{{ t('studio.vc.sub') }}</span></summary>
+            <p class="muted">{{ t('studio.vc.desc') }}</p>
+            <div class="od-row">
+              <VSelect v-model="vcRef" :options="vcRefOptions" :placeholder="t('studio.vc.ref')" style="width:320px" />
+              <button class="primary small" :disabled="vcBusy || !vcRef" @click="submitVoice">
+                {{ vcBusy ? '…' : t('studio.vc.go') }}
               </button>
             </div>
           </details>
