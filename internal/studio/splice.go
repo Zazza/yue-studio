@@ -66,7 +66,7 @@ func Splice(ctx context.Context, svc yue.Service, baseID int64, parts []SplicePa
 	if err != nil {
 		return nil, err
 	}
-	v, err := svc.UploadDsp(ctx, baseID, fmt.Sprintf("dsp-splice-%d.flac", time.Now().Unix()), data)
+	v, err := svc.UploadDsp(ctx, baseID, fmt.Sprintf("dsp-splice-%d.flac", time.Now().Unix()), "", data)
 	if err != nil {
 		return nil, err
 	}

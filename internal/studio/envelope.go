@@ -46,5 +46,5 @@ func VolumeEnvelope(ctx context.Context, svc yue.Service, jobID int64, stem stri
 	if err != nil {
 		return nil, err
 	}
-	return svc.UploadDsp(ctx, jobID, "dsp-envelope.flac", data)
+	return svc.UploadDsp(ctx, jobID, "dsp-envelope.flac", "", data)
 }

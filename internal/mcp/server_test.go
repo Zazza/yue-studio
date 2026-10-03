@@ -151,7 +151,7 @@ func (f *fakeService) JobTones(ctx context.Context, id int64, from, to float64, 
 	return f.tonesOut, nil
 }
 
-func (f *fakeService) UploadDsp(ctx context.Context, id int64, fname string, data []byte) (*yue.DspVariant, error) {
+func (f *fakeService) UploadDsp(ctx context.Context, id int64, fname, _ string, data []byte) (*yue.DspVariant, error) {
 	if f.uploads == nil {
 		f.uploads = map[string][]byte{}
 	}

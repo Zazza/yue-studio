@@ -38,6 +38,7 @@ type secFake struct {
 	afterStems  map[int64]map[string]string // что появляется у джобы после MakeStems(id)
 	stemsCalls  map[int64]int
 	uploads     map[string][]byte
+	labels      map[string]string // подпись варианта по имени файла
 	uploadedTo  []int64
 	fetched     []string
 	stemsFailed bool // MakeStems возвращает ошибку
@@ -49,6 +50,7 @@ func newSecFake() *secFake {
 		afterStems: map[int64]map[string]string{},
 		stemsCalls: map[int64]int{},
 		uploads:    map[string][]byte{},
+		labels:     map[string]string{},
 	}
 }
 
@@ -77,9 +79,10 @@ func (f *secFake) MakeStems(_ context.Context, id int64) (map[string]any, error)
 	return map[string]any{"ok": true}, nil
 }
 
-func (f *secFake) UploadDsp(_ context.Context, id int64, fname string, data []byte) (*yue.DspVariant, error) {
+func (f *secFake) UploadDsp(_ context.Context, id int64, fname, label string, data []byte) (*yue.DspVariant, error) {
 	f.uploadedTo = append(f.uploadedTo, id)
 	f.uploads[fname] = append([]byte(nil), data...)
+	f.labels[fname] = label
 	return &yue.DspVariant{File: fname}, nil
 }
 
@@ -662,5 +665,120 @@ func TestSectionSpecKeepHighHzJSON(t *testing.T) {
 	}
 	if sp.KeepHighHz != 6000 {
 		t.Errorf("keep_high_hz → KeepHighHz=%v, want 6000", sp.KeepHighHz)
+	}
+}
+
+// --- подпись микса (label для UploadDsp) ---
+//
+// Микс загружается с человеческой подписью: по каждой спеке «что · каким
+// дорожкам» + окно (" M:SS–M:SS", " с M:SS", весь трек — ничего), спеки
+// через " + ". Дорожки по-русски: vocals→голос, drums→барабаны, bass→бас,
+// other→гитары/синты.
+
+// labelSetup — родитель длиной dur: голос — тон 3000 Гц, other — 500 Гц,
+// drums — щелчки, bass — тишина; audio.flac — их сумма.
+func labelSetup(t *testing.T, dur float64) *secFake {
+	t.Helper()
+	needFFmpeg(t)
+	dir := t.TempDir()
+	f := newSecFake()
+	put(f, parentID, map[string]string{
+		"audio.flac":       lavfi(t, aeval(exprA3000+"+"+exprB500+"+"+exprClicks, dur), filepath.Join(dir, "l-audio.flac")),
+		"stem-vocals.flac": lavfi(t, aeval(exprA3000, dur), filepath.Join(dir, "l-vocals.flac")),
+		"stem-other.flac":  lavfi(t, aeval(exprB500, dur), filepath.Join(dir, "l-other.flac")),
+		"stem-drums.flac":  lavfi(t, aeval(exprClicks, dur), filepath.Join(dir, "l-drums.flac")),
+		"stem-bass.flac":   lavfi(t, aeval("0", dur), filepath.Join(dir, "l-bass.flac")),
+	})
+	return f
+}
+
+// mixLabel — подпись единственного загруженного микса.
+func mixLabel(t *testing.T, f *secFake, specs ...SectionSpec) string {
+	t.Helper()
+	run(t, f, specs...)
+	if len(f.labels) != 1 {
+		t.Fatalf("загрузок с подписью %d, want 1: %v", len(f.labels), f.labels)
+	}
+	for _, l := range f.labels {
+		return l
+	}
+	return ""
+}
+
+func driveVocals(from, to float64) SectionSpec {
+	return SectionSpec{ChildID: 0, From: from, To: to, Stems: []string{"vocals"}, Chain: "voice-drive"}
+}
+
+// Пример карточки: «Перегруз голоса» на голос по всему треку — окно не пишется.
+func TestRebuildSectionsLabelEffectWholeTrack(t *testing.T) {
+	f := labelSetup(t, 4)
+	if got := mixLabel(t, f, driveVocals(0, 0)); got != "Перегруз голоса · голос" {
+		t.Errorf("подпись %q, want %q", got, "Перегруз голоса · голос")
+	}
+}
+
+// Окно с концом — " M:SS–M:SS" (минуты без ведущего нуля, секунды двумя цифрами).
+func TestRebuildSectionsLabelEffectWindow(t *testing.T) {
+	f := labelSetup(t, 90)
+	want := "Перегруз голоса · голос 1:20–1:28"
+	if got := mixLabel(t, f, driveVocals(80, 88)); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
+	}
+}
+
+// To ≤ 0 при From > 0 — «с M:SS» (до конца трека).
+func TestRebuildSectionsLabelEffectFromTillEnd(t *testing.T) {
+	f := labelSetup(t, 70)
+	want := "Перегруз голоса · голос с 1:05"
+	if got := mixLabel(t, f, driveVocals(65, 0)); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
+	}
+}
+
+// Заглушка (Db ≤ −60) нескольких дорожек — «заглушить», дорожки через ", ".
+func TestRebuildSectionsLabelMute(t *testing.T) {
+	f := labelSetup(t, 6)
+	sp := SectionSpec{ChildID: 0, From: 2, To: 4, Stems: []string{"drums", "bass"}, Db: -100}
+	want := "заглушить · барабаны, бас 0:02–0:04"
+	if got := mixLabel(t, f, sp); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
+	}
+}
+
+// Ровно −60 дБ — тоже «заглушить» (граница включительно).
+func TestRebuildSectionsLabelMuteBoundary(t *testing.T) {
+	f := labelSetup(t, 6)
+	sp := SectionSpec{ChildID: 0, From: 2, To: 4, Stems: []string{"drums"}, Db: -60}
+	if got := mixLabel(t, f, sp); got != "заглушить · барабаны 0:02–0:04" {
+		t.Errorf("подпись %q", got)
+	}
+}
+
+// Другая громкость — «громкость +N дБ», знак плюса пишется всегда.
+func TestRebuildSectionsLabelGain(t *testing.T) {
+	f := labelSetup(t, 6)
+	sp := SectionSpec{ChildID: 0, From: 2, To: 4, Stems: []string{"other"}, Db: 6}
+	want := "громкость +6 дБ · гитары/синты 0:02–0:04"
+	if got := mixLabel(t, f, sp); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
+	}
+}
+
+// Несколько спек — через " + " в порядке спек: эффект на голос и заглушка барабанов.
+func TestRebuildSectionsLabelCombined(t *testing.T) {
+	f := labelSetup(t, 8)
+	mute := SectionSpec{ChildID: 0, From: 5, To: 7, Stems: []string{"drums"}, Db: -100}
+	want := "Перегруз голоса · голос 0:01–0:03 + заглушить · барабаны 0:05–0:07"
+	if got := mixLabel(t, f, driveVocals(1, 3), mute); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
+	}
+}
+
+// Вклейка отрендеренного куска (ChildID > 0) — «вклейка #<id>».
+func TestRebuildSectionsLabelInsert(t *testing.T) {
+	f, _ := secSetup(t)
+	want := "вклейка #7 · гитары/синты 0:04–0:08"
+	if got := mixLabel(t, f, spec7([]string{"other"}, 0)); got != want {
+		t.Errorf("подпись %q, want %q", got, want)
 	}
 }

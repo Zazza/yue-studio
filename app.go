@@ -203,7 +203,7 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	if preview {
 		fname = fmt.Sprintf("dsp-preview-%s.flac", chainID)
 	}
-	return a.yue.UploadDsp(a.ctx, jobID, fname, data)
+	return a.yue.UploadDsp(a.ctx, jobID, fname, "", data)
 }
 
 // YueRebuildSections — пересобрать трек джобы со всеми заменами дорожек:

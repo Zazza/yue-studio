@@ -993,6 +993,9 @@ def plan(req: PlanIn):
 def _job_dict(row) -> dict:
     d = {k: row[k] for k in row.keys()}
     d["draft"] = bool(d.get("draft"))  # sqlite даёт 0/1, клиент ждёт bool
+    # готовые миксы трека (вклейки, эффекты на дорожки): по ним список треков
+    # показывает «версии» и у трека без дочерних треков
+    d["mixes"] = sum(1 for _ in (JOBS_DIR / str(row["id"])).glob("overdub-inst-*.flac"))
     if d.get("status") == "running":
         with _state_lock:
             d.update(_progress.get(row["id"], {}))
@@ -2245,16 +2248,23 @@ def voice_delete(vid: int):
     return {"deleted": True}
 
 
+DSP_LABEL_MAX = 300
+
+
 @app.post("/jobs/{job_id}/dsp")
-async def add_dsp_variant(job_id: int, request: Request):
+async def add_dsp_variant(job_id: int, request: Request, label: str = ""):
     """Вариант пост-обработки от приложения (ffmpeg на ПК): тело — flac,
-    X-Filename — dsp-<цепочка>.flac. Замеряется и кэшируется рядом."""
+    X-Filename — dsp-<цепочка>.flac. Замеряется и кэшируется рядом.
+    label — что сделано («Перегруз голоса · голос»): по имени файла микса
+    (overdub-inst-0) этого не понять."""
     fname = request.headers.get("x-filename", "")
     if not DSP_NAME_RE.match(fname):
         raise HTTPException(422, "filename must be dsp-<chain>.flac")
     with db_lock, db() as conn:
         if conn.execute("SELECT 1 FROM jobs WHERE id=?", (job_id,)).fetchone() is None:
             raise HTTPException(404, "job not found")
+    if len(label) > DSP_LABEL_MAX:
+        raise HTTPException(422, f"label longer than {DSP_LABEL_MAX} chars")
     data = await request.body()
     if not data:
         raise HTTPException(422, "empty body")
@@ -2266,12 +2276,14 @@ async def add_dsp_variant(job_id: int, request: Request):
         target.write_bytes(data)
         metrics = analyze_file(target)
         (job_dir / f"{fname}.metrics.json").write_text(json.dumps(
-            {"file": fname, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "metrics": metrics}))
+            {"file": fname, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "metrics": metrics,
+             "label": label}, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001
         target.unlink(missing_ok=True)
         (job_dir / f"{fname}.metrics.json").unlink(missing_ok=True)
         raise HTTPException(422, f"cannot analyze dsp variant: {e}") from e
-    return {"file": fname, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "metrics": metrics}
+    return {"file": fname, "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "metrics": metrics,
+            "label": label}
 
 
 @app.delete("/jobs/{job_id}/dsp/{fname}")
@@ -2306,11 +2318,12 @@ def dsp_variants(job_id: int):
     for f in files:
         item = {"file": f.name,
                 "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(f.stat().st_mtime)),
-                "metrics": None}
+                "metrics": None, "label": ""}
         mp = job_dir / f"{f.name}.metrics.json"
         if mp.is_file():
             try:
-                item["metrics"] = json.loads(mp.read_text()).get("metrics")
+                side = json.loads(mp.read_text())
+                item["metrics"], item["label"] = side.get("metrics"), side.get("label", "")
             except Exception:  # noqa: BLE001
                 pass
         out.append(item)

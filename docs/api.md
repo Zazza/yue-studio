@@ -14,6 +14,7 @@ POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max
                        continue — только через /continue): в списке приложения прячется под родителем («📎 N»)
 POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
+                       mixes — число готовых миксов (overdub-inst-*.flac: вклейки, эффекты на дорожки)
 POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации
                        (пайплайн завершится на ближайшем шаге). В running-джобах
                        /jobs отдаёт живой прогресс: stage, tokens, tok_per_s, elapsed_s
@@ -51,6 +52,9 @@ POST /voices           {name, job_id, params, seed} — карточка гол�
 GET  /voices           список карточек (job_alive — жива ли исходная джоба, has_audio)
 DELETE /voices/{id}   удалить карточку (строка БД + voices/<id>/)
 
+POST /jobs/{id}/dsp?label=  вариант эффекта/микс от приложения (байты, X-Filename dsp-*/overdub-*.flac);
+                       label (до 300 символов) — что сделано («Перегруз голоса · голос»)
+GET  /jobs/{id}/dsp    варианты с метриками и label (пусто — понятно по имени файла)
 DELETE /jobs/{id}/dsp/{file}  удалить вариант эффекта/вклейки (файл + метрики)
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным
                        треком-готов: копия аудио + партитура исходника, стемы/минус работают

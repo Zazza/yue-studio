@@ -1,12 +1,14 @@
 package studio
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"os"
 	"slices"
+	"strings"
 
 	"yue-studio/internal/dsp"
 	"yue-studio/internal/yue"
@@ -214,11 +216,61 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 		return nil, err
 	}
 	fname := fmt.Sprintf("overdub-inst-%d.flac", lastChild(specs))
-	v, err := svc.UploadDsp(ctx, parentID, fname, data)
+	v, err := svc.UploadDsp(ctx, parentID, fname, rebuildLabel(specs), data)
 	if err != nil {
 		return nil, err
 	}
 	return &RebuildResult{Variant: v, Inserts: reports}, nil
+}
+
+// stemLabels — дорожки по-русски, как в студии
+var stemLabels = map[string]string{"vocals": "голос", "drums": "барабаны", "bass": "бас", "other": "гитары/синты"}
+
+// rebuildLabel — что сделано в пересборке, для подписи микса в списках:
+// «Перегруз голоса · голос + вклейка #191 · барабаны 1:20–1:28». По имени
+// файла (overdub-inst-0) этого не понять, а MCP реестр вклеек студии не ведёт.
+func rebuildLabel(specs []SectionSpec) string {
+	parts := make([]string, 0, len(specs))
+	for _, s := range specs {
+		var what string
+		switch {
+		case s.ChildID > 0:
+			what = fmt.Sprintf("вклейка #%d", s.ChildID)
+		case s.Chain != "":
+			what = s.Chain
+			if c := dsp.ByID(s.Chain); c != nil {
+				what = c.Name
+			}
+		case len(s.Envelope) > 0:
+			what = "линия громкости"
+		case s.Db <= muteDb:
+			what = "заглушить"
+		default:
+			what = fmt.Sprintf("громкость %+g дБ", s.Db)
+		}
+		stems := make([]string, 0, len(s.Stems))
+		for _, n := range s.Stems {
+			stems = append(stems, cmp.Or(stemLabels[n], n))
+		}
+		label := what + " · " + strings.Join(stems, ", ")
+		if win := labelWindow(s.From, s.To); win != "" {
+			label += " " + win
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, " + ")
+}
+
+// labelWindow — «1:20–1:28», «с 1:20»; весь трек — пусто
+func labelWindow(from, to float64) string {
+	mmss := func(sec float64) string { return fmt.Sprintf("%d:%02d", int(sec)/60, int(sec)%60) }
+	switch {
+	case to > 0:
+		return mmss(from) + "–" + mmss(to)
+	case from > 0:
+		return "с " + mmss(from)
+	}
+	return ""
 }
 
 // stemFxInserts — эффект на дорожки трека в окне: дорожка целиком через

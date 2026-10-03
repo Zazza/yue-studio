@@ -284,6 +284,9 @@ async function toggleKids(id) {
     } catch { /* варианты недоступны — покажем только треки-вложения */ }
   }
 }
+// что под «версии»: дочерние треки и готовые миксы (у трека может быть только микс —
+// эффект на дорожку без дочерних треков)
+const kidCount = (j) => (grouped.value.children[j.id] || []).length + (j.mixes || 0)
 const kidResults = (id) => (grouped.value.children[id] || []).filter(isResultJob)
 // основная версия песни (head_id у корня): её играет «▶» и открывает студия
 function headOf(j) {
@@ -353,14 +356,15 @@ function fmtWhen(s) {
   return `${m[3]}.${m[2]}${year} ${m[4]}:${m[5]}`
 }
 const kidMaterial = (id) => (grouped.value.children[id] || []).filter((k) => !isResultJob(k))
-function mixName(parentId, file) {
-  const label = mixLabel(file, { applied: insertsSvc.appliedFor(parentId), jobs: jobs.value,
+// подпись микса: по реестру вклеек, иначе сохранённая воркером (микс из MCP)
+function mixName(parentId, v) {
+  const label = mixLabel(v.file, { applied: insertsSvc.appliedFor(parentId), jobs: jobs.value,
     labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
-  return label ? t('studio.trick.inst.mix', { what: label })
-    : t('studio.trick.inst.variant', { id: mixChildId(file) })
+  if (label) return t('studio.trick.inst.mix', { what: label })
+  return v.label || t('studio.trick.inst.variant', { id: mixChildId(v.file) })
 }
 function playMix(parent, v) {
-  toggleArtifact('mix' + parent.id + ':' + v.file, mixName(parent.id, v.file),
+  toggleArtifact('mix' + parent.id + ':' + v.file, mixName(parent.id, v),
     () => api.playFile(parent.id, v.file, parent.duration_sec))
 }
 const qPageMax = computed(() => pageCount(filteredJobs.value.length))
@@ -931,10 +935,10 @@ function onWindowClick(e) {
             </template>
           </div>
           <!-- версии/материал: раскрытие — строкой под стилем, стрелка = состояние -->
-          <button v-if="(grouped.children[j.id] || []).length" class="ghost small-btn kids-toggle"
+          <button v-if="kidCount(j)" class="ghost small-btn kids-toggle"
                   :class="{ on: openKids.has(j.id) }"
                   :title="t('queue.kids.tip')" @click="toggleKids(j.id)">
-            {{ t('queue.kids.versions') }} · {{ grouped.children[j.id].length }} {{ openKids.has(j.id) ? '▲' : '▾' }}
+            {{ t('queue.kids.versions') }} · {{ kidCount(j) }} {{ openKids.has(j.id) ? '▲' : '▾' }}
           </button>
           <div v-if="openKids.has(j.id)" class="job-kids">
             <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
@@ -961,7 +965,7 @@ function onWindowClick(e) {
               <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
               <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
                 <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
-                <span>{{ mixName(j.id, v.file) }}</span>
+                <span>{{ mixName(j.id, v) }}</span>
                 <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
                 <span class="spacer"></span>
                 <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>

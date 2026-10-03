@@ -162,7 +162,7 @@ func RegisterStudioTools(s *Server) {
 
 	s.Register(Tool{
 		Name:        "dsp_variants",
-		Description: "Список применённых DSP-вариантов джобы (с метриками).",
+		Description: "Список применённых DSP-вариантов джобы (с метриками); label — что сделано в миксе (эффект · дорожка, вклейки).",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
 		}, "job_id"),
@@ -742,5 +742,5 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	if preview {
 		fname = fmt.Sprintf("dsp-preview-%s.flac", chainID)
 	}
-	return s.client.UploadDsp(context.Background(), jobID, fname, data)
+	return s.client.UploadDsp(context.Background(), jobID, fname, "", data)
 }

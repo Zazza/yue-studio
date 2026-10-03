@@ -22,7 +22,8 @@ type Service interface {
 	References(ctx context.Context) ([]Reference, error)
 	AddReference(ctx context.Context, name string, data []byte) (*Reference, error)
 	JobDspVariants(ctx context.Context, id int64) ([]DspVariant, error)
-	UploadDsp(ctx context.Context, id int64, fname string, data []byte) (*DspVariant, error)
+	// UploadDsp — label: что сделано, для подписи в списках («Перегруз голоса · голос»); "" — по имени файла
+	UploadDsp(ctx context.Context, id int64, fname, label string, data []byte) (*DspVariant, error)
 	Transcribe(ctx context.Context, name string, data []byte) (*TranscribeResult, error)
 	JobScore(ctx context.Context, id int64) (map[string]any, error)
 	// JobPeaks — огибающая громкости артефакта (волна в студии): file "" —
@@ -110,6 +111,8 @@ type Job struct {
 	// VocalLeak — где в треке «без голоса» звучит дорожка голоса: секунды начала
 	// через запятую («25.3,40.1»); пусто — не проверяли или голоса нет.
 	VocalLeak string `json:"vocal_leak,omitempty"`
+	// Mixes — сколько у трека готовых миксов (overdub-inst-*: вклейки, эффекты на дорожки)
+	Mixes int `json:"mixes,omitempty"`
 	// источник голоса: рендер, чей голос звучит в этой версии (у версии,
 	// созданной подстановкой голоса); пусто — голос свой или от родителя
 	VoiceSrc *int64 `json:"voice_src,omitempty"`
@@ -195,6 +198,7 @@ type DspVariant struct {
 	File      string         `json:"file"`
 	CreatedAt string         `json:"created_at"`
 	Metrics   map[string]any `json:"metrics"`
+	Label     string         `json:"label,omitempty"` // что сделано; пусто — понятно по имени файла
 }
 
 type TranscribeResult struct {

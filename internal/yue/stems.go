@@ -3,6 +3,7 @@ package yue
 import (
 	"context"
 	"fmt"
+	"net/url"
 )
 
 // References — загруженные референсы для сравнения метрик.
@@ -33,9 +34,13 @@ func (c *Client) JobDspVariants(ctx context.Context, id int64) ([]DspVariant, er
 }
 
 // UploadDsp — залить DSP-вариант джобы (включает librosa-замер на воркере).
-func (c *Client) UploadDsp(ctx context.Context, id int64, fname string, data []byte) (*DspVariant, error) {
+func (c *Client) UploadDsp(ctx context.Context, id int64, fname, label string, data []byte) (*DspVariant, error) {
+	path := fmt.Sprintf("/jobs/%d/dsp", id)
+	if label != "" {
+		path += "?label=" + url.QueryEscape(label)
+	}
 	var out DspVariant
-	if err := c.postRaw(ctx, fmt.Sprintf("/jobs/%d/dsp", id), fname, data, planTimeout, &out); err != nil {
+	if err := c.postRaw(ctx, path, fname, data, planTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

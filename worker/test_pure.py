@@ -2160,3 +2160,104 @@ class TestUnloadOnOom(_WorkerApiCase):
         self.assertTrue(row["error"].startswith("GPU занят"), row["error"])
         self.assertEqual(len(model.exits), 1)
         self.assertIsNone(self.w._pipe)
+
+
+# --- Спецификация: подпись микса (label) и число миксов (mixes) ------------
+# POST /jobs/{id}/dsp?label=… хранит подпись, GET /jobs/{id}/dsp её отдаёт
+# ("" — без подписи и у старых вариантов); label длиннее 300 → 422.
+# GET /jobs и /jobs/{id} отдают mixes — число overdub-inst-*.flac у джобы.
+# Замер (analyze_file) подменён: librosa тестам не нужна.
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestDspLabel(_WorkerApiCase):
+    LABEL = "Перегруз голоса · голос 1:20–1:28"
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        p = mock.patch.object(self.w, "analyze_file", return_value={"lufs": -14.0})
+        p.start()
+        self.addCleanup(p.stop)
+        self.jid = self._job()
+
+    def _upload(self, fname, label=None):
+        params = {} if label is None else {"label": label}
+        return self.client.post(f"/jobs/{self.jid}/dsp", params=params,
+                                content=b"fLaC-fake", headers={"X-Filename": fname})
+
+    def _variants(self):
+        r = self.client.get(f"/jobs/{self.jid}/dsp")
+        self.assertEqual(r.status_code, 200, r.text)
+        return {v["file"]: v for v in r.json()}
+
+    def test_upload_returns_label(self):
+        r = self._upload("overdub-inst-0.flac", self.LABEL)
+        self.assertLess(r.status_code, 300, r.text)
+        self.assertEqual(r.json()["label"], self.LABEL)
+
+    def test_upload_without_label_is_empty(self):
+        r = self._upload("dsp-wall.flac")
+        self.assertLess(r.status_code, 300, r.text)
+        self.assertEqual(r.json()["label"], "")
+
+    def test_list_round_trips_label(self):
+        self.assertLess(self._upload("overdub-inst-0.flac", self.LABEL).status_code, 300)
+        self.assertLess(self._upload("dsp-wall.flac").status_code, 300)
+        vs = self._variants()
+        self.assertEqual(vs["overdub-inst-0.flac"]["label"], self.LABEL)  # кириллица без искажений
+        self.assertEqual(vs["dsp-wall.flac"]["label"], "")
+
+    def test_old_variant_without_label_key(self):
+        # старый вариант: в сохранённом рядом JSON ключа label нет
+        import json
+        d = self.jobs_dir / str(self.jid)
+        before = set(d.glob("*.json"))
+        self.assertLess(self._upload("overdub-inst-0.flac", self.LABEL).status_code, 300)
+        stripped = 0
+        for p in set(d.glob("*.json")) - before:
+            data = json.loads(p.read_text())
+            if isinstance(data, dict) and "label" in data:
+                del data["label"]
+                p.write_text(json.dumps(data))
+                stripped += 1
+        self.assertEqual(stripped, 1, "подпись должна храниться в JSON рядом с вариантом")
+        self.assertEqual(self._variants()["overdub-inst-0.flac"]["label"], "")
+
+    def test_label_300_is_ok(self):
+        r = self._upload("overdub-inst-0.flac", "я" * 300)
+        self.assertLess(r.status_code, 300, r.text)
+        self.assertEqual(self._variants()["overdub-inst-0.flac"]["label"], "я" * 300)
+
+    def test_label_too_long_rejected(self):
+        r = self._upload("overdub-inst-0.flac", "я" * 301)
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertFalse((self.jobs_dir / str(self.jid) / "overdub-inst-0.flac").exists())
+        self.assertNotIn("overdub-inst-0.flac", self._variants())
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestJobMixes(_WorkerApiCase):
+
+    def _mixes(self, jid):
+        listed = {j["id"]: j for j in self.client.get("/jobs").json()}
+        one = self.client.get(f"/jobs/{jid}")
+        self.assertEqual(one.status_code, 200, one.text)
+        return listed[jid]["mixes"], one.json()["mixes"]
+
+    def test_counts_only_overdub_inst(self):
+        jid = self._job()
+        d = self.jobs_dir / str(jid)
+        for name in ("overdub-inst-0.flac", "overdub-inst-7.flac",
+                     "dsp-wall.flac", "audio.flac", "stem-vocals.flac", "overdub-inst-0.json"):
+            (d / name).write_bytes(b"x")
+        self.assertEqual(self._mixes(jid), (2, 2))
+
+    def test_zero_without_mixes(self):
+        jid = self._job()
+        (self.jobs_dir / str(jid) / "dsp-wall.flac").write_bytes(b"x")
+        self.assertEqual(self._mixes(jid), (0, 0))
+
+    def test_zero_without_folder(self):
+        jid = self._job(semantic=False)
+        self.assertFalse((self.jobs_dir / str(jid)).exists())
+        self.assertEqual(self._mixes(jid), (0, 0))

@@ -12,7 +12,7 @@ import { applyTrick, beatSecAt, continuationPlan, pickTargets, planTimeline, voc
 import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
-import { insertTitle, insertWindow, mixLabel } from '../insertLabels.js'
+import { insertTitle, insertWindow, mixChildId, mixLabel } from '../insertLabels.js'
 import { applyFoundTones } from '../dspTones.js'
 import { isFlat, bumpRange } from '../envelope.js'
 import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
@@ -118,7 +118,7 @@ const waveFiles = computed(() => {
   const add = (file, label) => {
     if (file && !seen.has(file)) { seen.add(file); out.push({ value: file, label: label || file }) }
   }
-  for (const v of dspVariants.value) add(v.file, chainLabel(v.file))
+  for (const v of dspVariants.value) add(v.file, variantLabel(v))
   for (const s of stemsList.value) add(s.file, t('studio.wave.stem', { name: s.name || s.file }))
   if (minusReady.value) add('minus.flac', t('studio.wave.minus'))
   return out
@@ -1114,12 +1114,15 @@ async function submitVoice() {
 
 // ---------- DSP ----------
 
-function chainLabel(file) {
+// подпись варианта: эффект целиком — по цепочке, микс — по реестру вклеек,
+// иначе подпись, сохранённая воркером (микс из MCP или с другого ПК)
+function variantLabel(v) {
+  const file = v.file
   if (file.startsWith('overdub-inst-')) {
     const label = mixLabel(file, { applied: inserts.appliedFor(props.job.id), jobs: allJobs.value,
       labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
-    return label ? t('studio.trick.inst.mix', { what: label })
-      : t('studio.trick.inst.variant', { id: file.replace(/^overdub-inst-/, '').replace(/\.flac$/, '') })
+    if (label) return t('studio.trick.inst.mix', { what: label })
+    return v.label || t('studio.trick.inst.variant', { id: mixChildId(file) })
   }
   const isPrev = file.startsWith('dsp-preview-')
   const id = String(file).replace(/^dsp-preview-/, '').replace(/^dsp-/, '').replace(/\.flac$/, '')
@@ -1284,7 +1287,7 @@ async function applyOneClick(chainId) {
     const params = oneClickParams(chainId, oneClickLevel.value)
     const v = await api.applyDsp(props.job.id, chainId, params)
     await reloadVariants()
-    const name = chainLabel(v.file) + ' (' + t('studio.dsp.level.' + oneClickLevel.value) + ')'
+    const name = variantLabel(v) + ' (' + t('studio.dsp.level.' + oneClickLevel.value) + ')'
     await api.variantToTrack(props.job.id, v.file, (props.job.title || 'трек') + ' · ' + name)
     rollErr.value = ''
     trickMsg.value = t('studio.dsp.totrack.done', { name })
@@ -1308,13 +1311,13 @@ function vDelta(v, key, dec = 1) {
 }
 
 function playVariant(v) {
-  toggleArtifact(`v${props.job.id}:${v.file}`, `${chainLabel(v.file)} · #${props.job.id}`,
+  toggleArtifact(`v${props.job.id}:${v.file}`, `${variantLabel(v)} · #${props.job.id}`,
     () => api.playFile(props.job.id, v.file, props.job.duration_sec))
 }
 
 // удалить вариант (файл + метрики) — с подтверждением, как остальные удаления
 function delVariant(v) {
-  askConfirm(t('studio.dsp.del.title', { name: chainLabel(v.file) }), t('studio.dsp.del.body'),
+  askConfirm(t('studio.dsp.del.title', { name: variantLabel(v) }), t('studio.dsp.del.body'),
     async () => {
       try { await api.dspVariantDelete(props.job.id, v.file) } catch (e) { alert(String(e)) }
       reloadVariants()
@@ -1327,16 +1330,16 @@ async function variantToTrack(v) {
   dspBusy.value = true
   try {
     await api.variantToTrack(props.job.id, v.file,
-      (props.job.title || 'трек') + ' · ' + chainLabel(v.file))
+      (props.job.title || 'трек') + ' · ' + variantLabel(v))
     rollErr.value = ''
-    trickMsg.value = t('studio.dsp.totrack.done', { name: chainLabel(v.file) })
+    trickMsg.value = t('studio.dsp.totrack.done', { name: variantLabel(v) })
   } catch (e) {
     rollErr.value = String(e)
   } finally { dspBusy.value = false }
 }
 
 function openVariantMetrics(v) {
-  emit('open-metrics', props.job, { metrics: v.metrics, title: `${chainLabel(v.file)} · #${props.job.id}` })
+  emit('open-metrics', props.job, { metrics: v.metrics, title: `${variantLabel(v)} · #${props.job.id}` })
 }
 
 window.addEventListener('mouseup', onWindowMouseup)
@@ -1720,7 +1723,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       :disabled="playBusy['v' + job.id + ':' + v.file]" @click="playVariant(v)">
                 {{ playBtn('v' + job.id + ':' + v.file) }}
               </button>
-              <strong>{{ chainLabel(v.file) }}</strong>
+              <strong>{{ variantLabel(v) }}</strong>
               <span v-if="v.metrics" class="muted deltas">
                 Δ крест {{ vDelta(v, 'crest_db') }} dB · Δ дин {{ vDelta(v, 'dyn_range_db') }} dB ·
                 Δ верх {{ vDelta(v, 'bands.high') }}% · Δ флэтнес {{ vDelta(v, 'flatness_median', 3) }}

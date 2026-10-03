@@ -21,6 +21,8 @@ type jobBrief struct {
 	CreatedAt   string  `json:"created_at"`
 	// VocalLeak — в треке «без голоса» звучит дорожка голоса (секунды начала)
 	VocalLeak string `json:"vocal_leak,omitempty"`
+	// Mixes — готовые миксы трека (вклейки, эффекты на дорожки): dsp_variants
+	Mixes int `json:"mixes,omitempty"`
 }
 
 // jobParentID — родитель производного трека: parent_id или overdub_of.
@@ -75,7 +77,7 @@ func listJobs(jobs []yue.Job, folder string, limit int, brief bool) any {
 		if brief {
 			short = append(short, jobBrief{ID: j.ID, Title: j.Title, Status: j.Status, DurationSec: j.DurationSec,
 				ParentID: jobParentID(j), Role: j.Role, Folder: rootOf(j).Folder, CreatedAt: j.CreatedAt,
-				VocalLeak: j.VocalLeak})
+				VocalLeak: j.VocalLeak, Mixes: j.Mixes})
 		} else {
 			full = append(full, j)
 		}
