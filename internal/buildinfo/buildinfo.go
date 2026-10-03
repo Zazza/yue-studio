@@ -43,7 +43,10 @@ func SourceHash(root string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		rel, _ := filepath.Rel(root, p)
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return "", err
+		}
 		h.Write([]byte(filepath.ToSlash(rel)))
 		h.Write([]byte{0})
 		h.Write(data)

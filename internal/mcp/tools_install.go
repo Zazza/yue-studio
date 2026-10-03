@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"fmt"
+	"math"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +25,7 @@ func RegisterInstallTools(s *Server) {
 		}),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			// воркер и компоненты — по его адресу (отсюда); железо и токен — на машине с GPU
-			out, _ := runSteps(s, "", []step{
+			out, _ := runSteps("", []step{
 				{name: "воркер Yue (health)", cmd: fmt.Sprintf("curl -sf --max-time 5 %s/health", s.client.GetURL())},
 				{name: "компоненты воркера (whisper, Seed-VC)", cmd: fmt.Sprintf(
 					"curl -sf --max-time 5 %s/config | grep -o '\"\\(whisper\\|seedvc\\)_available\": *[a-z]*'", s.client.GetURL())},
@@ -31,12 +33,12 @@ func RegisterInstallTools(s *Server) {
 				{name: "Go (сборка приложения)", cmd: "go version"},
 				{name: "Node (сборка фронта)", cmd: "node --version"},
 			}, true)
-			gpu, _ := runSteps(nil, argString(args, "host"), []step{
+			gpu, _ := runSteps(argString(args, "host"), []step{
 				{name: "GPU/VRAM", cmd: "nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader"},
 				{name: "место на диске (домашний каталог)", cmd: "df -h ~ | tail -1"},
 				{name: "HF-токен (веса YuE2, gated)", cmd: "test -f ~/.cache/huggingface/token && echo токен есть || echo нет (нужен huggingface-cli login)"},
 			}, true)
-			return out + "\n" + gpu, nil
+			return out + "\n" + gpu + workerAddress(s), nil
 		},
 	})
 
@@ -73,9 +75,6 @@ func RegisterInstallTools(s *Server) {
 				return "", fmt.Errorf("перед установкой спроси пользователя, нужны ли необязательные компоненты, " +
 					"и передай явно whisper=true|false и seedvc=true|false")
 			}
-			if dryRun && !wOK {
-				whisper = true // в плане показываем и его — пусть пользователь решит
-			}
 			hfHome := argString(args, "hf_home")
 			if hfHome == "" {
 				hfHome = "~/yue/hf-cache"
@@ -85,12 +84,15 @@ func RegisterInstallTools(s *Server) {
 				seedvcDir = "~/yue-studio/seedvc"
 			}
 			plan, steps := workerInstallPlan(argString(args, "host") == "", whisper, seedvc, hfHome, seedvcDir)
-			out, err := runSteps(s, argString(args, "host"), steps, !dryRun)
+			out, err := runSteps(argString(args, "host"), steps, !dryRun)
+			out = plan + "\n" + out + workerAddress(s)
 			if dryRun {
-				return "СУХОЙ ПРОГОН — ничего не выполнено, только план (установка: dry_run=false, confirm=true, whisper, seedvc).\n\n" +
-					plan + "\n" + out, err
+				out = "СУХОЙ ПРОГОН — ничего не выполнено, только план (установка: dry_run=false, confirm=true, whisper, seedvc).\n\n" + out
 			}
-			return plan + "\n" + out, err
+			if err != nil {
+				return "", fmt.Errorf("%w\n\n%s", err, out)
+			}
+			return out, nil
 		},
 	})
 
@@ -109,14 +111,17 @@ func RegisterInstallTools(s *Server) {
 			if !dryRun && !argBool(args, "confirm") {
 				return "", errConfirm
 			}
-			out, err := runSteps(nil, "", []step{
+			out, err := runSteps("", []step{
 				{name: "фронтенд", cmd: "cd frontend && npm ci && npm run build", must: true},
 				{name: "wails", cmd: "wails build"},
 			}, !dryRun)
 			if dryRun {
 				out = "СУХОЙ ПРОГОН — ничего не выполнено (сборка: dry_run=false + confirm=true):\n" + out
 			}
-			return out, err
+			if err != nil {
+				return "", fmt.Errorf("%w\n\n%s", err, out)
+			}
+			return out, nil
 		},
 	})
 }
@@ -124,14 +129,17 @@ func RegisterInstallTools(s *Server) {
 // Размеры компонентов воркера, ГБ (замер на установленной машине, 2026-10-03):
 // воркер — окружение 7,4 + веса YuE2-3B 6,8, MERT 2,4, VAE 0,5, SheetSage 0,2,
 // demucs 0,1; whisper — окружение 2,7 + модель small 0,5; Seed-VC — 11 после
-// установки (на время установки нужно ~14, см. seedvc_install.sh).
+// установки и ~14 на время установки (см. seedvc_install.sh).
 const (
-	sizeWorkerGB  = 17.5
-	sizeWhisperGB = 3.2
-	sizeSeedvcGB  = 11
-	seedvcPeakGB  = 14
-	diskReserveGB = 2 // запас под данные треков на первое время
+	sizeWorkerGB     = 17.5
+	sizeWhisperGB    = 3.2
+	sizeSeedvcGB     = 11
+	sizeSeedvcPeakGB = 14
+	sizeReserveGB    = 2 // запас под данные треков на первое время
 )
+
+// gbStr — «17.5», «11»: без лишних нулей.
+func gbStr(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 // shellPath — путь для двойных кавычек в shell: «~/…» → «$HOME/…». В worker.env
 // (его читает systemd) тильда не раскрывается: HF_HOME=~/… уводил веса в
@@ -146,43 +154,57 @@ func shellPath(p string) string {
 	return p
 }
 
-func gbStr(v float64) string {
-	return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.1f", v), "0"), ".")
+// workerAddress — строка в конец отчёта: по какому адресу MCP ходит к воркеру.
+func workerAddress(s *Server) string {
+	return fmt.Sprintf("\nадрес воркера сейчас: %s (сменить: config_set)", s.client.GetURL())
 }
 
-// workerInstallPlan — список компонентов с размерами (текст для пользователя)
-// и шаги установки: сначала проверки GPU и места (провал — установка не
-// начинается), затем воркер и выбранные компоненты.
-func workerInstallPlan(local, whisper, seedvc bool, hfHome, seedvcDir string) (string, []step) {
-	need := sizeWorkerGB + diskReserveGB
-	var b strings.Builder
-	b.WriteString("Компоненты:\n")
-	fmt.Fprintf(&b, "  [x] воркер — генерация (YuE2), разбор нот, дорожки (demucs): ~%s ГБ (веса качаются при первом запуске)\n", gbStr(sizeWorkerGB))
-	mark := func(on bool) string {
-		if on {
-			return "[x]"
-		}
-		return "[ ]"
-	}
-	fmt.Fprintf(&b, "  %s whisper — распознавание текстов треков: ~%s ГБ\n", mark(whisper), gbStr(sizeWhisperGB))
-	fmt.Fprintf(&b, "  %s Seed-VC — «голос альбома», ЭКСПЕРИМЕНТ (голос узнаётся, но дрожит): ~%s ГБ после установки, ~%s ГБ во время, каталог %s\n",
-		mark(seedvc), gbStr(sizeSeedvcGB), gbStr(seedvcPeakGB), seedvcDir)
+// diskNeedGB — сколько места нужно под выбранные компоненты (Seed-VC — по пику установки).
+func diskNeedGB(whisper, seedvc bool) float64 {
+	need := sizeWorkerGB + sizeReserveGB
 	if whisper {
 		need += sizeWhisperGB
 	}
 	if seedvc {
-		need += seedvcPeakGB
+		need += sizeSeedvcPeakGB
 	}
-	fmt.Fprintf(&b, "Нужно места: ~%s ГБ (веса HF — в %s; если он на другом диске, места на домашнем нужно меньше).\n", gbStr(need), hfHome)
-	b.WriteString("Без whisper и Seed-VC приложение работает; соответствующие кнопки будут неактивны с подписью «не установлен».\n")
+	return need
+}
 
+// workerInstallPlan — текст для пользователя (компоненты, место) и шаги установки.
+func workerInstallPlan(local, whisper, seedvc bool, hfHome, seedvcDir string) (string, []step) {
+	need := diskNeedGB(whisper, seedvc)
+	return planText(whisper, seedvc, need, hfHome, seedvcDir), installSteps(local, whisper, seedvc, need, hfHome, seedvcDir)
+}
+
+func planText(whisper, seedvc bool, need float64, hfHome, seedvcDir string) string {
+	mark := map[bool]string{true: "[x]", false: "[ ]"}
+	var b strings.Builder
+	b.WriteString("Компоненты:\n")
+	fmt.Fprintf(&b, "  [x] воркер — генерация (YuE2), разбор нот, дорожки (demucs): ~%s ГБ (веса качаются при первом запуске)\n",
+		gbStr(sizeWorkerGB))
+	fmt.Fprintf(&b, "  %s whisper — распознавание текстов треков: ~%s ГБ\n", mark[whisper], gbStr(sizeWhisperGB))
+	fmt.Fprintf(&b, "  %s Seed-VC — «голос альбома», ЭКСПЕРИМЕНТ (голос узнаётся, но дрожит): ~%s ГБ после установки, ~%s ГБ во время, каталог %s\n",
+		mark[seedvc], gbStr(sizeSeedvcGB), gbStr(sizeSeedvcPeakGB), seedvcDir)
+	fmt.Fprintf(&b, "Нужно места: ~%s ГБ (веса HF — в %s; если он на другом диске, места на домашнем нужно меньше).\n",
+		gbStr(need), hfHome)
+	b.WriteString("Без whisper и Seed-VC приложение работает; соответствующие кнопки будут неактивны с подписью «не установлен».\n")
+	return b.String()
+}
+
+// Проверки до установки: их провал останавливает установку (must).
+const (
+	checkGPUCmd = "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || " +
+		"{ echo 'нет NVIDIA GPU или драйвера: воркеру нужна видеокарта с CUDA'; exit 1; }"
+	// %[1]d — сколько ГБ нужно; df -BG печатает свободное место в гигабайтах
+	checkDiskCmd = `free=$(df -BG --output=avail ~ | tail -1 | tr -dc 0-9); echo "свободно $free ГБ, нужно ~%[1]d ГБ"; ` +
+		`[ "$free" -ge %[1]d ] || { echo 'мало места: освободите диск или поставьте веса/Seed-VC на другой (hf_home, seedvc_dir)'; exit 1; }`
+)
+
+func installSteps(local, whisper, seedvc bool, need float64, hfHome, seedvcDir string) []step {
 	steps := []step{
-		{name: "проверка: видеокарта NVIDIA и драйвер", must: true, cmd: "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || " +
-			"{ echo 'нет NVIDIA GPU или драйвера: воркеру нужна видеокарта с CUDA'; exit 1; }"},
-		{name: "проверка: место на диске", must: true, cmd: fmt.Sprintf(
-			"free=$(df -Pk ~ | awk 'NR==2 {print int($4/1048576)}'); echo \"свободно $free ГБ, нужно ~%s ГБ\"; "+
-				"[ \"$free\" -ge %d ] || { echo 'мало места: освободите диск или поставьте веса/Seed-VC на другой (hf_home, seedvc_dir)'; exit 1; }",
-			gbStr(need), int(need))},
+		{name: "проверка: видеокарта NVIDIA и драйвер", cmd: checkGPUCmd, must: true},
+		{name: "проверка: место на диске", cmd: fmt.Sprintf(checkDiskCmd, int(math.Ceil(need))), must: true},
 	}
 	if local {
 		steps = append(steps, step{name: "скопировать файлы воркера", must: true, cmd: "test -f worker/yue_worker.py || " +
@@ -201,19 +223,19 @@ func workerInstallPlan(local, whisper, seedvc bool, hfHome, seedvcDir string) (s
 			"uv pip install --python ~/whisper-venv/bin/python faster-whisper"})
 	}
 	steps = append(steps, step{name: "worker.env", cmd: fmt.Sprintf(
-		"test -f ~/yue-studio/worker.env || printf 'HF_HOME=%%s\\n' \"%s\" > ~/yue-studio/worker.env", shellPath(hfHome))})
+		`test -f ~/yue-studio/worker.env || printf 'HF_HOME=%%s\n' "%s" > ~/yue-studio/worker.env`, shellPath(hfHome))})
 	if seedvc {
+		dir := shellPath(seedvcDir)
 		steps = append(steps, step{name: "Seed-VC («голос альбома», эксперимент)", cmd: fmt.Sprintf(
-			"~/yue-studio/seedvc_install.sh \"%[1]s\" && (grep -q '^YUE_SEEDVC_DIR=' ~/yue-studio/worker.env || "+
-				"echo \"YUE_SEEDVC_DIR=%[1]s\" >> ~/yue-studio/worker.env)", shellPath(seedvcDir))})
+			`~/yue-studio/seedvc_install.sh "%[1]s" && (grep -q '^YUE_SEEDVC_DIR=' ~/yue-studio/worker.env || `+
+				`echo "YUE_SEEDVC_DIR=%[1]s" >> ~/yue-studio/worker.env)`, dir)})
 	}
-	steps = append(steps,
+	return append(steps,
 		step{name: "systemd-юнит", cmd: "cp ~/yue-studio/units/yue-worker.service ~/.config/systemd/user/ 2>/dev/null && " +
 			"systemctl --user daemon-reload && systemctl --user enable --now yue-worker || " +
 			"echo юнит пропущен (запуск вручную: ~/yue/.venv/bin/python ~/yue-studio/yue_worker.py)"},
 		step{name: "health", cmd: "sleep 3 && curl -sf --max-time 10 http://localhost:8091/health"},
 	)
-	return b.String(), steps
 }
 
 type step struct {
@@ -226,8 +248,8 @@ type step struct {
 
 // runSteps выполняет команды локально (host="") или через ssh; run=false —
 // только печатает шаги (сухой прогон, ничего не выполняется). Шаги независимы,
-// кроме must: его провал останавливает выполнение.
-func runSteps(s *Server, host string, steps []step, run bool) (string, error) {
+// кроме must: его провал останавливает выполнение и возвращается ошибкой.
+func runSteps(host string, steps []step, run bool) (string, error) {
 	var b strings.Builder
 	for i, st := range steps {
 		fmt.Fprintf(&b, "— %s\n  $ %s\n", st.name, st.cmd)
@@ -240,22 +262,17 @@ func runSteps(s *Server, host string, steps []step, run bool) (string, error) {
 			cmd.Stdin = strings.NewReader(st.cmd)
 		}
 		out, err := cmd.CombinedOutput()
-		trimmed := strings.TrimSpace(string(out))
-		if trimmed != "" {
-			for _, line := range strings.Split(trimmed, "\n") {
-				fmt.Fprintf(&b, "  %s\n", line)
-			}
+		if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
+			b.WriteString("  " + strings.ReplaceAll(trimmed, "\n", "\n  ") + "\n")
 		}
-		if err != nil {
-			fmt.Fprintf(&b, "  [ошибка: %v]\n", err)
-			if st.must {
-				fmt.Fprintf(&b, "\nОСТАНОВЛЕНО: шаг «%s» обязателен; не выполнено шагов: %d.\n", st.name, len(steps)-i-1)
-				break
-			}
+		if err == nil {
+			continue
 		}
-	}
-	if s != nil {
-		fmt.Fprintf(&b, "\nадрес воркера сейчас: %s (сменить: config_set)", s.client.GetURL())
+		fmt.Fprintf(&b, "  [ошибка: %v]\n", err)
+		if st.must {
+			fmt.Fprintf(&b, "\nОСТАНОВЛЕНО: шаг «%s» обязателен; не выполнено шагов: %d.\n", st.name, len(steps)-i-1)
+			return b.String(), fmt.Errorf("установка остановлена: шаг «%s» не прошёл", st.name)
+		}
 	}
 	return b.String(), nil
 }

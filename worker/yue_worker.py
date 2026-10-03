@@ -449,9 +449,7 @@ def _run_job(job_id: int):
                 return
             except Exception as e:  # noqa: BLE001
                 log.exception("job %s failed", job_id)
-                with db_lock, db() as conn:
-                    conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
-                                 (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+                _mark_failed(job_id, e)
                 return
             truncated = song.truncated
             if isinstance(truncated, dict):
@@ -483,6 +481,20 @@ def _run_job(job_id: int):
             _progress.pop(job_id, None)
 
 
+def _mark_failed(job_id: int, e: BaseException) -> None:
+    """Джоба упала: статус error и понятная пользователю причина."""
+    with db_lock, db() as conn:
+        conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
+                     (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+
+
+def _separate(job_id: int, audio: Path, jdir: Path) -> dict:
+    """Дорожки demucs + проверка голоса в треке «без голоса» (vocal_leak)."""
+    result = demucs_separate(audio, jdir)
+    check_vocal_leak(job_id)
+    return result
+
+
 def _ensure_stems(job_id: int) -> Path:
     """Дорожки demucs трека (делаются, если их ещё нет) → каталог трека."""
     row = _job_row(job_id)
@@ -490,8 +502,7 @@ def _ensure_stems(job_id: int) -> Path:
     if not (jdir / "stem-vocals.flac").is_file():
         if row is None or not row["audio_file"]:
             raise RuntimeError(f"у трека #{job_id} нет звука")
-        demucs_separate(jdir / row["audio_file"], jdir)
-        check_vocal_leak(job_id)
+        _separate(job_id, jdir / row["audio_file"], jdir)
     return jdir
 
 
@@ -520,9 +531,7 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
         log.info("voice job %s done in %.1fs", job_id, time.time() - t0)
     except Exception as e:  # noqa: BLE001
         log.exception("voice job %s failed", job_id)
-        with db_lock, db() as conn:
-            conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
-                         (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+        _mark_failed(job_id, e)
 
 
 class VoiceIn(BaseModel):
@@ -670,6 +679,11 @@ def _load_settings() -> dict:
         return {}
 
 
+def _save_settings(st: dict) -> None:
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def auto_stems_instrumental() -> bool:
     """У треков «без голоса» сразу делать дорожки и проверять голос (по умолчанию да)."""
     return bool(_load_settings().get("auto_stems_instrumental", True))
@@ -731,8 +745,7 @@ def set_config(req: ConfigIn):
     if req.auto_stems_instrumental is not None:
         st = _load_settings()
         st["auto_stems_instrumental"] = bool(req.auto_stems_instrumental)
-        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SETTINGS_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+        _save_settings(st)
     log.info("config updated: ollama=%s model=%s", OLLAMA_URL, OLLAMA_MODEL)
     return get_config()
 
@@ -850,7 +863,8 @@ def continue_job(job_id: int, req: ContinueIn):
             raise HTTPException(404, "job not found or not done")
         if not (JOBS_DIR / str(job_id) / "semantic.npy").is_file():
             raise HTTPException(422, "no semantic.npy — job cannot be continued: an imported track "
-                                "(or an old one) has no model tokens; regenerate it with the same style, lyrics and seed")
+                                "(or an old one) has no model tokens; "
+                                "regenerate it with the same style, lyrics and seed")
         # отметка за концом: модель переиграла бы весь трек без нового куска
         if row["duration_sec"] and req.from_sec >= row["duration_sec"]:
             raise HTTPException(422, "from_sec must be inside the track")
@@ -1033,6 +1047,9 @@ def delete_job(job_id: int):
     return {"deleted": True}
 
 
+MIN_GRID_SEC = 4  # короче — по атакам темп не уточнить
+
+
 class GridIn(BaseModel):
     from_sec: float = Field(default=0, ge=0)
     to_sec: float = Field(default=0, ge=0)   # 0 — до конца трека
@@ -1045,6 +1062,8 @@ def job_grid(job_id: int, body: GridIn | None = None):
     from_sec–to_sec (0 — до конца) — лучше то место, где эффект будет: доля
     берётся первая в окне, и погрешность темпа не накапливается по треку."""
     body = body or GridIn()
+    if 0 < body.to_sec <= body.from_sec:
+        raise HTTPException(422, "to_sec must be after from_sec (0 — to the end)")
     row = _job_row(job_id)
     if row is None or not row["audio_file"]:
         raise HTTPException(404, "job or audio not found")
@@ -1052,12 +1071,10 @@ def job_grid(job_id: int, body: GridIn | None = None):
     drums = jdir / "stem-drums.flac"
     src, source = (drums, "drums") if drums.is_file() else (jdir / row["audio_file"], "mix")
     import librosa
-    if body.to_sec > 0 and body.to_sec <= body.from_sec:
-        raise HTTPException(422, "to_sec must be after from_sec (0 — to the end)")
     dur = (body.to_sec - body.from_sec) if body.to_sec > 0 else None
     y, sr = librosa.load(str(src), sr=22050, mono=True, offset=body.from_sec, duration=dur)
-    if len(y) < sr * 4:
-        raise HTTPException(422, "window too short: need at least 4 s of audio")
+    if len(y) < sr * MIN_GRID_SEC:
+        raise HTTPException(422, f"window too short: need at least {MIN_GRID_SEC} s of audio")
     g = beat_grid(y, sr)
     if not g["bpm"]:
         raise HTTPException(422, "no beat found in the window")
@@ -1159,8 +1176,7 @@ def _whisper_lyrics(src: Path, language: str | None = None) -> tuple[str, str]:
         cmd = [str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)]
         if language:
             cmd += ["--language", language]
-        r = subprocess.run(cmd,
-                           capture_output=True, text=True, timeout=600, env=env)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
         if r.returncode != 0:
             return "", (r.stderr or "whisper failed")[-500:]
         return json.loads(r.stdout).get("text", ""), ""
@@ -1765,6 +1781,10 @@ def job_variant_track(job_id: int, req: VariantTrackIn):
     return {"id": jid}
 
 
+# стиль импортированного трека; фронт по нему узнаёт импорт (frontend: StudioPage.vue)
+IMPORT_STYLE = "(импорт внешнего трека)"
+
+
 @app.post("/tracks/import")
 async def tracks_import(request: Request, transcribe: bool = True, title: str = ""):
     """Импорт внешнего трека как джобы-статуса done: дальше работают стемы,
@@ -1777,7 +1797,7 @@ async def tracks_import(request: Request, transcribe: bool = True, title: str = 
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,created_at,finished_at)"
             " VALUES(?,?,?,?,?,?,?,?)",
-            (title or fname.rsplit(".", 1)[0], "done", "(импорт внешнего трека)", "",
+            (title or fname.rsplit(".", 1)[0], "done", IMPORT_STYLE, "",
              None, "full", time.strftime("%Y-%m-%dT%H:%M:%S"), time.strftime("%Y-%m-%dT%H:%M:%S")))
         jid = cur.lastrowid
     jdir = JOBS_DIR / str(jid)
@@ -1840,11 +1860,10 @@ def job_stems(job_id: int):
         raise HTTPException(404, "job or audio not found")
     job_dir = JOBS_DIR / str(job_id)
     try:
-        result = demucs_separate(job_dir / row["audio_file"], job_dir)
+        result = _separate(job_id, job_dir / row["audio_file"], job_dir)
     except Exception as e:  # noqa: BLE001
         log.exception("stems failed")
         raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
-    check_vocal_leak(job_id)
     for f in result["stems"]:
         try:
             m = analyze_file(job_dir / f)
@@ -1888,10 +1907,9 @@ def job_minus(job_id: int, req: MinusIn):
     stems = sorted(job_dir.glob("stem-*.flac"))
     if not stems:
         try:
-            demucs_separate(job_dir / row["audio_file"], job_dir)
+            _separate(job_id, job_dir / row["audio_file"], job_dir)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
-        check_vocal_leak(job_id)
         stems = sorted(job_dir.glob("stem-*.flac"))
         if not stems:
             raise HTTPException(500, "no stems after demucs")

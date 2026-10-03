@@ -21,7 +21,7 @@ import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '.
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 
-// так воркер подписывает стиль импортированного трека (POST /tracks/import)
+// стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
 const emit = defineEmits(['close', 'open-metrics'])
@@ -1087,13 +1087,15 @@ async function submitOverdub() {
 
 // импорт внешнего трека: у него нет токенов модели — продолжить и перепеть нельзя
 const isImport = computed(() => props.job.style === IMPORT_STYLE)
+// подсказка кнопки, которая у импортированного трека недоступна
+const importTip = (key) => (isImport.value ? t('studio.import.noTokens') : t(key))
 
 // ---------- ЭКСПЕРИМЕНТ «голос альбома» (Seed-VC на воркере) ----------
 // голос этого трека поётся тембром голоса другой песни; кусок образца воркер
-// подбирает сам. Блок виден, только если Seed-VC установлен.
+// подбирает сам. Без Seed-VC на воркере блок виден с подписью «недоступно».
 const seedvcOk = ref(false)
-// whisper (распознавание текста) установлен на воркере; null — ещё не знаем
-const whisperOk = ref(null)
+// whisper (распознавание текста) установлен на воркере; пока не знаем — считаем, что да
+const whisperOk = ref(true)
 const vcRef = ref('')
 const vcBusy = ref(false)
 const vcRefOptions = computed(() => allJobs.value
@@ -1234,10 +1236,10 @@ async function findGrid() {
   gridBusy.value = true
   gridMsg.value = ''
   try {
-    const g = await api.jobGrid(props.job.id, sel ? sel.from : 0, sel ? sel.to : 0)
+    const g = await api.jobGrid(props.job.id, sel?.from ?? 0, sel?.to ?? 0)
     dspParams.value = { ...dspParams.value, bpm: g.bpm, offset: g.offset }
-    gridMsg.value = t(g.source === 'drums' ? 'studio.dsp.grid.found.drums' : 'studio.dsp.grid.found.mix',
-      { bpm: g.bpm.toFixed(1), at: fmtDur(g.offset) })
+    // source: drums | mix
+    gridMsg.value = t(`studio.dsp.grid.found.${g.source}`, { bpm: g.bpm.toFixed(1), at: fmtDur(g.offset) })
   } catch (e) {
     gridMsg.value = String(e)
   } finally {
@@ -1482,7 +1484,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 <button class="ghost small-btn" :disabled="trickBusy"
                         :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
                 <button class="ghost small-btn" :disabled="trickBusy || isImport"
-                        :title="isImport ? t('studio.import.noTokens') : t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
+                        :title="importTip('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
               </div>
             </div>
             <div class="trick-group">
@@ -1498,7 +1500,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <div class="trick-btns">
                 <input v-model="contStyle" class="cont-style" :placeholder="t('studio.cont.style.ph')" :title="t('studio.cont.style.tip')" />
                 <button class="ghost small-btn" :disabled="!hasSel || trickBusy || isImport"
-                        :title="isImport ? t('studio.import.noTokens') : t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
+                        :title="importTip('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
               </div>
             </div>
             <!-- сборка — на всю ширину: финальные действия над треком -->
@@ -1638,8 +1640,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                         :placeholder="t('studio.overdub.lyrics.ph')"></textarea>
             </div>
             <div class="od-row">
-              <button class="ghost small-btn" :disabled="!!odLyrBusy || whisperOk === false"
-                      :title="whisperOk === false ? t('lyrics.job.noWhisper') : t('lyrics.job.tip')" @click="odRecognizeLyrics">
+              <button class="ghost small-btn" :disabled="!!odLyrBusy || !whisperOk"
+                      :title="!whisperOk ? t('lyrics.job.noWhisper') : t('lyrics.job.tip')" @click="odRecognizeLyrics">
                 {{ odLyrBusy === 'rec' ? '…' : t('lyrics.job') }}</button>
               <button class="ghost small-btn" :disabled="!!odLyrBusy || !odLyrics.trim()" :title="t('lyrics.adapt.tip')" @click="odAdaptLyrics">
                 {{ odLyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
@@ -1657,7 +1659,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <summary class="studio-box-head"><span>{{ t('studio.vc') }}</span> <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted studio-box-hint">{{ t('studio.vc.sub') }}</span></summary>
             <div class="studio-box-body">
             <p class="muted">{{ t('studio.vc.desc') }}</p>
-            <p v-if="!seedvcOk" class="muted unavailable">{{ t('studio.vc.unavailable') }}</p>
+            <p v-if="!seedvcOk" class="muted">{{ t('studio.vc.unavailable') }}</p>
             <div v-else class="od-row">
               <VSelect v-model="vcRef" :options="vcRefOptions" searchable :placeholder="t('studio.vc.ref')" style="width:320px" />
               <button class="primary small" :disabled="vcBusy || !vcRef" @click="submitVoice">

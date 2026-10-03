@@ -252,11 +252,7 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		if err != nil {
 			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", s.Chain, name, err)
 		}
-		from := math.Max(0, s.From-fadeIn)
-		dur := fxWindowForever
-		if s.To > 0 {
-			dur = s.To + fadeOut - from
-		}
+		from, dur := insertWindow(s, fadeIn, fadeOut)
 		*inputs = append(*inputs, fx, parent[name])
 		out = append(out,
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut},
@@ -314,6 +310,17 @@ func fxGain(chain *dsp.Chain, oldPath, fxPath string, s SectionSpec) (float64, e
 // fxWindowForever — «до конца трека» для окна эффекта (длиннее любой песни)
 const fxWindowForever = 3600.0
 
+// insertWindow — окно вставки дорожки с запасом на фейды: начало (не раньше
+// 0) и длительность; To ≤ 0 — до конца трека (раньше в «громкости дорожки»
+// окно при to=0 выходило отрицательным, и пересборка молча ничего не делала).
+func insertWindow(s SectionSpec, fadeIn, fadeOut float64) (from, dur float64) {
+	from = math.Max(0, s.From-fadeIn)
+	if s.To <= 0 {
+		return from, fxWindowForever
+	}
+	return from, s.To + fadeOut - from
+}
+
 // muteInserts — громкость дорожек родителя в окне: к треку добавляется сама
 // дорожка с гейном 10^(Db/20)−1 (−1 при Db ≤ −60 — заглушить), края с фейдами.
 func muteInserts(s SectionSpec, parent stemSet, inputs *[]string) []dsp.Insert {
@@ -333,13 +340,7 @@ func muteInserts(s SectionSpec, parent stemSet, inputs *[]string) []dsp.Insert {
 		if !slices.Contains(mutable, name) || parent[name] == "" {
 			continue
 		}
-		// To ≤ 0 — до конца трека, как у эффекта на дорожку (stemFxInserts):
-		// иначе окно выходило отрицательным и пересборка молча ничего не делала
-		from := s.From - fadeIn
-		dur := fxWindowForever
-		if s.To > 0 {
-			dur = s.To + fadeOut - from
-		}
+		from, dur := insertWindow(s, fadeIn, fadeOut)
 		*inputs = append(*inputs, parent[name])
 		// KeepHighHz > 0 — меняется только низ дорожки: demucs относит к голосу
 		// шумные тарелки, и заглушённая речь уносила их с собой (#258: верх −30 дБ

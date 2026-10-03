@@ -5,15 +5,28 @@ librosa-анализатор аудио под машинное чтение:
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
-# K-взвешивание ITU-R BS.1770 для 48 кГц: полка верхов + срез низа
+# Громкость по ITU-R BS.1770 / EBU R128. Фильтры K-взвешивания заданы для 48 кГц:
+# полка верхов + срез низа.
+_K_SR = 48000
 _K_SHELF = ([1.53512485958697, -2.69169618940638, 1.19839281085285], [1.0, -1.69065929318241, 0.73248077421585])
 _K_HP = ([1.0, -2.0, 1.0], [1.0, -1.99004745483398, 0.99007225036621])
+_K_OFFSET = -0.691          # поправка BS.1770 к громкости блока
+_ABS_GATE = -70.0           # блоки тише — тишина, не учитываются
+_LUFS_BLOCK = (0.4, 0.1)    # интегральная: блоки 400 мс с шагом 100 мс...
+_LUFS_REL_GATE = -10.0      # ...и относительный гейт −10 LU
+_LRA_BLOCK = (3.0, 1.0)     # LRA: блоки 3 с с шагом 1 с...
+_LRA_REL_GATE = -20.0       # ...относительный гейт −20 LU, диапазон p10..p95
+_TRUE_PEAK_OVERSAMPLE = 4
 
 
 def _block_loudness(z2: np.ndarray, sr: int, win: float, hop: float) -> np.ndarray:
@@ -24,53 +37,84 @@ def _block_loudness(z2: np.ndarray, sr: int, win: float, hop: float) -> np.ndarr
     starts = np.arange(0, z2.shape[0] - n + 1, h)
     c = np.vstack([np.zeros((1, z2.shape[1])), np.cumsum(z2, axis=0)])
     ms = (c[starts + n] - c[starts]) / n           # средний квадрат блока по каналам
-    return -0.691 + 10 * np.log10(ms.sum(axis=1) + 1e-12)
+    return _K_OFFSET + 10 * np.log10(ms.sum(axis=1) + 1e-12)
+
+
+def _power_mean_db(db: np.ndarray) -> float:
+    """Среднее блоков по мощности (не по децибелам), в дБ."""
+    return float(10 * np.log10(np.mean(10 ** (db / 10))))
+
+
+def _gated(blocks: np.ndarray, rel_gate: float) -> np.ndarray:
+    """Блоки после двух гейтов: абсолютного (тишина) и относительного (rel_gate
+    дБ от средней громкости оставшихся)."""
+    b = blocks[blocks > _ABS_GATE]
+    if not b.size:
+        return b
+    return b[b > _power_mean_db(b) + rel_gate]
 
 
 def loudness(x: np.ndarray, sr: int) -> dict:
-    """Громкость по EBU R128 / ITU-R BS.1770: интегральная (LUFS, блоки 400 мс,
-    гейты −70 LUFS и −10 LU), диапазон громкости LRA (блоки 3 с, гейты −70 и
-    −20 LU, p95−p10) и true peak (dBTP, передискретизация ×4). x — (кадры, каналы)."""
+    """Громкость трека: интегральная (lufs), диапазон громкости (lra, LU) и
+    истинный пик (true_peak_db, dBTP). x — (кадры, каналы) или моно."""
+    from math import gcd
+
     from scipy.signal import lfilter, resample_poly
 
     x = np.asarray(x, dtype=np.float64)
     if x.ndim == 1:
         x = x[:, None]
-    if sr != 48000:
-        from math import gcd
-        g = gcd(int(sr), 48000)
-        x = resample_poly(x, 48000 // g, int(sr) // g, axis=0)
-        sr = 48000
-    z = lfilter(*_K_HP, lfilter(*_K_SHELF, x, axis=0), axis=0)
-    z2 = z ** 2
+    if sr != _K_SR:
+        g = gcd(int(sr), _K_SR)
+        x = resample_poly(x, _K_SR // g, int(sr) // g, axis=0)
+    z2 = lfilter(*_K_HP, lfilter(*_K_SHELF, x, axis=0), axis=0) ** 2
     out: dict = {}
-    blocks = _block_loudness(z2, sr, 0.4, 0.1)
-    b = blocks[blocks > -70]
-    if b.size:
-        rel = 10 * np.log10(np.mean(10 ** (b / 10))) - 10
-        g = b[b > rel]
-        out["lufs"] = round(float(10 * np.log10(np.mean(10 ** (g / 10)))), 1)
-    st = _block_loudness(z2, sr, 3.0, 1.0)
-    st = st[st > -70]
-    if st.size:
-        rel = 10 * np.log10(np.mean(10 ** (st / 10))) - 20
-        g = st[st > rel]
-        if g.size:
-            lo, hi = np.percentile(g, [10, 95])
-            out["lra"] = round(float(hi - lo), 1)
-    tp = float(np.abs(resample_poly(x, 4, 1, axis=0)).max())
+    g = _gated(_block_loudness(z2, _K_SR, *_LUFS_BLOCK), _LUFS_REL_GATE)
+    if g.size:
+        out["lufs"] = round(_power_mean_db(g), 1)
+    g = _gated(_block_loudness(z2, _K_SR, *_LRA_BLOCK), _LRA_REL_GATE)
+    if g.size:
+        lo, hi = np.percentile(g, [10, 95])
+        out["lra"] = round(float(hi - lo), 1)
+    tp = float(np.abs(resample_poly(x, _TRUE_PEAK_OVERSAMPLE, 1, axis=0)).max())
     out["true_peak_db"] = round(float(20 * np.log10(tp + 1e-12)), 1)
     return out
 
 
+def _refine_bpm(env: np.ndarray, t: np.ndarray, bpm0: float) -> tuple[float, float]:
+    """Уточнение темпа ±3% шагом 0,05 BPM: огибающая атак сворачивается с
+    комплексной синусоидой частоты долей; модуль суммы — насколько удары
+    ложатся на сетку. Возвращает (bpm, strength 0…1)."""
+    best_bpm, best = bpm0, 0.0
+    for bpm in np.arange(bpm0 * 0.97, bpm0 * 1.03, 0.05):
+        z = abs(np.sum(env * np.exp(2j * np.pi * t * bpm / 60.0)))
+        if z > best:
+            best_bpm, best = float(bpm), z
+    return best_bpm, best / env.sum()
+
+
+def _downbeat_offset(on_t: np.ndarray, w: np.ndarray, period: float) -> float:
+    """Сдвиг сильной доли по атакам (время on_t, сила w). Не по средней фазе
+    огибающей: хай-хэт на слабых долях тянул её (по барабанам и по миксу
+    выходило по-разному). Сначала фаза атак на сетке шестнадцатых, затем
+    сильная доля — та из четырёх шестнадцатых, где больше энергии атак."""
+    p16 = period / 4
+    off16 = (np.angle(np.sum(w * np.exp(2j * np.pi * on_t / p16))) / (2 * np.pi) * p16) % p16
+
+    def slot_energy(k: int) -> float:
+        dist = np.abs(((on_t - off16 - k * p16 + period / 2) % period) - period / 2)
+        return float(w[dist < p16 / 2].sum())
+
+    best = max(range(4), key=slot_energy)
+    return float((off16 + best * p16) % period)
+
+
 def beat_grid(y: np.ndarray, sr: int, lo: float = 60.0, hi: float = 200.0) -> dict:
-    """Сетка долей трека для эффектов в такт («Ритм-гейт»): темп (BPM) и сдвиг
-    первой доли (с, 0 ≤ offset < длины доли). y — моно; лучше дорожка барабанов.
-    Темп — librosa как стартовая оценка, затем уточнение ±3% шагом 0,05 BPM: для
-    каждого кандидата огибающая атак сворачивается с комплексной синусоидой
-    частоты долей; модуль суммы — насколько удары ложатся на сетку, фаза —
-    сдвиг. strength (0…1) — доля «попадающей» энергии атак: < 0,1 — сетки
-    по сути нет (рубато, тишина)."""
+    """Сетка долей трека для эффектов в такт («Ритм-гейт»): темп (bpm), сдвиг
+    сильной доли (offset, с, 0 ≤ offset < длины доли) и strength (0…1) — доля
+    «попадающей» в сетку энергии атак: < 0,1 — сетки по сути нет (рубато,
+    тишина). y — моно; лучше дорожка барабанов. Темп — оценка librosa,
+    приведённая в lo..hi и уточнённая _refine_bpm."""
     import librosa
 
     hop = 256
@@ -78,33 +122,20 @@ def beat_grid(y: np.ndarray, sr: int, lo: float = 60.0, hi: float = 200.0) -> di
     env = np.maximum(env - np.median(env), 0)
     if env.sum() <= 0:
         return {"bpm": 0.0, "offset": 0.0, "strength": 0.0}
-    t = np.arange(len(env)) * hop / sr
-    t0 = float(np.atleast_1d(librosa.feature.tempo(onset_envelope=env, sr=sr, hop_length=hop))[0])
-    while t0 < lo:
-        t0 *= 2
-    while t0 > hi:
-        t0 /= 2
-    best = (0.0, t0)
-    for bpm in np.arange(t0 * 0.97, t0 * 1.03, 0.05):
-        z = np.sum(env * np.exp(2j * np.pi * t * bpm / 60.0))
-        if abs(z) > best[0]:
-            best = (abs(z), bpm)
-    strength, bpm = best
-    period = 60.0 / bpm
-    # сдвиг — по самим атакам, не по средней фазе огибающей: хай-хэт на слабых
-    # долях тянул среднюю фазу (по барабанам и по миксу выходило по-разному).
-    # Фаза атак на сетке шестнадцатых, затем сильная доля — та из четырёх
-    # шестнадцатых, на которую приходится больше энергии атак.
-    p16 = period / 4
+    bpm0 = float(np.atleast_1d(librosa.feature.tempo(onset_envelope=env, sr=sr, hop_length=hop))[0])
+    while bpm0 < lo:
+        bpm0 *= 2
+    while bpm0 > hi:
+        bpm0 /= 2
+    bpm, strength = _refine_bpm(env, np.arange(len(env)) * hop / sr, bpm0)
     frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop, backtrack=False)
-    if len(frames) < 4:
-        return {"bpm": round(float(bpm), 2), "offset": 0.0, "strength": round(float(strength / env.sum()), 3)}
-    on_t, w = frames * hop / sr, env[frames]
-    off16 = (np.angle(np.sum(w * np.exp(2j * np.pi * on_t / p16))) / (2 * np.pi) * p16) % p16
-    slot = [w[np.abs(((on_t - off16 - k * p16 + period / 2) % period) - period / 2) < p16 / 2].sum() for k in range(4)]
-    offset = (off16 + int(np.argmax(slot)) * p16) % period
-    return {"bpm": round(float(bpm), 2), "offset": round(float(offset), 3),
-            "strength": round(float(strength / env.sum()), 3)}
+    offset = 0.0
+    if len(frames) >= 4:  # меньше — фазу не по чему мерить
+        offset = _downbeat_offset(frames * hop / sr, env[frames], 60.0 / bpm)
+    return {"bpm": round(bpm, 2), "offset": round(offset, 3), "strength": round(float(strength), 3)}
+
+
+_VA_FRAME = 0.1  # шаг кадров громкости в vocal_activity, с
 
 
 def vocal_activity(x: np.ndarray, sr: int, thresh_db: float = -35.0, min_len: float = 0.3,
@@ -116,26 +147,18 @@ def vocal_activity(x: np.ndarray, sr: int, thresh_db: float = -35.0, min_len: fl
     x = np.asarray(x, dtype=np.float64)
     if x.ndim > 1:
         x = x.mean(axis=1)
-    hop = max(1, int(sr * 0.1))
+    hop = max(1, int(sr * _VA_FRAME))
     n = len(x) // hop
     if n == 0:
         return []
     db = 20 * np.log10(np.sqrt((x[: n * hop].reshape(n, hop) ** 2).mean(axis=1)) + 1e-12)
-    on = db >= thresh_db
-    spans, start, last = [], None, None
-    for i, v in enumerate(on):
-        if not v:
-            continue
-        t = i * 0.1
-        if start is not None and t - last > gap:
-            spans.append((start, last + 0.1))
-            start = None
-        if start is None:
-            start = t
-        last = t
-    if start is not None:
-        spans.append((start, last + 0.1))
-    return [round(a, 1) for a, b in spans if b - a >= min_len]
+    t = np.flatnonzero(db >= thresh_db) * _VA_FRAME  # время громких кадров
+    if not t.size:
+        return []
+    breaks = np.flatnonzero(np.diff(t) > gap)         # паузы длиннее gap делят участки
+    starts = t[np.r_[0, breaks + 1]]
+    ends = t[np.r_[breaks, t.size - 1]] + _VA_FRAME
+    return [round(float(a), 1) for a, b in zip(starts, ends, strict=True) if b - a >= min_len]
 
 
 def analyze_file(path) -> dict:
@@ -209,7 +232,9 @@ def analyze_file(path) -> dict:
         import soundfile as sf
         x, xsr = sf.read(str(path), dtype="float64", always_2d=True)
         m.update(loudness(x, xsr))
-    except Exception:  # noqa: BLE001 - без soundfile/scipy остальные метрики всё равно нужны
-        pass
+    except ImportError:
+        pass  # без soundfile/scipy громкости нет, остальные метрики всё равно нужны
+    except Exception:  # noqa: BLE001 - карта трека нужна и без громкости
+        log.exception("громкость (LUFS) не посчитана: %s", path)
 
     return m

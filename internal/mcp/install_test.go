@@ -23,7 +23,7 @@ func fileExists(p string) bool {
 func TestInstallRunStepsDryRunExecutesNothing(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "dry")
 	steps := []step{{name: "создать метку", cmd: "touch " + shellQuoteTest(f)}}
-	out, err := runSteps(srv(t), "", steps, false)
+	out, err := runSteps("", steps, false)
 	if err != nil {
 		t.Fatalf("dry run: unexpected error %v", err)
 	}
@@ -37,7 +37,7 @@ func TestInstallRunStepsDryRunExecutesNothing(t *testing.T) {
 
 func TestInstallRunStepsRunsLocally(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "ran")
-	_, _ = runSteps(srv(t), "", []step{{name: "метка", cmd: "touch " + shellQuoteTest(f)}}, true)
+	_, _ = runSteps("", []step{{name: "метка", cmd: "touch " + shellQuoteTest(f)}}, true)
 	if !fileExists(f) {
 		t.Fatalf("run=true did not execute the step locally")
 	}
@@ -45,7 +45,7 @@ func TestInstallRunStepsRunsLocally(t *testing.T) {
 
 func TestInstallRunStepsNonMustFailureContinues(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "after")
-	out, _ := runSteps(srv(t), "", []step{
+	out, _ := runSteps("", []step{
 		{name: "необязательный провал", cmd: "exit 1"},
 		{name: "следующий", cmd: "touch " + shellQuoteTest(f)},
 	}, true)
@@ -59,10 +59,13 @@ func TestInstallRunStepsNonMustFailureContinues(t *testing.T) {
 
 func TestInstallRunStepsMustFailureStops(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "never")
-	out, _ := runSteps(srv(t), "", []step{
+	out, err := runSteps("", []step{
 		{name: "проверка", cmd: "exit 1", must: true},
 		{name: "следующий", cmd: "touch " + shellQuoteTest(f)},
 	}, true)
+	if err == nil {
+		t.Fatalf("failed must-step must return an error")
+	}
 	if fileExists(f) {
 		t.Fatalf("step after failed must-step was executed")
 	}
@@ -295,9 +298,4 @@ func TestInstallAppDefaultIsDryRun(t *testing.T) {
 // спецсимволы из имени теста).
 func shellQuoteTest(p string) string {
 	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
-}
-
-func srv(t *testing.T) *Server {
-	s, _ := newTestServer(t)
-	return s
 }

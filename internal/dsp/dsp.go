@@ -158,15 +158,14 @@ func dropGraph(p map[string]float64) string {
 		// темп куска — по его середине; громкость линейно от 1 до 0 по всему окну
 		tempo := 1 - (1-slow)*(float64(i)+0.5)/dropSlices
 		a0, a1 := 1-float64(i)/dropSlices, 1-float64(i+1)/dropSlices
-		l := step / tempo
+		from, to := start+float64(i)*step, start+float64(i+1)*step
 		// захлёст в начале куска: dropXfade выходного звука = dropXfade·tempo исходного
-		from := start + float64(i)*step
 		lead := math.Min(dropXfade*tempo, from)
-		pre := lead / tempo // захлёст в секундах выходного звука
-		fmt.Fprintf(&b, ";[s%d]atrim=%g:%g,asetpts=PTS-STARTPTS,atempo=%g,asetnsamples=n=%d:p=0,"+
-			"volume='%g+(%g)*clip((t-%g)/%g,0,1)':eval=frame,apad=whole_dur=%g", i+1, from-lead, start+float64(i+1)*step,
-			tempo, envFrame, a0, a1-a0, pre, l, dropXfade)
-		fmt.Fprintf(&b, "[d%d]", i)
+		pre := lead / tempo           // захлёст в секундах выходного звука
+		outLen := (to - from) / tempo // длина куска после растяжки
+		fade := fmt.Sprintf("volume='%g+(%g)*clip((t-%g)/%g,0,1)':eval=frame", a0, a1-a0, pre, outLen)
+		fmt.Fprintf(&b, ";[s%d]atrim=%g:%g,asetpts=PTS-STARTPTS,atempo=%g,asetnsamples=n=%d:p=0,%s,apad=whole_dur=%g[d%d]",
+			i+1, from-lead, to, tempo, envFrame, fade, dropXfade, i)
 	}
 	fmt.Fprintf(&b, ";[s%d]atrim=start=%g,asetpts=PTS-STARTPTS", dropSlices+1, start+dur)
 	if rise > 0 {
@@ -443,12 +442,14 @@ const gateSamples = 64
 // гитара с сустейном) становится пульсирующим синт-ритмом на тех же аккордах.
 func gateGraph(p map[string]float64) string {
 	period := 60 / (p["bpm"] * p["div"]) // длина удара, с
-	// целое число ударов не короче сдвига: аргумент mod не уходит в минус при t < offset
-	// (сдвиг — время доли где-то в треке, до 600 с); фаза от прибавки не меняется
-	shift := period * math.Ceil((p["offset"]+1)/period)
-	r := math.Min(p["smooth"]/1000/period, p["duty"]/2)
-	return fmt.Sprintf("[0:a]asetnsamples=n=%d:p=0,volume='1-%[2]g*(1-clip(min(%[3]s/%[4]g,(%[5]g-%[3]s)/%[4]g),0,1))':eval=frame[out]",
-		gateSamples, p["depth"], fmt.Sprintf("mod(t-%g+%g,%g)/%g", p["offset"], shift, period, period), r, p["duty"])
+	// shift — целое число ударов не меньше offset: t−offset+shift ≥ 0, и mod не
+	// уходит в минус в начале трека; фаза сетки от прибавки целых ударов не меняется
+	shift := period * math.Ceil(p["offset"]/period)
+	phase := fmt.Sprintf("mod(t-%g+%g,%g)/%g", p["offset"], shift, period, period) // 0..1 внутри удара
+	ramp := math.Min(p["smooth"]/1000/period, p["duty"]/2)                         // длина края в долях удара
+	// open: 0 вне окна [0, duty], 1 внутри, линейно на краях
+	open := fmt.Sprintf("clip(min(%[1]s/%[2]g,(%[3]g-%[1]s)/%[2]g),0,1)", phase, ramp, p["duty"])
+	return fmt.Sprintf("[0:a]asetnsamples=n=%d:p=0,volume='1-%g*(1-%s)':eval=frame[out]", gateSamples, p["depth"], open)
 }
 
 var levelParams = []Param{
