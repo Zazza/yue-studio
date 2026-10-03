@@ -36,7 +36,7 @@ func RegisterInstallTools(s *Server) {
 			gpu, _ := runSteps(argString(args, "host"), []step{
 				{name: "GPU/VRAM", cmd: "nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader"},
 				{name: "место на диске (домашний каталог)", cmd: "df -h ~ | tail -1"},
-				{name: "HF-токен (веса YuE2, gated)", cmd: "test -f ~/.cache/huggingface/token && echo токен есть || echo нет (нужен huggingface-cli login)"},
+				{name: "HF-токен (веса YuE2, gated)", cmd: "test -f ~/.cache/huggingface/token && echo токен есть || echo 'нет (нужен huggingface-cli login)'"},
 			}, true)
 			return out + "\n" + gpu + workerAddress(s), nil
 		},
