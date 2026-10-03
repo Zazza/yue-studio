@@ -355,13 +355,39 @@ def _continue_song(pipe, row, request):
                       {"semantic": timing}, f"continue-{row['parent_id']}-{k}")
 
 
+def _is_cuda_oom(e: BaseException) -> bool:
+    low = str(e).lower()
+    return "out of memory" in low and "cuda" in low
+
+
+def _unload_pipe() -> None:
+    """Выгрузить модель и вернуть видеопамять (вызывать под _pipe_lock).
+    После нехватки памяти упавшая генерация оставляла в модели ~1,4 ГБ, и
+    следующие джобы падали даже на свободном GPU; модель загрузится заново
+    при следующей джобе (~12 с)."""
+    global _pipe
+    if _pipe is None:
+        return
+    try:
+        _pipe.__exit__(None, None, None)
+    except Exception:  # noqa: BLE001 - выгрузка всё равно продолжается
+        log.exception("pipeline close failed")
+    _pipe = None
+    import gc
+    gc.collect()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 - без torch/CUDA освобождать нечего
+        pass
+
+
 def friendly_error(e: BaseException) -> str:
     """Текст ошибки для человека. Нехватка видеопамяти (частое на общем GPU:
     рядом Ollama, Stable Diffusion) — вместо стека CUDA «GPU занят» со
     свободной/общей памятью и подсказкой, что делать; остальное — как есть."""
     s = str(e)
-    low = s.lower()
-    if "out of memory" not in low or "cuda" not in low:
+    if not _is_cuda_oom(e):
         return s
     mem = ""
     try:
@@ -423,6 +449,7 @@ def _run_job(job_id: int):
                 (job_dir / "request.abc").write_text(request["abc"], encoding="utf-8")
                 log.info("job %s: arc=%s applied to plan", job_id, row["arc"])
             t0 = time.time()
+            failure = ""
             try:
                 try:
                     song = (_continue_song(pipe, row, request) if row["role"] == "continue"
@@ -450,6 +477,11 @@ def _run_job(job_id: int):
             except Exception as e:  # noqa: BLE001
                 log.exception("job %s failed", job_id)
                 _mark_failed(job_id, e)
+                failure = "oom" if _is_cuda_oom(e) else "error"
+            if failure:
+                # выгрузка — после except: там стек ошибки ещё держит тензоры генерации
+                if failure == "oom":
+                    _unload_pipe()
                 return
             truncated = song.truncated
             if isinstance(truncated, dict):
@@ -602,14 +634,8 @@ def _startup():
 
 @app.on_event("shutdown")
 def _shutdown():
-    global _pipe
     with _pipe_lock:
-        if _pipe is not None:
-            try:
-                _pipe.__exit__(None, None, None)
-            except Exception:  # noqa: BLE001
-                log.exception("pipeline close failed")
-            _pipe = None
+        _unload_pipe()
 
 
 # роли производных треков: section — рендер куска для вклейки, rebuild —

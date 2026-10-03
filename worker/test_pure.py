@@ -2064,3 +2064,99 @@ class TestAutoStemsInstrumentalConfig(_WorkerApiCase):
         self.client.post("/config", json={"auto_stems_instrumental": False})
         self.client.post("/config", json={"auto_stems_instrumental": True})
         self.assertIs(self.client.get("/config").json()["auto_stems_instrumental"], True)
+
+
+class _FakeModel:
+    """Модель-заглушка: контекст-менеджер, любой другой метод бросает self.err.
+    Счётчик exits — сколько раз модель выгружали через __exit__."""
+
+    def __init__(self, err=None, exit_err=None):
+        self.err = err
+        self.exit_err = exit_err
+        self.exits = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.exits.append(args)
+        if self.exit_err:
+            raise self.exit_err
+
+    def __call__(self, *a, **kw):
+        raise self.err
+
+    def __getattr__(self, name):
+        def boom(*a, **kw):
+            raise self.err
+        return boom
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestUnloadOnOom(_WorkerApiCase):
+    """_run_job: при «CUDA out of memory» (любой регистр) джоба error с
+    «GPU занят…», модель выгружается (__exit__(None, None, None), _pipe=None)
+    и следующая джоба грузит её заново; при другой ошибке модель остаётся;
+    сбой __exit__ не мешает выгрузке и не вылетает из _run_job."""
+
+    def setUp(self):
+        super().setUp()
+        import sys
+        from unittest import mock
+        self.mock = mock
+        # yue2 и torch в окружении тестов нет — подменяем на заглушки;
+        # from_pretrained отдаёт новую модель (для повторной загрузки)
+        self.from_pretrained = mock.MagicMock(side_effect=lambda *a, **kw: _FakeModel())
+        yue2 = mock.MagicMock()
+        yue2.YuE2Pipeline.from_pretrained = self.from_pretrained
+        mods = {"yue2": yue2, "yue2.protocol": mock.MagicMock(),
+                "yue2.pipeline": mock.MagicMock(), "torch": mock.MagicMock()}
+        p = mock.patch.dict(sys.modules, mods)
+        p.start()
+        self.addCleanup(p.stop)
+        for name, val in (("_pipe", None), ("_load_error", None)):
+            p = mock.patch.object(self.w, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _run_with(self, model):
+        """Модель уже загружена, джоба в очереди → _run_job, вернуть строку джобы."""
+        self.w._pipe = model
+        jid = self._job(semantic=False, status="queued")
+        self.w._run_job(jid)  # исключение наружу = провал теста
+        return self._row(jid)
+
+    def test_oom_marks_error_and_unloads(self):
+        for text in ("CUDA out of memory. Tried to allocate 2.00 GiB", "cuda OUT OF MEMORY"):
+            model = _FakeModel(err=RuntimeError(text))
+            row = self._run_with(model)
+            self.assertEqual(row["status"], "error", text)
+            self.assertTrue(row["error"].startswith("GPU занят"), row["error"])
+            self.assertEqual(model.exits, [(None, None, None)], text)
+            self.assertIsNone(self.w._pipe, text)
+
+    def test_other_error_keeps_model(self):
+        model = _FakeModel(err=RuntimeError("bad abc"))
+        row = self._run_with(model)
+        self.assertEqual(row["status"], "error")
+        self.assertIn("bad abc", row["error"])
+        self.assertIs(self.w._pipe, model)
+        self.assertEqual(model.exits, [])
+
+    def test_next_load_after_oom_is_fresh(self):
+        old = _FakeModel(err=RuntimeError("CUDA out of memory"))
+        self._run_with(old)
+        self.from_pretrained.assert_not_called()
+        new = self.w._get_pipe()
+        self.assertEqual(self.from_pretrained.call_count, 1)
+        self.assertIsNot(new, old)
+        self.assertIs(self.w._pipe, new)
+
+    def test_exit_failure_still_unloads(self):
+        model = _FakeModel(err=RuntimeError("CUDA out of memory"),
+                           exit_err=RuntimeError("CUDA error: illegal memory access"))
+        row = self._run_with(model)
+        self.assertEqual(row["status"], "error")
+        self.assertTrue(row["error"].startswith("GPU занят"), row["error"])
+        self.assertEqual(len(model.exits), 1)
+        self.assertIsNone(self.w._pipe)
