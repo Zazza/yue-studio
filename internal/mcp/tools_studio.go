@@ -461,13 +461,15 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "job_lyrics",
-		Description: "Распознать текст из готового аудио джобы (faster-whisper): без повторной загрузки файла — для овердаба/кавера этой же джобы.",
+		Name: "job_lyrics",
+		Description: "Распознать текст из готового аудио джобы (faster-whisper): без повторной загрузки файла — для овердаба/кавера этой же джобы. " +
+			"Есть дорожка голоса (make_stems) — распознаётся она, точнее, чем микс с гитарами.",
 		InputSchema: props(map[string]any{
-			"job_id": prop("ID джобы (статус done)", "integer"),
+			"job_id":   prop("ID джобы (статус done)", "integer"),
+			"language": prop("язык пения: en, ru, …; auto — определить самому; пусто — по стилю трека («English, …» → en)", "string"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
-			out, err := s.client.JobLyrics(context.Background(), argInt(args, "job_id"))
+			out, err := s.client.JobLyrics(context.Background(), argInt(args, "job_id"), argString(args, "language"))
 			if err != nil {
 				return "", err
 			}

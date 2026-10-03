@@ -414,6 +414,16 @@ async function cancel(id) {
   await api.cancel(id)
   refresh()
 }
+// «повторить» упавшую или отменённую джобу: снова в очередь с теми же параметрами
+const canRetry = (j) => j.status === 'error' || j.status === 'canceled'
+async function retry(j) {
+  try {
+    await api.retryJob(j.id)
+  } catch (e) {
+    alert(String(e))
+  }
+  refresh()
+}
 
 function deleteJob(j) {
   askConfirm(`Удалить результат #${j.id} «${j.title}»?`,
@@ -939,6 +949,7 @@ function onWindowClick(e) {
                 {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
               </button>
               <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
+              <button v-if="v.id !== j.id && canRetry(v)" class="ghost small-btn" :title="v.error || t('queue.retry.tip')" @click="retry(v)">{{ t('queue.retry') }}</button>
               <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
             </div>
             <details v-if="(kidMixes[j.id] || []).length" class="job-material">
@@ -968,6 +979,7 @@ function onWindowClick(e) {
             </details>
           </div>
           <p v-if="j.error" class="error">{{ j.error }}</p>
+          <button v-if="canRetry(j)" class="ghost small-btn" :title="t('queue.retry.tip')" @click="retry(j)">{{ t('queue.retry') }}</button>
         </div>
         <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
           <button class="play-main" :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">

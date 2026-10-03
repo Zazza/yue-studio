@@ -465,7 +465,7 @@ func (a *App) YueRecognizeLyricsFile() (*yue.LyricsResult, error) {
 // YueJobLyrics — текст из готового аудио джобы (whisper на воркере,
 // без повторной загрузки файла).
 func (a *App) YueJobLyrics(id int64) (*yue.LyricsResult, error) {
-	return a.yue.JobLyrics(a.ctx, id)
+	return a.yue.JobLyrics(a.ctx, id, "") // язык — по стилю трека
 }
 
 // YueAdaptLyrics — адаптация-перевод лирики под пение (сохранение слогов).
@@ -571,6 +571,11 @@ func (a *App) YueContinueJob(jobID int64, fromSec float64, seed int64, abc, styl
 // YueRenameJob — своё название трека вместо номера (номер при переносе меняется).
 func (a *App) YueRenameJob(jobID int64, title string) (*yue.Job, error) {
 	return a.yue.UpdateJob(a.ctx, jobID, &title, nil)
+}
+
+// YueRetryJob — «повторить» упавшую или отменённую джобу.
+func (a *App) YueRetryJob(jobID int64) error {
+	return a.yue.RetryJob(a.ctx, jobID)
 }
 
 // YueVoiceConvert — «голос альбома»: голос трека тембром образца (Seed-VC на

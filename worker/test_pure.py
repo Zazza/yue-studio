@@ -1578,3 +1578,224 @@ class TestPatchJob(_WorkerApiCase):
             self.assertEqual(r.status_code, 422, bad)
             got = self._get(jid)
             self.assertEqual((got["title"], got["folder"]), ("Имя", "Папка"), bad)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestRetryJob(_WorkerApiCase):
+    """POST /jobs/{id}/retry: упавшая (error) или отменённая (canceled) джоба
+    возвращается в очередь — 200 {"retried": true}, status=queued, error пуст.
+    done/running/queued → 409, статус не меняется; нет джобы → 404."""
+
+    def _failed(self, status, error="CUDA out of memory"):
+        jid = self._job(semantic=False, status=status)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET error=? WHERE id=?", (error, jid))
+        return jid
+
+    def _get(self, jid):
+        r = self.client.get(f"/jobs/{jid}")
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_error_job_requeued(self):
+        jid = self._failed("error")
+        r = self.client.post(f"/jobs/{jid}/retry")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json(), {"retried": True})
+        got = self._get(jid)
+        self.assertEqual(got["status"], "queued")
+        self.assertFalse(got.get("error"), got)
+
+    def test_canceled_job_requeued(self):
+        jid = self._failed("canceled", error="")
+        r = self.client.post(f"/jobs/{jid}/retry")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json(), {"retried": True})
+        got = self._get(jid)
+        self.assertEqual(got["status"], "queued")
+        self.assertFalse(got.get("error"), got)
+
+    def test_not_failed_job_409_unchanged(self):
+        for status in ("done", "running", "queued"):
+            jid = self._job(semantic=False, status=status)
+            r = self.client.post(f"/jobs/{jid}/retry")
+            self.assertEqual(r.status_code, 409, (status, r.text))
+            self.assertEqual(self._row(jid)["status"], status)
+
+    def test_missing_job_404(self):
+        r = self.client.post("/jobs/9999/retry")
+        self.assertEqual(r.status_code, 404, r.text)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestFriendlyError(_WorkerDbCase):
+    """friendly_error(e): «CUDA out of memory» (любой регистр) → человеческое
+    сообщение с «GPU занят» и «повторить», без исключений даже без torch или
+    при сбое запроса к CUDA; любое другое исключение → str(e) как есть."""
+
+    OOM_TEXTS = ("CUDA out of memory. Tried to allocate 2.00 GiB",
+                 "cuda OUT OF MEMORY",
+                 "RuntimeError: Cuda Out Of Memory while sampling")
+
+    def _assert_friendly(self, msg):
+        self.assertIsInstance(msg, str)
+        self.assertIn("GPU занят", msg)
+        self.assertIn("повторить", msg)
+
+    def test_oom_any_case(self):
+        for text in self.OOM_TEXTS:
+            self._assert_friendly(self.w.friendly_error(RuntimeError(text)))
+
+    def _broken_torch(self):
+        """torch, у которого любой запрос к CUDA падает."""
+        import types
+
+        def boom(*a, **kw):
+            raise RuntimeError("CUDA driver failure")
+
+        cuda = types.SimpleNamespace(
+            is_available=boom, mem_get_info=boom, memory_allocated=boom,
+            memory_reserved=boom, max_memory_allocated=boom,
+            get_device_properties=boom, device_count=boom, empty_cache=boom,
+            memory_summary=boom)
+        return types.SimpleNamespace(cuda=cuda)
+
+    def _with_torch(self, fake):
+        """Подменить torch и в sys.modules, и в модуле воркера (если он там)."""
+        import sys
+        from unittest import mock
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.dict(sys.modules, {"torch": fake}))
+        if hasattr(self.w, "torch"):
+            stack.enter_context(mock.patch.object(self.w, "torch", fake))
+        return stack
+
+    def test_oom_without_torch(self):
+        with self._with_torch(None):  # import torch → ImportError
+            for text in self.OOM_TEXTS:
+                self._assert_friendly(self.w.friendly_error(RuntimeError(text)))
+
+    def test_oom_when_cuda_query_fails(self):
+        with self._with_torch(self._broken_torch()):
+            for text in self.OOM_TEXTS:
+                self._assert_friendly(self.w.friendly_error(RuntimeError(text)))
+
+    def test_other_errors_unchanged(self):
+        for e in (RuntimeError("ffmpeg failed: exit 1"), ValueError("bad seed"),
+                  KeyError("x"), RuntimeError("out of memory"), Exception("")):
+            self.assertEqual(self.w.friendly_error(e), str(e), repr(e))
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestLyricsLanguage(_WorkerDbCase):
+    """lyrics_language(style, explicit=None): явный язык — в нижнем регистре
+    без пробелов, «auto» → None; без явного — по ПЕРВОМУ тегу стиля
+    (English → en, Russian → ru), неизвестный первый тег или пустой стиль → None."""
+
+    def test_explicit_normalized(self):
+        self.assertEqual(self.w.lyrics_language("Russian, rock", "EN"), "en")
+        self.assertEqual(self.w.lyrics_language("", "  De "), "de")
+
+    def test_explicit_auto_is_none(self):
+        for v in ("auto", "AUTO", " Auto "):
+            self.assertIsNone(self.w.lyrics_language("English, rock", v), v)
+
+    def test_first_tag(self):
+        for style, want in (("English, post-punk, 120 BPM", "en"),
+                            ("Russian, rock", "ru"),
+                            ("russian", "ru")):
+            self.assertEqual(self.w.lyrics_language(style), want, style)
+
+    def test_unknown_first_tag_none(self):
+        self.assertIsNone(self.w.lyrics_language("post-punk, English"))
+
+    def test_empty_style_none(self):
+        self.assertIsNone(self.w.lyrics_language(""))
+        self.assertIsNone(self.w.lyrics_language(None))
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestJobLyricsEndpoint(_WorkerApiCase):
+    """POST /jobs/{id}/lyrics[?language=]: распознаёт stem-vocals.flac, если он
+    есть в папке джобы, иначе аудио джобы; язык — из query («auto» → None),
+    иначе по первому тегу стиля; пустой текст → 422; не готова/нет аудио → 404."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        self.calls = []
+        self.text = "hello world"
+
+        def rec(*args, **kwargs):
+            src = kwargs.get("src_path", args[0] if args else None)
+            lang = kwargs.get("language", args[1] if len(args) > 1 else None)
+            self.calls.append((Path(src), lang))
+            return (self.text, "")
+
+        p = mock.patch.object(self.w, "_whisper_lyrics", rec)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _audio_job(self, style="English, post-punk, 120 BPM", status="done", vocals=False):
+        jid = self._job(style=style, semantic=False, status=status)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "audio.flac").write_bytes(b"x")
+        if vocals:
+            (d / "stem-vocals.flac").write_bytes(b"v")
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid
+
+    def test_uses_audio_without_stem(self):
+        jid = self._audio_job()
+        r = self.client.post(f"/jobs/{jid}/lyrics")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["text"], "hello world")
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][0].name, "audio.flac")
+
+    def test_prefers_vocal_stem(self):
+        jid = self._audio_job(vocals=True)
+        r = self.client.post(f"/jobs/{jid}/lyrics")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][0].name, "stem-vocals.flac")
+        self.assertEqual(self.calls[0][0].parent.name, str(jid))
+
+    def test_language_from_style(self):
+        jid = self._audio_job(style="English, post-punk")
+        self.client.post(f"/jobs/{jid}/lyrics")
+        self.assertEqual(self.calls[0][1], "en")
+
+    def test_unknown_style_language_none(self):
+        jid = self._audio_job(style="post-punk, English")
+        r = self.client.post(f"/jobs/{jid}/lyrics")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNone(self.calls[0][1])
+
+    def test_query_language_overrides_style(self):
+        jid = self._audio_job(style="English, rock")
+        r = self.client.post(f"/jobs/{jid}/lyrics", params={"language": "RU"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.calls[0][1], "ru")
+
+    def test_query_auto_is_none(self):
+        jid = self._audio_job(style="English, rock")
+        r = self.client.post(f"/jobs/{jid}/lyrics", params={"language": "auto"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNone(self.calls[0][1])
+
+    def test_empty_text_422(self):
+        self.text = ""
+        jid = self._audio_job()
+        r = self.client.post(f"/jobs/{jid}/lyrics")
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_not_done_or_no_audio_404(self):
+        running = self._audio_job(status="running")
+        no_audio = self._job(semantic=False, status="done")
+        for jid in (running, no_audio, 9999):
+            r = self.client.post(f"/jobs/{jid}/lyrics")
+            self.assertEqual(r.status_code, 404, (jid, r.text))
+        self.assertEqual(self.calls, [])

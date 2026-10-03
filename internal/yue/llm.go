@@ -45,10 +45,15 @@ func (c *Client) RecognizeLyrics(ctx context.Context, name string, data []byte) 
 }
 
 // JobLyrics — текст из готового аудио джобы (whisper на стороне воркера,
-// без повторной загрузки файла).
-func (c *Client) JobLyrics(ctx context.Context, id int64) (*LyricsResult, error) {
+// без повторной загрузки файла; есть дорожка голоса — по ней). language —
+// код языка пения (en, ru, …; "auto" — определить); пусто — по стилю трека.
+func (c *Client) JobLyrics(ctx context.Context, id int64, language string) (*LyricsResult, error) {
 	var out LyricsResult
-	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/lyrics", id), headerTimeout, &out); err != nil {
+	path := fmt.Sprintf("/jobs/%d/lyrics", id)
+	if language != "" {
+		path += "?language=" + neturl.QueryEscape(language)
+	}
+	if err := c.post(ctx, path, headerTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

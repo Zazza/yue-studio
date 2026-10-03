@@ -188,6 +188,26 @@ func RegisterWorkflowTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "retry_job",
+		Description: "Повторить упавшую или отменённую джобу: снова в очередь с теми же параметрами (стиль, сид, план, " +
+			"продолжение с места). Частая причина падения — нехватка видеопамяти на общем GPU: сначала пусть " +
+			"пользователь освободит память. Готовую или идущую джобу повторить нельзя.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID упавшей или отменённой джобы", "integer"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			id := argInt(args, "job_id")
+			if id <= 0 {
+				return "", fmt.Errorf("нужен job_id упавшей или отменённой джобы")
+			}
+			if err := s.client.RetryJob(context.Background(), id); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("#%d снова в очереди", id), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name: "delete_job",
 		Description: "Удалить джобу со всеми файлами (аудио, партитура, стемы). Необратимо. " +
 			"Деструктивное: требует confirm=true (спроси пользователя).",

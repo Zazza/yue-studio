@@ -16,7 +16,7 @@ type Service interface {
 	Copilot(ctx context.Context, p CopilotParams) (*CopilotResult, error)
 	Translate(ctx context.Context, text string) (*TranslateResult, error)
 	RecognizeLyrics(ctx context.Context, name string, data []byte) (*LyricsResult, error)
-	JobLyrics(ctx context.Context, id int64) (*LyricsResult, error)
+	JobLyrics(ctx context.Context, id int64, language string) (*LyricsResult, error)
 	AdaptLyrics(ctx context.Context, text, to string) (*LyricsResult, error)
 	AnalyzeJob(ctx context.Context, id int64) (map[string]any, error)
 	References(ctx context.Context) ([]Reference, error)
@@ -60,6 +60,8 @@ type Service interface {
 	// UpdateJob — подпись и папка трека (nil — поле не менять, folder "" —
 	// убрать из папки); ответ — трек после правки
 	UpdateJob(ctx context.Context, jobID int64, title, folder *string) (*Job, error)
+	// RetryJob — упавшая или отменённая джоба снова в очередь с теми же параметрами.
+	RetryJob(ctx context.Context, jobID int64) error
 	// VoiceConvert — «голос альбома»: новая версия трека, голос спет тембром
 	// образца (Seed-VC на воркере), музыка прежняя; ответ — id джобы в очереди
 	VoiceConvert(ctx context.Context, jobID int64, p VoiceParams) (int64, error)

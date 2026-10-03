@@ -352,6 +352,25 @@ def _continue_song(pipe, row, request):
                       {"semantic": timing}, f"continue-{row['parent_id']}-{k}")
 
 
+def friendly_error(e: BaseException) -> str:
+    """Текст ошибки для человека. Нехватка видеопамяти (частое на общем GPU:
+    рядом Ollama, Stable Diffusion) — вместо стека CUDA «GPU занят» со
+    свободной/общей памятью и подсказкой, что делать; остальное — как есть."""
+    s = str(e)
+    low = s.lower()
+    if "out of memory" not in low or "cuda" not in low:
+        return s
+    mem = ""
+    try:
+        import torch
+        free, total = torch.cuda.mem_get_info()
+        mem = f" (свободно {free / 2**30:.1f} из {total / 2**30:.1f} ГБ)"
+    except Exception:  # noqa: BLE001 - без torch/CUDA — сообщение без цифр
+        pass
+    return (f"GPU занят: не хватило видеопамяти{mem}. Освободите память от других программ "
+            "(модель в Ollama, Stable Diffusion и т. п.) и нажмите «повторить».")
+
+
 def _run_job(job_id: int):
     with db_lock, db() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
@@ -429,7 +448,7 @@ def _run_job(job_id: int):
                 log.exception("job %s failed", job_id)
                 with db_lock, db() as conn:
                     conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
-                                 (str(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+                                 (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
                 return
             truncated = song.truncated
             if isinstance(truncated, dict):
@@ -494,7 +513,7 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
         log.exception("voice job %s failed", job_id)
         with db_lock, db() as conn:
             conn.execute("UPDATE jobs SET status='error', error=?, finished_at=? WHERE id=?",
-                         (str(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
+                         (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
 
 
 class VoiceIn(BaseModel):
@@ -924,6 +943,22 @@ def cancel(job_id: int):
     return {"canceled": False}
 
 
+@app.post("/jobs/{job_id}/retry")
+def retry_job(job_id: int):
+    """«Повторить»: упавшая или отменённая джоба снова в очередь с теми же
+    параметрами — стиль, сид, план, роль лежат в её строке и папке, очередь
+    подберёт её как новую. Готовую или идущую — нельзя (409)."""
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "job not found")
+        if row["status"] not in ("error", "canceled"):
+            raise HTTPException(409, f"job is {row['status']}: retry only failed or canceled jobs")
+        conn.execute("UPDATE jobs SET status='queued', error='', finished_at='' WHERE id=?", (job_id,))
+    log.info("job %s retried", job_id)
+    return {"retried": True}
+
+
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: int):
     """Удаление результата: строка в БД + папка с артефактами. Идущий рендер не трогаем."""
@@ -998,8 +1033,25 @@ DSP_NAME_RE = re.compile(r"^(dsp|overdub|preview|stem)-[a-z0-9.-]+\.flac$")
 
 # ---------- Лирика: whisper-распознавание и адаптация-перевод ----------
 
-def _whisper_lyrics(src: Path) -> tuple[str, str]:
+# язык пения по первому слову стиля YuE («English, post-punk, …») → код whisper
+STYLE_LANGS = {"english": "en", "russian": "ru", "chinese": "zh", "mandarin": "zh", "cantonese": "yue",
+               "japanese": "ja", "korean": "ko", "spanish": "es", "french": "fr", "german": "de",
+               "italian": "it", "portuguese": "pt"}
+
+
+def lyrics_language(style: str, explicit: str | None = None) -> str | None:
+    """Язык для распознавания: явный (код вроде «en»; «auto» — определить
+    самому) или по первому тегу стиля трека; не понять — None (whisper сам)."""
+    if explicit:
+        e = explicit.strip().lower()
+        return None if e == "auto" else e
+    first = (style or "").split(",")[0].strip().lower()
+    return STYLE_LANGS.get(first)
+
+
+def _whisper_lyrics(src: Path, language: str | None = None) -> tuple[str, str]:
     """Текст трека через faster-whisper (отдельный venv, см. whisper_run.py).
+    language — код языка пения (None — whisper определяет сам).
     Возвращает (текст, ошибка): при неудаче текст пустой, ошибка — пояснение."""
     if not WHISPER_PY.is_file():
         return "", f"whisper venv not found: {WHISPER_PY}"
@@ -1014,7 +1066,10 @@ def _whisper_lyrics(src: Path) -> tuple[str, str]:
         extra = ":".join(str(p) for p in (cublas, cudnn) if p)
         if extra:
             env["LD_LIBRARY_PATH"] = extra + ":" + env.get("LD_LIBRARY_PATH", "")
-        r = subprocess.run([str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)],
+        cmd = [str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)]
+        if language:
+            cmd += ["--language", language]
+        r = subprocess.run(cmd,
                            capture_output=True, text=True, timeout=600, env=env)
         if r.returncode != 0:
             return "", (r.stderr or "whisper failed")[-500:]
@@ -1038,6 +1093,7 @@ async def recognize_lyrics(request: Request):
     """Трек (тело — байты аудио, X-Filename) → текст (faster-whisper).
     Для каверов: текст оригинала → адаптация → поле лирики."""
     fname = re.sub(r"[^A-Za-z0-9_.-]", "_", request.headers.get("x-filename", "")) or "input.flac"
+    language = lyrics_language("", request.headers.get("x-language"))
     data = await request.body()
     if not data:
         raise HTTPException(422, "empty body")
@@ -1045,7 +1101,7 @@ async def recognize_lyrics(request: Request):
         src = Path(td) / fname
         src.write_bytes(data)
         t0 = time.time()
-        text, err = _whisper_lyrics(src)
+        text, err = _whisper_lyrics(src, language)
     if err:
         raise HTTPException(500, f"lyrics recognition failed: {err}")
     if not text.strip():
@@ -1127,15 +1183,19 @@ def _job_row(job_id: int):
 
 
 @app.post("/jobs/{job_id}/lyrics")
-def job_lyrics(job_id: int):
+def job_lyrics(job_id: int, language: str | None = None):
     """Текст из готового аудио джобы (faster-whisper) — без повторной загрузки
-    файла: аудио уже у воркера. Для овердаба/кавера этой же джобы."""
+    файла: аудио уже у воркера. Для овердаба/кавера этой же джобы.
+    Есть дорожка голоса (demucs) — распознаётся она, а не микс: гитары сбивали
+    whisper. Язык — ?language=en|ru|…|auto, без него — по стилю трека."""
     row = _job_row(job_id)
     if row is None or row["status"] != "done" or not row["audio_file"]:
         raise HTTPException(404, "job not done (no audio)")
-    src = JOBS_DIR / str(job_id) / row["audio_file"]
+    jdir = JOBS_DIR / str(job_id)
+    vocals = jdir / "stem-vocals.flac"
+    src = vocals if vocals.is_file() else jdir / row["audio_file"]
     t0 = time.time()
-    text, err = _whisper_lyrics(src)
+    text, err = _whisper_lyrics(src, lyrics_language(row["style"], language))
     if err:
         raise HTTPException(500, f"lyrics recognition failed: {err}")
     if not text.strip():
@@ -1693,7 +1753,7 @@ def job_stems(job_id: int):
         result = demucs_separate(job_dir / row["audio_file"], job_dir)
     except Exception as e:  # noqa: BLE001
         log.exception("stems failed")
-        raise HTTPException(500, f"demucs failed: {e}") from e
+        raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
     for f in result["stems"]:
         try:
             m = analyze_file(job_dir / f)
@@ -1739,7 +1799,7 @@ def job_minus(job_id: int, req: MinusIn):
         try:
             demucs_separate(job_dir / row["audio_file"], job_dir)
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(500, f"demucs failed: {e}") from e
+            raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
         stems = sorted(job_dir.glob("stem-*.flac"))
         if not stems:
             raise HTTPException(500, "no stems after demucs")

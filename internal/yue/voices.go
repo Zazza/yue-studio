@@ -137,6 +137,12 @@ func (c *Client) UpdateJob(ctx context.Context, jobID int64, title, folder *stri
 	return &out, nil
 }
 
+// RetryJob — «повторить» (POST /jobs/{id}/retry): упавшая или отменённая
+// джоба снова в очередь с теми же параметрами.
+func (c *Client) RetryJob(ctx context.Context, jobID int64) error {
+	return c.call(ctx, http.MethodPost, fmt.Sprintf("/jobs/%d/retry", jobID), requestTimeout, nil, nil)
+}
+
 // VoiceConvert — «голос альбома» (POST /jobs/{id}/voice): джоба в очереди воркера.
 func (c *Client) VoiceConvert(ctx context.Context, jobID int64, p VoiceParams) (int64, error) {
 	var out struct {

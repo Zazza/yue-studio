@@ -51,7 +51,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 ## Инструменты
 
 **Рабочий флоу**: `status` · `jobs` (фильтр `folder` — папка песни, `"-"` — без папки; `limit`; `brief` — краткие строки) · `job_update` (своё название и папка трека) · `submit` (стиль/стих/сид/веер n) · `plan` (ABC до
-рендера) · `render_abc` (`parent_id`/`role` — кусок для вклейки под родителем) · `cancel`† · `delete_job`† · `artifacts` (скачать трек/партитуру,
+рендера) · `render_abc` (`parent_id`/`role` — кусок для вклейки под родителем) · `cancel`† · `retry_job` (упавшую или отменённую джобу — снова в очередь с теми же параметрами) · `delete_job`† · `artifacts` (скачать трек/партитуру,
 возвращает путь) · `transcribe` (трек → ABC) · `job_score` · `job_preview` (фрагмент) ·
 `recognize_lyrics` (трек → текст) · `job_lyrics` (текст из аудио джобы) · `lyrics_adapt` (перевод под пение, слоги сохраняются).
 

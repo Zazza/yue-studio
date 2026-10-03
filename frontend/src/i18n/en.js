@@ -447,6 +447,8 @@ export default {
   'queue.kids.material': 'Material ({n}): part renders for inserts and part checks',
   'queue.role.continue': 'redo from here',
   'queue.role.voice': 'album voice (exp.)',
+  'queue.retry': '↻ retry',
+  'queue.retry.tip': 'Queue again with the same parameters. If it failed on GPU memory, free the GPU from other programs first',
   'queue.head.badge': 'main: #{id}',
   'queue.head.main': 'main',
   'queue.head.make': 'make main',
