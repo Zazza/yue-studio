@@ -80,6 +80,17 @@ func (c *Client) JobTones(ctx context.Context, id int64, from, to float64, stem 
 	return out, nil
 }
 
+// JobGrid — сетка долей трека (POST /jobs/{id}/grid): темп и сильная доля в
+// окне [from, to) (to 0 — до конца); по дорожке барабанов, если она есть.
+func (c *Client) JobGrid(ctx context.Context, id int64, from, to float64) (*BeatGrid, error) {
+	var out BeatGrid
+	body := map[string]float64{"from_sec": from, "to_sec": to}
+	if err := c.call(ctx, http.MethodPost, fmt.Sprintf("/jobs/%d/grid", id), planTimeout, jsonReq(body), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // PlanCheck — что изменилось в плане abc относительно плана джобы и где
 // проблемы (POST /jobs/{id}/plan_check); fromSec > 0 — отметка продолжения.
 func (c *Client) PlanCheck(ctx context.Context, id int64, abc string, fromSec float64) (*PlanCheck, error) {

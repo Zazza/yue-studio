@@ -1221,6 +1221,25 @@ async function findWhistle() {
   }
 }
 
+// «Ритм-гейт»: сетка долей (темп и сильная доля) — по выделению или всему треку
+const gridBusy = ref(false)
+const gridMsg = ref('')
+async function findGrid() {
+  const sel = selTimeRange()
+  gridBusy.value = true
+  gridMsg.value = ''
+  try {
+    const g = await api.jobGrid(props.job.id, sel ? sel.from : 0, sel ? sel.to : 0)
+    dspParams.value = { ...dspParams.value, bpm: g.bpm, offset: g.offset }
+    gridMsg.value = t(g.source === 'drums' ? 'studio.dsp.grid.found.drums' : 'studio.dsp.grid.found.mix',
+      { bpm: g.bpm.toFixed(1), at: fmtDur(g.offset) })
+  } catch (e) {
+    gridMsg.value = String(e)
+  } finally {
+    gridBusy.value = false
+  }
+}
+
 async function applyDsp() {
   const c = curChain.value
   if (!c) return
@@ -1673,6 +1692,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="ghost small-btn" :disabled="toneBusy || dspBusy" :title="t('studio.dsp.tones.tip')"
                       @click="findWhistle">{{ toneBusy ? '…' : t('studio.dsp.tones') }}</button>
               <span v-if="toneMsg" class="muted">{{ toneMsg }}</span>
+            </div>
+            <div v-if="dspSel === 'gate'" class="dsp-row">
+              <button class="ghost small-btn" :disabled="gridBusy || dspBusy" :title="t('studio.dsp.grid.tip')"
+                      @click="findGrid">{{ gridBusy ? '…' : t('studio.dsp.grid') }}</button>
+              <span v-if="gridMsg" class="muted">{{ gridMsg }}</span>
             </div>
             <div v-if="curChain" class="dsp-params">
               <label v-for="p in curChain.params" :key="p.id">

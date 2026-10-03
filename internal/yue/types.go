@@ -50,6 +50,8 @@ type Service interface {
 	VariantToTrack(ctx context.Context, jobID int64, file, title string, voiceSrc int64) (int64, error)
 	VocalContour(ctx context.Context, id int64, from, to float64) (*VocalContour, error)
 	JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]Tone, error)
+	// JobGrid — сетка долей (темп и сильная доля) в окне [from, to) (to 0 — до конца).
+	JobGrid(ctx context.Context, id int64, from, to float64) (*BeatGrid, error)
 	PlanCheck(ctx context.Context, id int64, abc string, fromSec float64) (*PlanCheck, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
@@ -242,6 +244,16 @@ type ContourBar struct {
 
 // Tone — узкий устойчивый пик спектра («свист»): частота и насколько он
 // выше окрестности, дБ. Для эффекта «Убрать свист».
+// BeatGrid — сетка долей трека (POST /jobs/{id}/grid) для эффектов в такт:
+// темп, время сильной доли (с, внутри запрошенного окна), насколько удары
+// ложатся на сетку (0…1) и источник — дорожка барабанов или микс.
+type BeatGrid struct {
+	BPM      float64 `json:"bpm"`
+	Offset   float64 `json:"offset"`
+	Strength float64 `json:"strength"`
+	Source   string  `json:"source"`
+}
+
 type Tone struct {
 	Hz           float64 `json:"hz"`
 	ProminenceDb float64 `json:"prominence_db"`

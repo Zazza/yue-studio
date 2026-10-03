@@ -170,7 +170,7 @@ func TestGateRegistered(t *testing.T) {
 	}
 	want := map[string][3]float64{ // min, max, default
 		"bpm": {40, 240, 120}, "div": {1, 8, 4}, "duty": {0.1, 0.9, 0.5},
-		"depth": {0, 1, 0.9}, "smooth": {1, 30, 5}, "offset": {0, 10, 0},
+		"depth": {0, 1, 0.9}, "smooth": {1, 30, 5}, "offset": {0, 600, 0},
 	}
 	for id, w := range want {
 		found := false
@@ -190,5 +190,23 @@ func TestGateRegistered(t *testing.T) {
 	}
 	if !hasParam(g, "from") {
 		t.Error("у gate нет общего параметра from")
+	}
+}
+
+// Условие 9: offset принимает до 600 с — сетка тянется назад от далёкого offset:
+// offset 300.1 при периоде 0.125 (300 = 2400 периодов) даёт в первых 2 с ту же фазу,
+// что offset 0.1 (открытые/закрытые окна в те же моменты).
+func TestGateLargeOffsetSamePhase(t *testing.T) {
+	needFFmpeg(t)
+	in, src := genIn(t, "0.5*sin(2*PI*440*t)", 2)
+	p := map[string]float64{"bpm": 120, "div": 4, "duty": 0.5, "depth": 1, "smooth": 5, "from": 0}
+	p["offset"] = 300.1
+	far := runChain(t, "gate", in, p)
+	// окна ударов offset 0.1 + k·0.125 — по ним меряем выход с offset 300.1
+	checkGateHits(t, far, src, 0.1, 0.125, 0.5, 5, []int{0, 1, 2, 3, 5, 8, 11, 14}, -40, -1)
+	p["offset"] = 0.1
+	near := runChain(t, "gate", in, p)
+	if r := diffSeg(far, near, 0, 2); r > 0.01 {
+		t.Errorf("выход с offset 300.1 отличается от offset 0.1: RMS разности %.4f", r)
 	}
 }

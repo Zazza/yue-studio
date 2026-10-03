@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 
 from abcparse import parse_abc
 from plancheck import plan_diff
-from dsp import analyze_file
+from dsp import analyze_file, beat_grid
 from sheetsage import transcribe as ss_transcribe
 from stems import separate as demucs_separate
 import voice as voicevc
@@ -974,6 +974,38 @@ def delete_job(job_id: int):
     shutil.rmtree(JOBS_DIR / str(job_id), ignore_errors=True)
     log.info("job %s deleted", job_id)
     return {"deleted": True}
+
+
+class GridIn(BaseModel):
+    from_sec: float = Field(default=0, ge=0)
+    to_sec: float = Field(default=0, ge=0)   # 0 — до конца трека
+
+
+@app.post("/jobs/{job_id}/grid")
+def job_grid(job_id: int, body: GridIn | None = None):
+    """Сетка долей для эффектов в такт («Ритм-гейт»): темп и время сильной доли.
+    Источник — дорожка барабанов (есть после demucs), иначе микс. Окно
+    from_sec–to_sec (0 — до конца) — лучше то место, где эффект будет: доля
+    берётся первая в окне, и погрешность темпа не накапливается по треку."""
+    body = body or GridIn()
+    row = _job_row(job_id)
+    if row is None or not row["audio_file"]:
+        raise HTTPException(404, "job or audio not found")
+    jdir = JOBS_DIR / str(job_id)
+    drums = jdir / "stem-drums.flac"
+    src, source = (drums, "drums") if drums.is_file() else (jdir / row["audio_file"], "mix")
+    import librosa
+    if body.to_sec > 0 and body.to_sec <= body.from_sec:
+        raise HTTPException(422, "to_sec must be after from_sec (0 — to the end)")
+    dur = (body.to_sec - body.from_sec) if body.to_sec > 0 else None
+    y, sr = librosa.load(str(src), sr=22050, mono=True, offset=body.from_sec, duration=dur)
+    if len(y) < sr * 4:
+        raise HTTPException(422, "window too short: need at least 4 s of audio")
+    g = beat_grid(y, sr)
+    if not g["bpm"]:
+        raise HTTPException(422, "no beat found in the window")
+    return {"bpm": g["bpm"], "offset": round(body.from_sec + g["offset"], 3),
+            "strength": g["strength"], "source": source}
 
 
 @app.post("/jobs/{job_id}/analyze")

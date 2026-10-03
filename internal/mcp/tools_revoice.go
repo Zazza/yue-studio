@@ -355,6 +355,29 @@ func formatPlanCheck(pc *yue.PlanCheck) string {
 
 func registerToneTools(s *Server) {
 	s.Register(Tool{
+		Name: "beat_grid",
+		Description: "Сетка долей трека для эффектов в такт: темп (BPM) и время сильной доли в окне [from, to) — " +
+			"готовые bpm и offset для dsp chain «gate» («Ритм-гейт»). По дорожке барабанов, если сделан make_stems, " +
+			"иначе по миксу. Окно — лучше то место, где будет эффект. strength < 0,1 — сетки по сути нет.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID трека", "integer"),
+			"from":   prop("с какой секунды (по умолчанию 0)", "number"),
+			"to":     prop("до какой секунды (0 — до конца)", "number"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			g, err := s.client.JobGrid(context.Background(), argInt(args, "job_id"), argFloat(args, "from"), argFloat(args, "to"))
+			if err != nil {
+				return "", err
+			}
+			src := "по миксу"
+			if g.Source == "drums" {
+				src = "по барабанам"
+			}
+			return fmt.Sprintf("bpm %.2f, сильная доля %.3f с (offset для gate), попадание %.2f, %s", g.BPM, g.Offset, g.Strength, src), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name: "find_tones",
 		Description: "Узкие устойчивые тона («свист», писк) в миксе трека в окне [from, to): частота и насколько " +
 			"выше окрестности, дБ; самый заметный первым. Частоты — в dsp_apply chain «dewhistle» (freq, freq2, freq3, start, end).",

@@ -1799,3 +1799,100 @@ class TestJobLyricsEndpoint(_WorkerApiCase):
             r = self.client.post(f"/jobs/{jid}/lyrics")
             self.assertEqual(r.status_code, 404, (jid, r.text))
         self.assertEqual(self.calls, [])
+
+
+# --- Спецификация: POST /jobs/{id}/grid — сетка ударов окна трека ----------
+# Нужны soundfile (запись аудио в каталог джобы) и librosa (анализ).
+try:
+    import librosa  # noqa: F401
+    import soundfile  # noqa: F401
+    _HAS_GRID_DEPS = _HAS_WORKER_DEPS
+except ImportError:
+    _HAS_GRID_DEPS = False
+
+
+def _click_audio(bpm, first, sec, sr=22050):
+    """Клик-трек: затухающие шумовые удары на first + k·60/bpm, моно float32."""
+    import numpy as np
+    rng = np.random.default_rng(int(bpm))
+    n = int(sec * sr)
+    y = np.zeros(n, dtype=np.float64)
+    blen = int(0.06 * sr)
+    burst = np.exp(-np.arange(blen) / sr / 0.015) * rng.uniform(-1, 1, blen)
+    k = 0
+    while first + k * 60.0 / bpm < sec:
+        i = int(round((first + k * 60.0 / bpm) * sr))
+        m = min(blen, n - i)
+        y[i:i + m] += burst[:m]
+        k += 1
+    return (0.8 * y / np.max(np.abs(y))).astype("float32"), sr
+
+
+@unittest.skipUnless(_HAS_GRID_DEPS, "нужны fastapi/httpx/numpy/soundfile/librosa (окружение воркера)")
+class TestGridEndpoint(_WorkerApiCase):
+    """POST /jobs/{id}/grid {from_sec?, to_sec?}: сетка по stem-drums.flac, если он
+    есть (source=drums), иначе по аудио джобы (source=mix); offset — абсолютное
+    время трека внутри окна; окно < 4 с → 422; нет аудио → 404."""
+
+    def _audio_job(self, bpm=120, first=0.2, sec=30.0, drums=None):
+        import soundfile as sf
+        jid = self._job(duration=sec, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        y, sr = _click_audio(bpm, first, sec)
+        sf.write(str(d / "audio.flac"), y, sr)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        if drums is not None:
+            y, sr = _click_audio(drums[0], drums[1], sec)
+            sf.write(str(d / "stem-drums.flac"), y, sr)
+        return jid
+
+    def test_mix_when_no_drums_stem(self):
+        jid = self._audio_job(bpm=120, first=0.2)
+        r = self.client.post(f"/jobs/{jid}/grid", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["source"], "mix")
+        self.assertAlmostEqual(body["bpm"], 120, delta=0.3, msg=body)
+
+    def test_drums_stem_preferred(self):
+        # микс — 100 BPM, стем барабанов — 120 BPM: ответ должен быть по стему
+        jid = self._audio_job(bpm=100, first=0.1, drums=(120, 0.2))
+        r = self.client.post(f"/jobs/{jid}/grid", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["source"], "drums")
+        self.assertAlmostEqual(body["bpm"], 120, delta=0.3, msg=body)
+
+    def test_offset_is_absolute_track_time(self):
+        jid = self._audio_job(bpm=120, first=0.2)
+        r = self.client.post(f"/jobs/{jid}/grid", json={"from_sec": 10.0})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertGreaterEqual(body["offset"], 10.0, msg=body)
+        self.assertLess(body["offset"], 10.5, msg=body)
+        self.assertAlmostEqual(body["offset"], 10.2, delta=0.02, msg=body)
+
+    def test_offset_absolute_with_both_bounds(self):
+        jid = self._audio_job(bpm=120, first=0.2)
+        r = self.client.post(f"/jobs/{jid}/grid", json={"from_sec": 10.0, "to_sec": 25.0})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertAlmostEqual(r.json()["offset"], 10.2, delta=0.02, msg=r.json())
+
+    def test_window_shorter_than_4s_422(self):
+        jid = self._audio_job()
+        for body in ({"from_sec": 10.0, "to_sec": 13.0},
+                     {"from_sec": 10.0, "to_sec": 10.0},
+                     {"from_sec": 27.0}):  # до конца 30-секундного трека — 3 с
+            with self.subTest(body=body):
+                r = self.client.post(f"/jobs/{jid}/grid", json=body)
+                self.assertEqual(r.status_code, 422, f"{body}: {r.text}")
+
+    def test_no_audio_404(self):
+        no_audio = self._job(semantic=False, status="done")
+        for jid in (no_audio, 9999):
+            with self.subTest(jid=jid):
+                r = self.client.post(f"/jobs/{jid}/grid", json={})
+                self.assertEqual(r.status_code, 404, r.text)
+                self.assertNotEqual(r.json().get("detail"), "Not Found", "маршрута /grid нет")

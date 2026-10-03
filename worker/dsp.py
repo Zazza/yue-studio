@@ -63,6 +63,50 @@ def loudness(x: np.ndarray, sr: int) -> dict:
     return out
 
 
+def beat_grid(y: np.ndarray, sr: int, lo: float = 60.0, hi: float = 200.0) -> dict:
+    """Сетка долей трека для эффектов в такт («Ритм-гейт»): темп (BPM) и сдвиг
+    первой доли (с, 0 ≤ offset < длины доли). y — моно; лучше дорожка барабанов.
+    Темп — librosa как стартовая оценка, затем уточнение ±3% шагом 0,05 BPM: для
+    каждого кандидата огибающая атак сворачивается с комплексной синусоидой
+    частоты долей; модуль суммы — насколько удары ложатся на сетку, фаза —
+    сдвиг. strength (0…1) — доля «попадающей» энергии атак: < 0,1 — сетки
+    по сути нет (рубато, тишина)."""
+    import librosa
+
+    hop = 256
+    env = librosa.onset.onset_strength(y=np.asarray(y, dtype=np.float32), sr=sr, hop_length=hop)
+    env = np.maximum(env - np.median(env), 0)
+    if env.sum() <= 0:
+        return {"bpm": 0.0, "offset": 0.0, "strength": 0.0}
+    t = np.arange(len(env)) * hop / sr
+    t0 = float(np.atleast_1d(librosa.feature.tempo(onset_envelope=env, sr=sr, hop_length=hop))[0])
+    while t0 < lo:
+        t0 *= 2
+    while t0 > hi:
+        t0 /= 2
+    best = (0.0, t0)
+    for bpm in np.arange(t0 * 0.97, t0 * 1.03, 0.05):
+        z = np.sum(env * np.exp(2j * np.pi * t * bpm / 60.0))
+        if abs(z) > best[0]:
+            best = (abs(z), bpm)
+    strength, bpm = best
+    period = 60.0 / bpm
+    # сдвиг — по самим атакам, не по средней фазе огибающей: хай-хэт на слабых
+    # долях тянул среднюю фазу (по барабанам и по миксу выходило по-разному).
+    # Фаза атак на сетке шестнадцатых, затем сильная доля — та из четырёх
+    # шестнадцатых, на которую приходится больше энергии атак.
+    p16 = period / 4
+    frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop, backtrack=False)
+    if len(frames) < 4:
+        return {"bpm": round(float(bpm), 2), "offset": 0.0, "strength": round(float(strength / env.sum()), 3)}
+    on_t, w = frames * hop / sr, env[frames]
+    off16 = (np.angle(np.sum(w * np.exp(2j * np.pi * on_t / p16))) / (2 * np.pi) * p16) % p16
+    slot = [w[np.abs(((on_t - off16 - k * p16 + period / 2) % period) - period / 2) < p16 / 2].sum() for k in range(4)]
+    offset = (off16 + int(np.argmax(slot)) * p16) % period
+    return {"bpm": round(float(bpm), 2), "offset": round(float(offset), 3),
+            "strength": round(float(strength / env.sum()), 3)}
+
+
 def analyze_file(path) -> dict:
     import librosa
 

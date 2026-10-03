@@ -609,6 +609,11 @@ func (a *App) YuePlanCheck(jobID int64, abc string, fromSec float64) (*yue.PlanC
 	return a.yue.PlanCheck(a.ctx, jobID, abc, fromSec)
 }
 
+// YueJobGrid — сетка долей (темп и сильная доля) для «Ритм-гейта».
+func (a *App) YueJobGrid(jobID int64, from, to float64) (*yue.BeatGrid, error) {
+	return a.yue.JobGrid(a.ctx, jobID, from, to)
+}
+
 // YueJobTones — узкие тона («свист») в окне трека — частота для «Убрать свист».
 // stem — дорожка (vocals/drums/bass/other), пусто — весь микс.
 func (a *App) YueJobTones(jobID int64, from, to float64, stem string) ([]yue.Tone, error) {

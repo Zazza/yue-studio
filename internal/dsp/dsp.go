@@ -428,7 +428,7 @@ var gateParams = []Param{
 	{ID: "duty", Label: "доля открытого звука в ударе", Min: 0.1, Max: 0.9, Step: 0.05, Default: 0.5},
 	{ID: "depth", Label: "глубина (1 — полная тишина между ударами)", Min: 0, Max: 1, Step: 0.05, Default: 0.9},
 	{ID: "smooth", Label: "мягкость краёв, мс", Min: 1, Max: 30, Step: 1, Default: 5},
-	{ID: "offset", Label: "сдвиг сетки, с (где начинается доля)", Min: 0, Max: 10, Step: 0.005, Default: 0},
+	{ID: "offset", Label: "сетка: время любой сильной доли, с («найти сетку»)", Min: 0, Max: 600, Step: 0.005, Default: 0},
 }
 
 // gateSamples — длина аудиокадра для гейта: volume с eval=frame считает
@@ -443,9 +443,12 @@ const gateSamples = 64
 // гитара с сустейном) становится пульсирующим синт-ритмом на тех же аккордах.
 func gateGraph(p map[string]float64) string {
 	period := 60 / (p["bpm"] * p["div"]) // длина удара, с
+	// целое число ударов не короче сдвига: аргумент mod не уходит в минус при t < offset
+	// (сдвиг — время доли где-то в треке, до 600 с); фаза от прибавки не меняется
+	shift := period * math.Ceil((p["offset"]+1)/period)
 	r := math.Min(p["smooth"]/1000/period, p["duty"]/2)
 	return fmt.Sprintf("[0:a]asetnsamples=n=%d:p=0,volume='1-%[2]g*(1-clip(min(%[3]s/%[4]g,(%[5]g-%[3]s)/%[4]g),0,1))':eval=frame[out]",
-		gateSamples, p["depth"], fmt.Sprintf("mod(t-%g+%g*1000,%g)/%g", p["offset"], period, period, period), r, p["duty"])
+		gateSamples, p["depth"], fmt.Sprintf("mod(t-%g+%g,%g)/%g", p["offset"], shift, period, period), r, p["duty"])
 }
 
 var levelParams = []Param{

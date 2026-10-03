@@ -9,7 +9,7 @@ import {
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
-  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
+  YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueJobGrid, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -76,6 +76,7 @@ export const api = {
   vocalContour: (jobId, from = 0, to = 0) => YueVocalContour(jobId, from, to),
   // узкие тона («свист») в окне: [{hz, prominence_db}], самый заметный первым
   jobTones: (jobId, from = 0, to = 0, stem = '') => YueJobTones(jobId, from, to, stem),
+  jobGrid: (jobId, from = 0, to = 0) => YueJobGrid(jobId, from, to),
   // что изменилось в плане и где проблемы (потолок голоса, правки до отметки)
   planCheck: (jobId, abc, fromSec = 0) => YuePlanCheck(jobId, abc, fromSec),
   // склейка кусков версий [{job_id, from, to, gain_db}] → вариант трека baseId
