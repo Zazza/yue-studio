@@ -32,6 +32,7 @@ type Server struct {
 	tools       map[string]Tool
 	toolOrder   []string
 	mu          sync.RWMutex
+	stale       *staleChecker // MCP собран раньше, чем менялись исходники (SetBuildInfo)
 }
 
 func NewServer(client yue.Service, downloadDir string) *Server {
@@ -195,12 +196,13 @@ func (s *Server) dispatch(req rpcRequest) rpcResponse {
 			}
 		}
 		text, err := t.Handler(s, args)
+		warn := s.stale.warning()
 		if err != nil {
 			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: callToolResult{
-				Content: []toolContent{{Type: "text", Text: err.Error()}}, IsError: true}}
+				Content: []toolContent{{Type: "text", Text: warn + err.Error()}}, IsError: true}}
 		}
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: callToolResult{
-			Content: []toolContent{{Type: "text", Text: text}}}}
+			Content: []toolContent{{Type: "text", Text: warn + text}}}}
 	}
 	return rpcResponse{JSONRPC: "2.0", ID: req.ID,
 		Error: &rpcError{Code: errMethodNotFound, Message: "method not found: " + req.Method}}

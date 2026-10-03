@@ -15,6 +15,13 @@ import (
 	"yue-studio/internal/yue"
 )
 
+// Вшиваются при сборке (make mcp): отпечаток исходников и каталог репозитория —
+// по ним MCP замечает, что собран раньше, чем менялся код.
+var (
+	buildHash string
+	srcDir    string
+)
+
 func main() {
 	log.SetFlags(0)
 
@@ -32,6 +39,7 @@ func main() {
 	}
 
 	srv := mcp.NewServer(yue.New(cfg.YueURL), dir)
+	srv.SetBuildInfo(buildHash, srcDir)
 	mcp.RegisterWorkflowTools(srv)
 	mcp.RegisterStudioTools(srv)
 	mcp.RegisterLibraryTools(srv)

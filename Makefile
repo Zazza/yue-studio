@@ -44,7 +44,7 @@ worker: ## деплой воркера на GPU-машину (YUE_DEPLOY_HOST=us
 	./deploy.sh worker
 
 mcp: ## собрать MCP-сервер (build/bin/yue-mcp)
-	go build -o build/bin/yue-mcp ./cmd/yue-mcp
+	go build -ldflags "-X main.buildHash=$$(go run ./cmd/srchash) -X main.srcDir=$(CURDIR)" -o build/bin/yue-mcp ./cmd/yue-mcp
 	@echo "mcp-сервер: $(CURDIR)/build/bin/yue-mcp (конфигурация клиентов: docs/mcp.md)"
 
 mcp-data: ## перегенерировать данные библиотеки MCP из фронтенда (go:embed)
