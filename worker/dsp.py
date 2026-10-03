@@ -11,6 +11,58 @@ import numpy as np
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
+# K-взвешивание ITU-R BS.1770 для 48 кГц: полка верхов + срез низа
+_K_SHELF = ([1.53512485958697, -2.69169618940638, 1.19839281085285], [1.0, -1.69065929318241, 0.73248077421585])
+_K_HP = ([1.0, -2.0, 1.0], [1.0, -1.99004745483398, 0.99007225036621])
+
+
+def _block_loudness(z2: np.ndarray, sr: int, win: float, hop: float) -> np.ndarray:
+    """Громкость блоков (LUFS) по сумме средних квадратов K-взвешенных каналов."""
+    n, h = int(win * sr), int(hop * sr)
+    if z2.shape[0] < n:
+        return np.array([])
+    starts = np.arange(0, z2.shape[0] - n + 1, h)
+    c = np.vstack([np.zeros((1, z2.shape[1])), np.cumsum(z2, axis=0)])
+    ms = (c[starts + n] - c[starts]) / n           # средний квадрат блока по каналам
+    return -0.691 + 10 * np.log10(ms.sum(axis=1) + 1e-12)
+
+
+def loudness(x: np.ndarray, sr: int) -> dict:
+    """Громкость по EBU R128 / ITU-R BS.1770: интегральная (LUFS, блоки 400 мс,
+    гейты −70 LUFS и −10 LU), диапазон громкости LRA (блоки 3 с, гейты −70 и
+    −20 LU, p95−p10) и true peak (dBTP, передискретизация ×4). x — (кадры, каналы)."""
+    from scipy.signal import lfilter, resample_poly
+
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 1:
+        x = x[:, None]
+    if sr != 48000:
+        from math import gcd
+        g = gcd(int(sr), 48000)
+        x = resample_poly(x, 48000 // g, int(sr) // g, axis=0)
+        sr = 48000
+    z = lfilter(*_K_HP, lfilter(*_K_SHELF, x, axis=0), axis=0)
+    z2 = z ** 2
+    out: dict = {}
+    blocks = _block_loudness(z2, sr, 0.4, 0.1)
+    b = blocks[blocks > -70]
+    if b.size:
+        rel = 10 * np.log10(np.mean(10 ** (b / 10))) - 10
+        g = b[b > rel]
+        out["lufs"] = round(float(10 * np.log10(np.mean(10 ** (g / 10)))), 1)
+    st = _block_loudness(z2, sr, 3.0, 1.0)
+    st = st[st > -70]
+    if st.size:
+        rel = 10 * np.log10(np.mean(10 ** (st / 10))) - 20
+        g = st[st > rel]
+        if g.size:
+            lo, hi = np.percentile(g, [10, 95])
+            out["lra"] = round(float(hi - lo), 1)
+    tp = float(np.abs(resample_poly(x, 4, 1, axis=0)).max())
+    out["true_peak_db"] = round(float(20 * np.log10(tp + 1e-12)), 1)
+    return out
+
+
 def analyze_file(path) -> dict:
     import librosa
 
@@ -76,5 +128,13 @@ def analyze_file(path) -> dict:
         m["side_db"] = round(float(20 * np.log10(np.std(L - R) + 1e-9)), 1)
     else:
         m["stereo_corr"] = None
+
+    # Громкость по стандарту стримингов (EBU R128): LUFS, LRA, true peak
+    try:
+        import soundfile as sf
+        x, xsr = sf.read(str(path), dtype="float64", always_2d=True)
+        m.update(loudness(x, xsr))
+    except Exception:  # noqa: BLE001 - без soundfile/scipy остальные метрики всё равно нужны
+        pass
 
     return m

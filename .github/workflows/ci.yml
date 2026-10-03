@@ -72,6 +72,6 @@ jobs:
       - name: unittest
         run: |
           # API-тесты воркера (continue/head/миграции) без них пропускаются
-          pip install fastapi httpx numpy
+          pip install fastapi httpx numpy scipy
           cd worker
-          python3 -m unittest test_pure test_plancheck
+          python3 -m unittest test_pure test_plancheck test_voice test_loudness

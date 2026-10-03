@@ -17,7 +17,7 @@ test-front: ## тесты фронтенда (vitest)
 	cd frontend && npm test
 
 test-worker: ## тесты воркера (unittest)
-	cd worker && python3 -m unittest test_pure test_plancheck
+	cd worker && python3 -m unittest test_pure test_plancheck test_voice test_loudness
 
 ## lint: все линтеры (go vet + golangci-lint, eslint, ruff)
 lint: lint-go lint-front lint-worker

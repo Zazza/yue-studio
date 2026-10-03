@@ -22,6 +22,10 @@ const addingRef = ref(false)
 
 const rows = [
   ['tempo_bpm', 'Темп', 'BPM', 1],
+  // громкость по стандарту стримингов (EBU R128): стриминги выравнивают к ~−14 LUFS
+  ['lufs', 'Громкость (LUFS)', 'LUFS', 1],
+  ['lra', 'Диапазон громкости (LRA)', 'LU', 1],
+  ['true_peak_db', 'True peak', 'dBTP', 1],
   ['crest_db', 'Крест-фактор', 'dB', 1],
   ['dyn_range_db', 'Дин. диапазон', 'dB', 1],
   ['rms_p95_db', 'RMS p95', 'dBFS', 1],
