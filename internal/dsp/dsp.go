@@ -129,10 +129,18 @@ var dropParams = []Param{
 // на кусок, поэтому плавное замедление — лесенка из коротких кусков.
 const dropSlices = 8
 
+// dropXfade — перекрёстный переход между соседними кусками торможения, с.
+// Встык (concat) куски давали слышные швы: atempo обрабатывает каждый кусок
+// отдельно, и на границе фаза волны рвётся (прослушка драйва: «склейка слышится»).
+const dropXfade = 0.03
+
 // dropGraph — «провал»: с отметки start кусок dur секунд звучит всё медленнее
 // (темп от 1 до slow, без смены высоты) и затихает до нуля; затем вставляется
 // тишина gap секунд, и остаток трека идёт в обычном темпе, нарастая за rise
 // секунд от floor дБ до полной громкости. Трек удлиняется на растяжку и паузу.
+// Куски торможения и начало трека сшиты перекрёстными переходами dropXfade:
+// каждый кусок начинается чуть раньше своей границы (на dropXfade выходного
+// звука), так что длина результата та же, что при склейке встык.
 // Ставить start на начало такта: стык торможения — ровно на отметке.
 func dropGraph(p map[string]float64) string {
 	start, dur, slow, gap, rise, floor := p["start"], p["dur"], p["slow"], p["gap"], p["rise"], p["floor"]
@@ -141,16 +149,23 @@ func dropGraph(p map[string]float64) string {
 	for i := 0; i < dropSlices+2; i++ {
 		fmt.Fprintf(&b, "[s%d]", i)
 	}
-	fmt.Fprintf(&b, ";[s0]atrim=0:%g,asetpts=PTS-STARTPTS[h]", start)
+	// apad=whole_dur — пустой кусок (отметка за концом трека, start=0) дополняется
+	// тишиной до длины перехода: acrossfade на пустом входе роняет ffmpeg;
+	// обычные куски длиннее перехода и не меняются
+	fmt.Fprintf(&b, ";[s0]atrim=0:%g,asetpts=PTS-STARTPTS,apad=whole_dur=%g[h]", start, dropXfade)
 	step := dur / dropSlices
 	for i := 0; i < dropSlices; i++ {
 		// темп куска — по его середине; громкость линейно от 1 до 0 по всему окну
 		tempo := 1 - (1-slow)*(float64(i)+0.5)/dropSlices
 		a0, a1 := 1-float64(i)/dropSlices, 1-float64(i+1)/dropSlices
 		l := step / tempo
+		// захлёст в начале куска: dropXfade выходного звука = dropXfade·tempo исходного
+		from := start + float64(i)*step
+		lead := math.Min(dropXfade*tempo, from)
+		pre := lead / tempo // захлёст в секундах выходного звука
 		fmt.Fprintf(&b, ";[s%d]atrim=%g:%g,asetpts=PTS-STARTPTS,atempo=%g,asetnsamples=n=%d:p=0,"+
-			"volume='%g+(%g)*min(t/%g,1)':eval=frame", i+1, start+float64(i)*step, start+float64(i+1)*step,
-			tempo, envFrame, a0, a1-a0, l)
+			"volume='%g+(%g)*clip((t-%g)/%g,0,1)':eval=frame,apad=whole_dur=%g", i+1, from-lead, start+float64(i+1)*step,
+			tempo, envFrame, a0, a1-a0, pre, l, dropXfade)
 		fmt.Fprintf(&b, "[d%d]", i)
 	}
 	fmt.Fprintf(&b, ";[s%d]atrim=start=%g,asetpts=PTS-STARTPTS", dropSlices+1, start+dur)
@@ -163,11 +178,15 @@ func dropGraph(p map[string]float64) string {
 	if gap > 0 {
 		fmt.Fprintf(&b, ",adelay=delays=%g:all=1", gap*1000)
 	}
-	b.WriteString("[t];[h]")
+	b.WriteString("[t]")
+	// начало трека и куски торможения — перекрёстными переходами; хвост после
+	// торможения стыкуется встык: на стыке звук уже затих до нуля
+	prev := "h"
 	for i := 0; i < dropSlices; i++ {
-		fmt.Fprintf(&b, "[d%d]", i)
+		fmt.Fprintf(&b, ";[%s][d%d]acrossfade=d=%g:c1=tri:c2=tri[c%d]", prev, i, dropXfade, i)
+		prev = fmt.Sprintf("c%d", i)
 	}
-	fmt.Fprintf(&b, "[t]concat=n=%d:v=0:a=1[out]", dropSlices+2)
+	fmt.Fprintf(&b, ";[%s][t]concat=n=2:v=0:a=1[out]", prev)
 	return b.String()
 }
 
