@@ -186,7 +186,10 @@ onMounted(async () => {
   // для подписей вклеек из старых файлов (рендер куска → инструмент)
   try { allJobs.value = (await api.jobs()) || [] } catch { /* без списка — подпись по номеру */ }
   reloadVariants()
-  api.workerConfig().then((c) => { seedvcOk.value = !!c?.seedvc_available }).catch(() => {})
+  api.workerConfig().then((c) => {
+    seedvcOk.value = !!c?.seedvc_available
+    whisperOk.value = c?.whisper_available !== false
+  }).catch(() => {})
   // восстановить промежуточное состояние студии (переживает перезапуск)
   try {
     const st = JSON.parse(localStorage.getItem('yue_studio_state') || '{}')
@@ -1089,6 +1092,8 @@ const isImport = computed(() => props.job.style === IMPORT_STYLE)
 // голос этого трека поётся тембром голоса другой песни; кусок образца воркер
 // подбирает сам. Блок виден, только если Seed-VC установлен.
 const seedvcOk = ref(false)
+// whisper (распознавание текста) установлен на воркере; null — ещё не знаем
+const whisperOk = ref(null)
 const vcRef = ref('')
 const vcBusy = ref(false)
 const vcRefOptions = computed(() => allJobs.value
@@ -1633,7 +1638,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                         :placeholder="t('studio.overdub.lyrics.ph')"></textarea>
             </div>
             <div class="od-row">
-              <button class="ghost small-btn" :disabled="!!odLyrBusy" :title="t('lyrics.job.tip')" @click="odRecognizeLyrics">
+              <button class="ghost small-btn" :disabled="!!odLyrBusy || whisperOk === false"
+                      :title="whisperOk === false ? t('lyrics.job.noWhisper') : t('lyrics.job.tip')" @click="odRecognizeLyrics">
                 {{ odLyrBusy === 'rec' ? '…' : t('lyrics.job') }}</button>
               <button class="ghost small-btn" :disabled="!!odLyrBusy || !odLyrics.trim()" :title="t('lyrics.adapt.tip')" @click="odAdaptLyrics">
                 {{ odLyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
@@ -1647,11 +1653,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </div>
           </details>
 
-          <details v-if="seedvcOk" class="studio-box">
+          <details class="studio-box">
             <summary class="studio-box-head"><span>{{ t('studio.vc') }}</span> <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted studio-box-hint">{{ t('studio.vc.sub') }}</span></summary>
             <div class="studio-box-body">
             <p class="muted">{{ t('studio.vc.desc') }}</p>
-            <div class="od-row">
+            <p v-if="!seedvcOk" class="muted unavailable">{{ t('studio.vc.unavailable') }}</p>
+            <div v-else class="od-row">
               <VSelect v-model="vcRef" :options="vcRefOptions" searchable :placeholder="t('studio.vc.ref')" style="width:320px" />
               <button class="primary small" :disabled="vcBusy || !vcRef" @click="submitVoice">
                 {{ vcBusy ? '…' : t('studio.vc.go') }}
