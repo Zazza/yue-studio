@@ -98,6 +98,10 @@ export function YueJobAbcText(arg1, arg2) {
   return window['go']['main']['App']['YueJobAbcText'](arg1, arg2);
 }
 
+export function YueJobGrid(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueJobGrid'](arg1, arg2, arg3);
+}
+
 export function YueJobLyrics(arg1) {
   return window['go']['main']['App']['YueJobLyrics'](arg1);
 }
@@ -180,6 +184,10 @@ export function YueReferences() {
 
 export function YueRenameJob(arg1, arg2) {
   return window['go']['main']['App']['YueRenameJob'](arg1, arg2);
+}
+
+export function YueRetryJob(arg1) {
+  return window['go']['main']['App']['YueRetryJob'](arg1);
 }
 
 export function YueSaveAudio(arg1, arg2) {

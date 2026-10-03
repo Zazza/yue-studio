@@ -53,6 +53,8 @@ export function YueImportTrack():Promise<Record<string, any>>;
 
 export function YueJobAbcText(arg1:number,arg2:string):Promise<string>;
 
+export function YueJobGrid(arg1:number,arg2:number,arg3:number):Promise<yue.BeatGrid>;
+
 export function YueJobLyrics(arg1:number):Promise<yue.LyricsResult>;
 
 export function YueJobPeaks(arg1:number,arg2:string,arg3:number):Promise<Record<string, any>>;
@@ -94,6 +96,8 @@ export function YueRecognizeLyricsFile():Promise<yue.LyricsResult>;
 export function YueReferences():Promise<Array<yue.Reference>>;
 
 export function YueRenameJob(arg1:number,arg2:string):Promise<yue.Job>;
+
+export function YueRetryJob(arg1:number):Promise<void>;
 
 export function YueSaveAudio(arg1:number,arg2:string):Promise<string>;
 

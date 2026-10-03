@@ -235,6 +235,24 @@ export namespace studio {
 
 export namespace yue {
 	
+	export class BeatGrid {
+	    bpm: number;
+	    offset: number;
+	    strength: number;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BeatGrid(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bpm = source["bpm"];
+	        this.offset = source["offset"];
+	        this.strength = source["strength"];
+	        this.source = source["source"];
+	    }
+	}
 	export class ContourBar {
 	    index: number;
 	    start: number;
@@ -313,6 +331,7 @@ export namespace yue {
 	    file: string;
 	    created_at: string;
 	    metrics: Record<string, any>;
+	    label?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DspVariant(source);
@@ -323,6 +342,7 @@ export namespace yue {
 	        this.file = source["file"];
 	        this.created_at = source["created_at"];
 	        this.metrics = source["metrics"];
+	        this.label = source["label"];
 	    }
 	}
 	export class HealthInfo {
@@ -364,6 +384,8 @@ export namespace yue {
 	    overdub_of?: number;
 	    head_id?: number;
 	    folder?: string;
+	    vocal_leak?: string;
+	    mixes?: number;
 	    voice_src?: number;
 	    stage?: string;
 	    tokens?: number;
@@ -399,6 +421,8 @@ export namespace yue {
 	        this.overdub_of = source["overdub_of"];
 	        this.head_id = source["head_id"];
 	        this.folder = source["folder"];
+	        this.vocal_leak = source["vocal_leak"];
+	        this.mixes = source["mixes"];
 	        this.voice_src = source["voice_src"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];
