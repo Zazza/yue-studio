@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 
 from abcparse import parse_abc
 from plancheck import plan_diff
-from dsp import analyze_file, beat_grid
+from dsp import analyze_file, beat_grid, vocal_activity
 from sheetsage import transcribe as ss_transcribe
 from stems import separate as demucs_separate
 import voice as voicevc
@@ -156,6 +156,9 @@ def _migrate():
         # за ним; пусто — без папки
         if "folder" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN folder TEXT DEFAULT ''")
+        # где в треке «без голоса» звучит дорожка голоса (секунды через запятую)
+        if "vocal_leak" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN vocal_leak TEXT DEFAULT ''")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -468,6 +471,11 @@ def _run_job(job_id: int):
                      "score.abc" if (job_dir / "score.abc").exists() else "",
                      time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
         log.info("job %s done in %.1fs (truncated=%s)", job_id, time.time() - t0, truncated)
+        if row["role"] != "voice" and is_instrumental(row["style"]) and auto_stems_instrumental():
+            try:
+                _ensure_stems(job_id)   # дорожки + проверка голоса
+            except Exception:  # noqa: BLE001 - трек готов; метка — подсказка
+                log.exception("auto stems failed for job %s", job_id)
     finally:
         watch_stop.set()
         with _state_lock:
@@ -483,6 +491,7 @@ def _ensure_stems(job_id: int) -> Path:
         if row is None or not row["audio_file"]:
             raise RuntimeError(f"у трека #{job_id} нет звука")
         demucs_separate(jdir / row["audio_file"], jdir)
+        check_vocal_leak(job_id)
     return jdir
 
 
@@ -647,6 +656,48 @@ OLLAMA_MODEL = os.environ.get("YUE_OLLAMA_MODEL", "qwen2.5-chat-ru:latest")
 class ConfigIn(BaseModel):
     ollama_url: str | None = None
     ollama_model: str | None = None
+    auto_stems_instrumental: bool | None = None
+
+
+# настройки воркера, переживающие перезапуск (в отличие от Ollama — те из env)
+SETTINGS_PATH = DATA_DIR / "settings.json"
+
+
+def _load_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def auto_stems_instrumental() -> bool:
+    """У треков «без голоса» сразу делать дорожки и проверять голос (по умолчанию да)."""
+    return bool(_load_settings().get("auto_stems_instrumental", True))
+
+
+def is_instrumental(style: str) -> bool:
+    """Трек заказан без голоса: в стиле «instrumental» или «no vocals»."""
+    low = (style or "").lower()
+    return "instrumental" in low or "no vocals" in low
+
+
+def check_vocal_leak(job_id: int) -> None:
+    """У трека «без голоса» с готовыми дорожками — где звучит дорожка голоса
+    (vocal_leak, секунды через запятую). Другие треки и треки без дорожек —
+    не трогаем; сбой проверки не должен ронять разделение на дорожки."""
+    row = _job_row(job_id)
+    stem = JOBS_DIR / str(job_id) / "stem-vocals.flac"
+    if row is None or not is_instrumental(row["style"]) or not stem.is_file():
+        return
+    try:
+        import soundfile as sf
+        x, sr = sf.read(str(stem), dtype="float32", always_2d=True)
+        leak = ",".join(str(t) for t in vocal_activity(x, sr))
+    except Exception:  # noqa: BLE001 - метка — подсказка, не повод ронять дорожки
+        log.exception("vocal check failed for job %s", job_id)
+        return
+    with db_lock, db() as conn:
+        conn.execute("UPDATE jobs SET vocal_leak=? WHERE id=?", (leak, job_id))
 
 
 @app.get("/config")
@@ -660,6 +711,7 @@ def get_config():
         "whisper_available": WHISPER_PY.is_file(),
         "seedvc_dir": str(voicevc.SEEDVC_DIR),
         "seedvc_available": voicevc.available(),
+        "auto_stems_instrumental": auto_stems_instrumental(),
     }
 
 
@@ -676,6 +728,11 @@ def set_config(req: ConfigIn):
         if not req.ollama_model.strip():
             raise HTTPException(422, "ollama_model must not be empty")
         OLLAMA_MODEL = req.ollama_model.strip()
+    if req.auto_stems_instrumental is not None:
+        st = _load_settings()
+        st["auto_stems_instrumental"] = bool(req.auto_stems_instrumental)
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info("config updated: ollama=%s model=%s", OLLAMA_URL, OLLAMA_MODEL)
     return get_config()
 
@@ -1787,6 +1844,7 @@ def job_stems(job_id: int):
     except Exception as e:  # noqa: BLE001
         log.exception("stems failed")
         raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
+    check_vocal_leak(job_id)
     for f in result["stems"]:
         try:
             m = analyze_file(job_dir / f)
@@ -1833,6 +1891,7 @@ def job_minus(job_id: int, req: MinusIn):
             demucs_separate(job_dir / row["audio_file"], job_dir)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
+        check_vocal_leak(job_id)
         stems = sorted(job_dir.glob("stem-*.flac"))
         if not stems:
             raise HTTPException(500, "no stems after demucs")

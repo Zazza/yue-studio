@@ -107,6 +107,9 @@ type Job struct {
 	HeadID *int64 `json:"head_id,omitempty"`
 	// папка песни («Альбом», «Основы», …) — у корня; версии следуют за ним
 	Folder string `json:"folder,omitempty"`
+	// VocalLeak — где в треке «без голоса» звучит дорожка голоса: секунды начала
+	// через запятую («25.3,40.1»); пусто — не проверяли или голоса нет.
+	VocalLeak string `json:"vocal_leak,omitempty"`
 	// источник голоса: рендер, чей голос звучит в этой версии (у версии,
 	// созданной подстановкой голоса); пусто — голос свой или от родителя
 	VoiceSrc *int64 `json:"voice_src,omitempty"`

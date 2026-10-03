@@ -22,6 +22,8 @@ const err = ref('')
 const saved = ref(false)
 const workerProbe = ref('') // статус проверки воркера
 const ollamaProbe = ref('') // статус проверки Ollama
+// у треков «без голоса» сразу делать дорожки — метка, если в инструментал пролез голос
+const autoStems = ref(true)
 
 const modelOptions = computed(() => {
   const opts = models.value.map((m) => ({ value: m, label: m }))
@@ -42,6 +44,7 @@ onMounted(async () => {
     const c = await api.workerConfig()
     ollamaURL.value = c.ollama_url || ''
     ollamaModel.value = c.ollama_model || ''
+    autoStems.value = c.auto_stems_instrumental !== false
     info.value = c
     await checkOllama()
   } catch {
@@ -72,6 +75,7 @@ async function save() {
       await api.setWorkerConfig({
         ollama_url: ollamaURL.value.trim(),
         ollama_model: ollamaModel.value.trim(),
+        auto_stems_instrumental: autoStems.value,
       })
       const c = await api.workerConfig()
       ollamaURL.value = c.ollama_url || ''
@@ -116,6 +120,13 @@ async function save() {
         <button class="ghost" @click="checkOllama" :title="t('common.refresh')">{{ t('common.refresh') }}</button>
       </div>
       <div class="set-hint muted">{{ ollamaProbe }}</div>
+
+      <h3 class="set-h">{{ t('settings.checks') }}</h3>
+      <label class="set-row set-check">
+        <input type="checkbox" v-model="autoStems" />
+        <span>{{ t('settings.autoStems') }}</span>
+      </label>
+      <div class="set-hint muted">{{ t('settings.autoStems.hint') }}</div>
 
       <h3 class="set-h">{{ t('settings.info') }} <span class="muted">{{ t('settings.info.readonly') }}</span></h3>
       <div v-if="info" class="set-info muted">

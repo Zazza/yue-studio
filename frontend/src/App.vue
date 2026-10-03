@@ -414,6 +414,8 @@ async function cancel(id) {
   await api.cancel(id)
   refresh()
 }
+// метка «голос в инструментале»: где в треке без голоса звучит дорожка голоса
+const leakTimes = (j) => String(j.vocal_leak || '').split(',').filter(Boolean).map((s) => fmtDur(Number(s))).join(', ')
 // «повторить» упавшую или отменённую джобу: снова в очередь с теми же параметрами
 const canRetry = (j) => j.status === 'error' || j.status === 'canceled'
 async function retry(j) {
@@ -896,6 +898,7 @@ function onWindowClick(e) {
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
           <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
+          <span v-if="headOf(j).vocal_leak" class="badge warn" :title="t('queue.vocalLeak.tip', { at: leakTimes(headOf(j)) })">⚠ {{ t('queue.vocalLeak') }}</span>
           <span v-if="j.status === 'running'" class="progress-wrap" role="progressbar"
                 :aria-valuenow="j.progress_pct ?? undefined" :title="progressTip(j)">
             <span class="progress-track" :class="{ indet: j.progress_pct == null }">
@@ -941,6 +944,7 @@ function onWindowClick(e) {
               <span class="muted">#{{ v.id }}</span>
               <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
               <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
+              <span v-if="v.vocal_leak" class="badge warn" :title="t('queue.vocalLeak.tip', { at: leakTimes(v) })">⚠</span>
               <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
               <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
               <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>

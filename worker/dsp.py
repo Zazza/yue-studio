@@ -107,6 +107,37 @@ def beat_grid(y: np.ndarray, sr: int, lo: float = 60.0, hi: float = 200.0) -> di
             "strength": round(float(strength / env.sum()), 3)}
 
 
+def vocal_activity(x: np.ndarray, sr: int, thresh_db: float = -35.0, min_len: float = 0.3,
+                   gap: float = 1.0) -> list[float]:
+    """Где звучит дорожка голоса: начала участков (с), где громкость кадров по
+    0,1 с не ниже thresh_db (dBFS), участок не короче min_len, паузы короче gap
+    склеиваются. Для треков «без голоса»: непустой список — нейросеть подсунула
+    голос («кул» в интро) или в дорожку голоса попал инструмент — послушать."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    hop = max(1, int(sr * 0.1))
+    n = len(x) // hop
+    if n == 0:
+        return []
+    db = 20 * np.log10(np.sqrt((x[: n * hop].reshape(n, hop) ** 2).mean(axis=1)) + 1e-12)
+    on = db >= thresh_db
+    spans, start, last = [], None, None
+    for i, v in enumerate(on):
+        if not v:
+            continue
+        t = i * 0.1
+        if start is not None and t - last > gap:
+            spans.append((start, last + 0.1))
+            start = None
+        if start is None:
+            start = t
+        last = t
+    if start is not None:
+        spans.append((start, last + 0.1))
+    return [round(a, 1) for a, b in spans if b - a >= min_len]
+
+
 def analyze_file(path) -> dict:
     import librosa
 

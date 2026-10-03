@@ -1896,3 +1896,171 @@ class TestGridEndpoint(_WorkerApiCase):
                 r = self.client.post(f"/jobs/{jid}/grid", json={})
                 self.assertEqual(r.status_code, 404, r.text)
                 self.assertNotEqual(r.json().get("detail"), "Not Found", "маршрута /grid нет")
+
+
+# --- «Голос в инструментале»: is_instrumental, vocal_leak, авто-стемы -------
+def _leak_stem(path, tone_at=25.4, sec=40.0, sr=44100):
+    """stem-vocals.flac: шум −80 dBFS, тон RMS −20 dBFS 0.5 с с tone_at (None — без тона)."""
+    import numpy as np
+    import soundfile as sf
+    rng = np.random.default_rng(1)
+    x = rng.standard_normal(int(sec * sr)) * 10 ** (-80 / 20)
+    if tone_at is not None:
+        i0, n = int(round(tone_at * sr)), int(round(0.5 * sr))
+        t = np.arange(n) / sr
+        x[i0:i0 + n] += 10 ** (-20 / 20) * np.sqrt(2) * np.sin(2 * np.pi * 440 * t)
+    sf.write(str(path), np.stack([x, x], axis=1).astype(np.float32), sr)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestIsInstrumental(unittest.TestCase):
+    """is_instrumental(style): «instrumental» или «no vocals» без учёта регистра."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.f = _import_worker(self._td.name).is_instrumental
+
+    def test_true_cases(self):
+        for s in ("instrumental", "dark rock, Instrumental", "INSTRUMENTAL synthwave",
+                  "ambient, no vocals", "No Vocals, drone"):
+            with self.subTest(style=s):
+                self.assertIs(self.f(s), True)
+
+    def test_false_cases(self):
+        for s in ("dark rock, male baritone", "vocals upfront", "no voice", ""):
+            with self.subTest(style=s):
+                self.assertIs(self.f(s), False)
+
+    def test_none_false(self):
+        self.assertIs(self.f(None), False)
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestVocalLeak(_WorkerApiCase):
+    """vocal_leak: строка начал голоса в треке «без голоса» (по stem-vocals.flac),
+    по умолчанию ""; видна в GET /jobs и GET /jobs/{id}; стемы на инструментале
+    заполняют её."""
+
+    def _leak(self, jid):
+        return self._row(jid)["vocal_leak"]
+
+    def test_default_empty_in_db_and_api(self):
+        jid = self._job(semantic=False)
+        self.assertEqual(self._leak(jid) or "", "")
+        r = self.client.get(f"/jobs/{jid}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["vocal_leak"], "")
+        jobs = {j["id"]: j for j in self.client.get("/jobs").json()}
+        self.assertEqual(jobs[jid]["vocal_leak"], "")
+
+    def test_instrumental_with_vocal_tone_sets_leak(self):
+        jid = self._job(style="ambient drone, instrumental", semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        _leak_stem(d / "stem-vocals.flac")
+        self.w.check_vocal_leak(jid)
+        self.assertEqual(self._leak(jid), "25.4")
+        self.assertEqual(self.client.get(f"/jobs/{jid}").json()["vocal_leak"], "25.4")
+        jobs = {j["id"]: j for j in self.client.get("/jobs").json()}
+        self.assertEqual(jobs[jid]["vocal_leak"], "25.4")
+
+    def test_instrumental_clean_stem_stays_empty(self):
+        jid = self._job(style="instrumental", semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        _leak_stem(d / "stem-vocals.flac", tone_at=None)
+        self.w.check_vocal_leak(jid)
+        self.assertEqual(self._leak(jid) or "", "")
+
+    def test_non_instrumental_left_empty(self):
+        jid = self._job(style="dark rock, male baritone", semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        _leak_stem(d / "stem-vocals.flac")
+        self.w.check_vocal_leak(jid)
+        self.assertEqual(self._leak(jid) or "", "")
+
+    def test_no_stem_unchanged_no_exception(self):
+        jid = self._job(style="instrumental", semantic=False)
+        (self.jobs_dir / str(jid)).mkdir(parents=True, exist_ok=True)
+        self.w.check_vocal_leak(jid)  # не должно бросать
+        self.assertEqual(self._leak(jid) or "", "")
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET vocal_leak='7.0' WHERE id=?", (jid,))
+        self.w.check_vocal_leak(jid)
+        self.assertEqual(self._leak(jid), "7.0")
+
+    def test_missing_job_no_exception(self):
+        self.w.check_vocal_leak(9999)
+
+    def test_stems_endpoint_on_instrumental_sets_leak(self):
+        import numpy as np
+        import soundfile as sf
+        from unittest import mock
+        paths = {(m, getattr(r, "path", "")) for r in self.w.app.routes
+                 for m in getattr(r, "methods", ()) or ()}
+        self.assertIn(("POST", "/jobs/{job_id}/stems"), paths)
+
+        jid = self._job(style="Instrumental, post-rock", duration=40.0, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        sf.write(str(d / "audio.flac"), np.zeros((44100 * 40, 2), dtype=np.float32), 44100)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+
+        def fake_separate(audio_path, out_dir):
+            out_dir = Path(out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            names = []
+            for name in ("drums", "bass", "other"):
+                _leak_stem(out_dir / f"stem-{name}.flac", tone_at=None)
+                names.append(f"stem-{name}.flac")
+            _leak_stem(out_dir / "stem-vocals.flac")
+            names.append("stem-vocals.flac")
+            return {"stems": names, "seconds": 0.0}
+
+        with mock.patch.object(self.w, "demucs_separate", side_effect=fake_separate):
+            r = self.client.post(f"/jobs/{jid}/stems")
+            self.assertLess(r.status_code, 300, r.text)
+            deadline = time.time() + 15
+            while time.time() < deadline and (self._leak(jid) or "") == "":
+                time.sleep(0.1)
+        self.assertEqual(self._leak(jid), "25.4")
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestAutoStemsInstrumentalConfig(_WorkerApiCase):
+    """GET/POST /config: auto_stems_instrumental (bool, по умолчанию true),
+    сохраняется в DATA_DIR/settings.json."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        data = Path(self._td.name) / "cfg"
+        data.mkdir()
+        self.settings = data / "settings.json"
+        for name, val in (("DATA_DIR", data), ("SETTINGS_PATH", self.settings)):
+            p = mock.patch.object(self.w, name, val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_default_true_without_settings_file(self):
+        self.assertFalse(self.settings.exists())
+        r = self.client.get("/config")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIs(r.json()["auto_stems_instrumental"], True)
+
+    def test_post_false_persists(self):
+        import json
+        r = self.client.post("/config", json={"auto_stems_instrumental": False})
+        self.assertLess(r.status_code, 300, r.text)
+        self.assertIs(self.client.get("/config").json()["auto_stems_instrumental"], False)
+        self.assertTrue(self.settings.exists())
+        self.assertIs(json.loads(self.settings.read_text())["auto_stems_instrumental"], False)
+
+    def test_post_true_after_false(self):
+        self.client.post("/config", json={"auto_stems_instrumental": False})
+        self.client.post("/config", json={"auto_stems_instrumental": True})
+        self.assertIs(self.client.get("/config").json()["auto_stems_instrumental"], True)
