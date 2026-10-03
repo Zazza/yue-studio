@@ -792,7 +792,8 @@ def continue_job(job_id: int, req: ContinueIn):
         if row is None or row["status"] != "done":
             raise HTTPException(404, "job not found or not done")
         if not (JOBS_DIR / str(job_id) / "semantic.npy").is_file():
-            raise HTTPException(422, "no semantic.npy — job cannot be continued")
+            raise HTTPException(422, "no semantic.npy — job cannot be continued: an imported track "
+                                "(or an old one) has no model tokens; regenerate it with the same style, lyrics and seed")
         # отметка за концом: модель переиграла бы весь трек без нового куска
         if row["duration_sec"] and req.from_sec >= row["duration_sec"]:
             raise HTTPException(422, "from_sec must be inside the track")

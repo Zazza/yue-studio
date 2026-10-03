@@ -21,6 +21,8 @@ import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '.
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 
+// так воркер подписывает стиль импортированного трека (POST /tracks/import)
+const IMPORT_STYLE = '(импорт внешнего трека)'
 const props = defineProps({ job: { type: Object, required: true }, autoTranslate: Boolean })
 const emit = defineEmits(['close', 'open-metrics'])
 
@@ -1080,6 +1082,9 @@ async function submitOverdub() {
   } finally { odBusy.value = false }
 }
 
+// импорт внешнего трека: у него нет токенов модели — продолжить и перепеть нельзя
+const isImport = computed(() => props.job.style === IMPORT_STYLE)
+
 // ---------- ЭКСПЕРИМЕНТ «голос альбома» (Seed-VC на воркере) ----------
 // голос этого трека поётся тембром голоса другой песни; кусок образца воркер
 // подбирает сам. Блок виден, только если Seed-VC установлен.
@@ -1452,8 +1457,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                         :title="t('studio.trick.vocalUp.tip')" @click="runTrick('vocalUp')">{{ t('studio.trick.vocalUp') }}</button>
                 <button class="ghost small-btn" :disabled="trickBusy"
                         :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
-                <button class="ghost small-btn" :disabled="trickBusy"
-                        :title="t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy || isImport"
+                        :title="isImport ? t('studio.import.noTokens') : t('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
               </div>
             </div>
             <div class="trick-group">
@@ -1468,8 +1473,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <span class="trick-cap">{{ t('studio.group.continue') }}</span>
               <div class="trick-btns">
                 <input v-model="contStyle" class="cont-style" :placeholder="t('studio.cont.style.ph')" :title="t('studio.cont.style.tip')" />
-                <button class="ghost small-btn" :disabled="!hasSel || trickBusy"
-                        :title="t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
+                <button class="ghost small-btn" :disabled="!hasSel || trickBusy || isImport"
+                        :title="isImport ? t('studio.import.noTokens') : t('studio.cont.tip')" @click="continueFromSel">{{ t('studio.cont') }}</button>
               </div>
             </div>
             <!-- сборка — на всю ширину: финальные действия над треком -->
