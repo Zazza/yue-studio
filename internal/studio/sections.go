@@ -333,12 +333,18 @@ func muteInserts(s SectionSpec, parent stemSet, inputs *[]string) []dsp.Insert {
 		if !slices.Contains(mutable, name) || parent[name] == "" {
 			continue
 		}
-		from, to := s.From-fadeIn, s.To+fadeOut
+		// To ≤ 0 — до конца трека, как у эффекта на дорожку (stemFxInserts):
+		// иначе окно выходило отрицательным и пересборка молча ничего не делала
+		from := s.From - fadeIn
+		dur := fxWindowForever
+		if s.To > 0 {
+			dur = s.To + fadeOut - from
+		}
 		*inputs = append(*inputs, parent[name])
 		// KeepHighHz > 0 — меняется только низ дорожки: demucs относит к голосу
 		// шумные тарелки, и заглушённая речь уносила их с собой (#258: верх −30 дБ
 		// на месте речи, «дыры»)
-		out = append(out, dsp.Insert{AtSec: from, SkipSec: from, DurSec: to - from, Gain: gain,
+		out = append(out, dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain,
 			FadeIn: fadeIn, FadeOut: fadeOut, LowpassHz: s.KeepHighHz})
 	}
 	return out

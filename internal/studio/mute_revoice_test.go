@@ -90,6 +90,23 @@ func TestMuteInsertsCoverWindow(t *testing.T) {
 	}
 }
 
+// To = 0 — до конца трека (как у эффекта на дорожку и у dsp_apply): раньше
+// окно выходило отрицательным, и пересборка молча ничего не меняла (#459).
+func TestMuteInsertsToZeroMeansEnd(t *testing.T) {
+	var inputs []string
+	spec := SectionSpec{ChildID: 0, From: 0, To: 0, Stems: []string{"vocals"}, Db: -100}
+	ins := muteInserts(spec, stemSet{"vocals": "/p/v.flac"}, &inputs)
+	if len(ins) != 1 {
+		t.Fatalf("%d вставок, want 1", len(ins))
+	}
+	if ins[0].DurSec < 600 {
+		t.Errorf("DurSec=%v при To=0, want окно до конца трека (не короче любой песни)", ins[0].DurSec)
+	}
+	if ins[0].AtSec > 0 {
+		t.Errorf("AtSec=%v, want ≤ From=0", ins[0].AtSec)
+	}
+}
+
 // Краевые: пустой Stems, стемов у родителя нет — вставок нет, inputs не растут.
 func TestMuteInsertsNothingToDo(t *testing.T) {
 	for _, tc := range []struct {
