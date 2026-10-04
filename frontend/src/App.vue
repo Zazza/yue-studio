@@ -800,7 +800,7 @@ function onWindowClick(e) {
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <!-- справа, у меню; плеер между ними забирает всю свободную ширину -->
     <button class="primary new-track-btn" :class="{ on: newTrackPage }"
-            :title="t('nav.new.tip')" @click="openNewTrack">{{ t('nav.new') }}</button>
+            :title="t('nav.new.tip')" @click="openNewTrack">＋<span class="new-track-txt"> {{ t('nav.new.short') }}</span></button>
     <div class="nav-wrap">
       <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen">⋮</button>
       <ul v-if="navOpen" class="nav-menu">
@@ -1178,7 +1178,8 @@ body { overflow: hidden; }
 header { flex: 0 0 auto; }
 header {
   /* выше панелей main (стекинг-контексты из backdrop-filter), но ниже модалок (z-index 10) */
-  position: relative; z-index: 5; flex-wrap: wrap;
+  /* одна строка при любой ширине окна (min 900): на узком ужимается второстепенное, плеер не переносится */
+  position: relative; z-index: 5; flex-wrap: nowrap;
   display: flex; align-items: center; gap: 14px; padding: 10px 16px;
   background: color-mix(in srgb, var(--panel2) 78%, transparent);
   backdrop-filter: blur(14px) saturate(1.15);
@@ -1288,15 +1289,24 @@ h2 {
 /* плеер — гибкая часть шапки: всё место между левыми кнопками и «＋ Новый трек»
    (раньше — абсолютный центр фиксированной ширины: полоса короткая, по краям пусто) */
 .player-center { flex: 1 1 auto; min-width: 0; }
-/* узкое окно — плеер отдельной строкой во всю ширину */
-@media (max-width: 900px) {
-  .player-center { order: 9; flex-basis: 100%; }
+/* узкое окно: меньше промежутки, короче громкость и название, у «＋ Новый трек» — только «＋» */
+@media (max-width: 1150px) {
+  header { gap: 8px; padding: 8px 12px; }
+  /* header-префикс: базовые правила плеера стоят ниже и иначе перебили бы эти */
+  header .playerbar { gap: 5px; }
+  header .playerbar .vol input { width: 50px; }
+  header .playerbar .now { max-width: 120px; }
+  h1 { letter-spacing: 1px; }
+}
+@media (max-width: 1000px) {
+  .new-track-txt { display: none; }
+  .new-track-btn { padding: 6px 12px; font-size: 16px; }
 }
 .new-track-btn { margin-left: auto; }
 .playerbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 /* полоса прокрутки растягивается на свободное место шапки; под ней —
    метки минут-секунд: плеер здесь — навигация по треку, не просто индикатор */
-.playerbar .seek-wrap { flex: 1 1 auto; min-width: 160px; display: flex; flex-direction: column; }
+.playerbar .seek-wrap { flex: 1 1 auto; min-width: 80px; display: flex; flex-direction: column; }
 .playerbar .seek { width: 100%; }
 .seek-ticks { position: relative; height: 11px; margin-top: -1px; }
 .seek-tick {

@@ -18,6 +18,7 @@ export default {
   'app.health.down': 'server unavailable',
   'app.theme.light': 'Light theme',
   'app.theme.dark': 'Dark theme',
+  'nav.new.short': 'New track',
   'nav.new': '＋ New track',
   'nav.new.tip': 'New track form: style, lyrics, character — then queue it. Your input is kept',
   'nav.home.tip': 'Back to the track list',
