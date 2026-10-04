@@ -18,6 +18,10 @@ export function YueApplyDsp(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueApplyDsp'](arg1, arg2, arg3);
 }
 
+export function YueApplySteps(arg1, arg2, arg3) {
+  return window['go']['main']['App']['YueApplySteps'](arg1, arg2, arg3);
+}
+
 export function YueAudioState() {
   return window['go']['main']['App']['YueAudioState']();
 }
@@ -70,8 +74,8 @@ export function YueDspChains() {
   return window['go']['main']['App']['YueDspChains']();
 }
 
-export function YueDspPreview(arg1, arg2, arg3) {
-  return window['go']['main']['App']['YueDspPreview'](arg1, arg2, arg3);
+export function YueDspPresets() {
+  return window['go']['main']['App']['YueDspPresets']();
 }
 
 export function YueDspVariantDelete(arg1, arg2) {

@@ -172,6 +172,12 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64) (*y
 	if chain.Key != "" {
 		return nil, fmt.Errorf("эффект %q — только на дорожку (ключ — дорожка %s)", chain.Name, chain.Key)
 	}
+	return a.runGraph(jobID, chain.FilterGraph(params), fmt.Sprintf("dsp-%s.flac", chainID), "")
+}
+
+// runGraph — граф ffmpeg на весь трек джобы: скачать звук, прогнать локально,
+// залить вариантом fname с подписью label ("" — по имени файла).
+func (a *App) runGraph(jobID int64, graph, fname, label string) (*yue.DspVariant, error) {
 	jobs, err := a.yue.Jobs(a.ctx)
 	if err != nil {
 		return nil, err
@@ -198,15 +204,14 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64) (*y
 	tmpOut.Close()
 	defer os.Remove(tmpOut.Name())
 
-	if err := dsp.Run(tmpIn, tmpOut.Name(), chain.FilterGraph(params), nil); err != nil {
+	if err := dsp.Run(tmpIn, tmpOut.Name(), graph, nil); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(tmpOut.Name())
 	if err != nil {
 		return nil, err
 	}
-	fname := fmt.Sprintf("dsp-%s.flac", chainID)
-	return a.yue.UploadDsp(a.ctx, jobID, fname, "", data)
+	return a.yue.UploadDsp(a.ctx, jobID, fname, label, data)
 }
 
 // YueRebuildSections — пересобрать трек джобы со всеми заменами дорожек:

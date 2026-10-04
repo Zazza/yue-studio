@@ -55,24 +55,34 @@ func (s *Server) fxPreview(jobID int64, stem string, steps []dsp.Step, from, to 
 // argSteps — цепочка эффектов из аргументов: steps [{chain, params, off}] или
 // одна цепочка chain + params. Ничего — ошибка.
 func argSteps(args map[string]any) ([]dsp.Step, error) {
-	if raw, ok := args["steps"].([]any); ok && len(raw) > 0 {
-		out := make([]dsp.Step, 0, len(raw))
-		for i, item := range raw {
-			m, ok := item.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("steps[%d]: нужен объект {chain, params, off}", i)
-			}
-			st := dsp.Step{Chain: argString(m, "chain"), Params: argNumMap(m, "params")}
-			st.Off, _ = m["off"].(bool)
-			if st.Chain == "" {
-				return nil, fmt.Errorf("steps[%d]: нет chain", i)
-			}
-			out = append(out, st)
-		}
-		return out, nil
+	steps, err := parseSteps(args["steps"])
+	if err != nil || len(steps) > 0 {
+		return steps, err
 	}
 	if chain := argString(args, "chain"); chain != "" {
 		return []dsp.Step{{Chain: chain, Params: argNumMap(args, "params")}}, nil
 	}
 	return nil, errors.New("нужен chain (одна цепочка) или steps (цепочка по порядку) — см. dsp_chains")
+}
+
+// parseSteps — массив шагов [{chain, params, off}] из JSON-аргумента; нет — nil.
+func parseSteps(raw any) ([]dsp.Step, error) {
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return nil, nil
+	}
+	out := make([]dsp.Step, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("steps[%d]: нужен объект {chain, params, off}", i)
+		}
+		st := dsp.Step{Chain: argString(m, "chain"), Params: argNumMap(m, "params")}
+		st.Off, _ = m["off"].(bool)
+		if st.Chain == "" {
+			return nil, fmt.Errorf("steps[%d]: нет chain", i)
+		}
+		out = append(out, st)
+	}
+	return out, nil
 }

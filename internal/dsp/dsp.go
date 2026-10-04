@@ -31,6 +31,9 @@ type Chain struct {
 	// входом [1:a]. Такая цепочка работает только эффектом на дорожку — у
 	// всего трека стемов-ключей нет
 	Key string `json:"key,omitempty"`
+	// Pedal — гитарная педаль: цепочка видна в палитре блока «Педали» (и в общем
+	// списке эффектов, как все)
+	Pedal bool `json:"pedal,omitempty"`
 
 	graph func(p map[string]float64) string
 	// tail — сколько секунд эффект звучит после конца звука (реверб, дилей);
@@ -595,28 +598,28 @@ var chains = []Chain{
 		ID: "reverb-room", Name: "Реверб: комната",
 		Note: "Небольшое помещение: плотные ранние отражения, короткий хвост — инструмент «в комнате», а не в вакууме. " +
 			"На голос — эффектом на дорожку «голос».",
-		Params: reverbParams(0.3, 1.5, 0.6, 10, 8), graph: reverbGraph("room"), tail: reverbTail,
+		Params: reverbParams(0.3, 1.5, 0.6, 10, 8), graph: reverbGraph("room"), tail: reverbTail, Pedal: true,
 	},
 	{
 		ID: "reverb-hall", Name: "Реверб: зал",
 		Note:   "Большой зал: хвост нарастает и долго гаснет — объём и глубина для медленных частей и голоса.",
-		Params: reverbParams(1, 6, 2.5, 30, 6), graph: reverbGraph("hall"), tail: reverbTail,
+		Params: reverbParams(1, 6, 2.5, 30, 6), graph: reverbGraph("hall"), tail: reverbTail, Pedal: true,
 	},
 	{
 		ID: "reverb-plate", Name: "Реверб: плейт",
 		Note:   "Студийная пластина: сразу плотный яркий хвост без отражений — классика для голоса и малого барабана.",
-		Params: reverbParams(0.5, 4, 1.6, 5, 12), graph: reverbGraph("plate"), tail: reverbTail,
+		Params: reverbParams(0.5, 4, 1.6, 5, 12), graph: reverbGraph("plate"), tail: reverbTail, Pedal: true,
 	},
 	{
 		ID: "reverb-spring", Name: "Реверб: пружина",
 		Note:   "Гитарный пружинный ревер: узкая полоса и металлический «дребезг» — сёрф, рокабилли, даб.",
-		Params: reverbParams(0.5, 3, 1.2, 0, 4.5), graph: reverbGraph("spring"), tail: reverbTail,
+		Params: reverbParams(0.5, 3, 1.2, 0, 4.5), graph: reverbGraph("spring"), tail: reverbTail, Pedal: true,
 	},
 	{
 		ID: "delay", Name: "Дилей в темп",
 		Note: "Повторы в долю трека (1/4, 1/8, 1/8 с точкой…), затухают с обратной связью, пинг-понг между каналами, " +
 			"верх повторов срезан. Темп подскажет «найти сетку».",
-		Params: delayParams, graph: delayGraph, tail: delayTail,
+		Params: delayParams, graph: delayGraph, tail: delayTail, Pedal: true,
 	},
 	{
 		ID: "width", Name: "Стерео-ширина",
@@ -631,27 +634,27 @@ var chains = []Chain{
 	{
 		ID: "chorus", Name: "Хорус",
 		Note:   "Несколько слегка «плывущих» копий: звук шире и гуще, как несколько исполнителей.",
-		Params: chorusParams, graph: chorusGraph,
+		Params: chorusParams, graph: chorusGraph, Pedal: true,
 	},
 	{
 		ID: "flanger", Name: "Фленжер",
 		Note:   "Гребёнка, которая ездит по спектру: «реактивный» свист на гитарах, тарелках, синтах.",
-		Params: flangerParams, graph: flangerGraph,
+		Params: flangerParams, graph: flangerGraph, Pedal: true,
 	},
 	{
 		ID: "phaser", Name: "Фэйзер",
 		Note:   "Мягкое «качание» провалов спектра — психоделия 70-х на клавишах и гитаре.",
-		Params: phaserParams, graph: phaserGraph,
+		Params: phaserParams, graph: phaserGraph, Pedal: true,
 	},
 	{
 		ID: "tremolo", Name: "Тремоло",
 		Note:   "Плавное синусное качание громкости (без краёв, в отличие от Ритм-гейта) — винтажный усилитель.",
-		Params: tremoloParams, graph: tremoloGraph,
+		Params: tremoloParams, graph: tremoloGraph, Pedal: true,
 	},
 	{
 		ID: "eq", Name: "Эквалайзер",
 		Note:   "Полки низа и верха, колокол середины: поправить тембр дорожки или трека. 0 дБ — полоса выключена.",
-		Params: eqParams, graph: eqGraph,
+		Params: eqParams, graph: eqGraph, Pedal: true,
 	},
 	{
 		ID: "sweep", Name: "Свип фильтра",
@@ -662,7 +665,7 @@ var chains = []Chain{
 	{
 		ID: "autowah", Name: "Авто-вау",
 		Note:   "Полосовой фильтр качается между двумя частотами — «вау-вау» на гитаре или клавишах (качание, без слежения за громкостью).",
-		Params: autowahParams, graph: autowahGraph,
+		Params: autowahParams, graph: autowahGraph, Pedal: true,
 	},
 	{
 		ID: "fade", Name: "Нарастание/затухание",
@@ -688,7 +691,7 @@ var chains = []Chain{
 	{
 		ID: "octaver", Name: "Октавер",
 		Note:   "Подмешивает копию на октаву ниже и/или выше — толще бас, «органный» голос.",
-		Params: octaverParams, graph: octaverGraph,
+		Params: octaverParams, graph: octaverGraph, Pedal: true,
 	},
 	{
 		ID: "reverse", Name: "Реверс к отметке",
@@ -710,6 +713,56 @@ var chains = []Chain{
 		ID: "vinyl", Name: "Винил",
 		Note:   "Треск и щелчки пластинки, тихий шум, чуть закрытый верх.",
 		Params: vinylParams, graph: vinylGraph,
+	},
+	{
+		ID: "od-ts", Name: "Овердрайв (Tube Screamer)",
+		Note:   "Тёплый перегруз с горбом середины: гитара выходит вперёд и не гудит на низах — блюз, классик-рок, соло.",
+		Params: driveParams(18, 40, 3.5), graph: odTSGraph, Pedal: true,
+	},
+	{
+		ID: "fuzz-muff", Name: "Фузз (Big Muff)",
+		Note:   "Толстый фузз с огромным сустейном и провалом середины — стена гитар, шугейз, стоунер.",
+		Params: muffParams, graph: muffGraph, Pedal: true,
+	},
+	{
+		ID: "dist-rat", Name: "Дисторшн (RAT)",
+		Note:   "Жёсткий резкий дисторшн, «фильтр» срезает верх — панк, гранж, нойз.",
+		Params: driveParams(28, 45, 4), graph: ratGraph, Pedal: true,
+	},
+	{
+		ID: "fuzz-octave", Name: "Октавный фузз",
+		Note:   "Фузз с октавой вверх (как Octavia у Хендрикса): звенящий, «синтезаторный» на соло.",
+		Params: octFuzzParams, graph: octFuzzGraph, Pedal: true,
+	},
+	{
+		ID: "boost", Name: "Бустер",
+		Note:   "Чистый подъём громкости и чуть верха; перед перегрузом — плотнее и злее.",
+		Params: boostParams, graph: boostGraph, Pedal: true,
+	},
+	{
+		ID: "univibe", Name: "Uni-Vibe",
+		Note:   "Медленное «вязкое» качание фэйзера — Хендрикс, Гилмор, психоделия.",
+		Params: univibeParams, graph: univibeGraph, Pedal: true,
+	},
+	{
+		ID: "ringmod", Name: "Кольцевой модулятор",
+		Note:   "Звук умножается на тон: вместо нот — металлические суммы и разности, «робот», колокола.",
+		Params: ringmodParams, graph: ringmodGraph, Pedal: true,
+	},
+	{
+		ID: "noise-gate", Name: "Гейт от шума",
+		Note:   "Между нотами — тишина: убирает гул и шум перегруза в паузах, ноты целы.",
+		Params: noiseGateParams, graph: noiseGateGraph, Pedal: true,
+	},
+	{
+		ID: "comp-pedal", Name: "Компрессор (педаль)",
+		Note:   "Тихие и громкие ноты ровнее, ноты тянутся дольше — кантри, фанк, чистые партии.",
+		Params: compPedalParams, graph: compPedalGraph, Pedal: true,
+	},
+	{
+		ID: "cab", Name: "Кабинет",
+		Note:   "Гитарный динамик: срезает низ и верх, которых нет у кабинета, — перегруз звучит «гитарно», а не жужжит.",
+		Params: cabParams, graph: cabGraph, Pedal: true,
 	},
 }
 

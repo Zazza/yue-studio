@@ -44,6 +44,11 @@ export function mixLabel(file, { applied = [], jobs = [], labelOf, fmt }) {
 // заглушки — название приёма
 export function insertTitle(it, { chainName, stemName, instName }) {
   if (it.chain) return `${chainName(it.chain)} · ${(it.stems || []).map(stemName).join(', ')}`
+  // доска педалей: подпись набора/доски или названия педалей по порядку
+  if (it.steps) {
+    const what = it.label || it.steps.filter((s) => !s.off).map((s) => chainName(s.chain)).join(' → ')
+    return `${what} · ${(it.stems || []).map(stemName).join(', ')}`
+  }
   return instName(it.instId)
 }
 

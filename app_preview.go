@@ -9,6 +9,7 @@ import (
 
 	"yue-studio/internal/dsp"
 	"yue-studio/internal/studio"
+	"yue-studio/internal/yue"
 )
 
 // fxCacheDirPattern — каталог кэша превью эффектов: свой у каждого запуска
@@ -99,4 +100,26 @@ func (a *App) YuePlayPreview(jobID int64, slot, which string, startSec float64) 
 		return a.player.Seek(time.Duration(startSec * float64(time.Second)))
 	}
 	return a.player.Play()
+}
+
+// pedalsFile — вариант «педали на весь трек»
+const pedalsFile = "dsp-pedals.flac"
+
+// YueApplySteps — цепочка эффектов по порядку (доска педалей) на весь трек:
+// вариант dsp-pedals.flac с подписью label ("" — названия педалей). На дорожку
+// доска применяется записью реестра пересборки (SectionSpec.Steps).
+func (a *App) YueApplySteps(jobID int64, steps []dsp.Step, label string) (*yue.DspVariant, error) {
+	graph, _, err := dsp.StepsGraph(steps)
+	if err != nil {
+		return nil, err
+	}
+	if label == "" {
+		label = studio.StepsLabel(steps)
+	}
+	return a.runGraph(jobID, graph, pedalsFile, label)
+}
+
+// YueDspPresets — готовые наборы педалей.
+func (a *App) YueDspPresets() []dsp.Preset {
+	return dsp.Presets()
 }

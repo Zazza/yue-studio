@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,14 +77,27 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "dsp_presets",
+		Description: "Готовые наборы педалей (как в блоке «Педали» студии): id, название, описание и steps — " +
+			"цепочка эффектов по порядку. Подставлять в dsp_preview / dsp_apply (steps) или спеку rebuild_sections.",
+		InputSchema: props(nil),
+		Handler: func(s *Server, _ map[string]any) (string, error) {
+			return toJSON(dsp.Presets()), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name: "dsp_apply",
 		Description: "Применить DSP-цепочку к треку джобы (ffmpeg локально): «стена громкости», «кассета» и т.д. " +
 			"params — {id параметра: число} (диапазоны — dsp_chains). Цепочки с key (ducking) — только со stem: " +
-			"ключ — стем key трека, без stem — ошибка.",
+			"ключ — стем key трека, без stem — ошибка. steps [{chain, params, off}] вместо chain — цепочка эффектов " +
+			"по порядку (педали; готовые наборы — dsp_presets): без stem — вариант dsp-pedals.flac.",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
+			"steps": map[string]any{"type": "array", "description": "вместо chain: цепочка по порядку [{chain, params, off}]",
+				"items": map[string]any{"type": "object"}},
 			"stem": prop("эффект только на дорожку: vocals / drums / bass / other / guitar / piano (пусто — весь трек); "+
 				"через пересборку дорожек, остальное не меняется. У голосовых цепочек (voice=true, напр. мегафон) "+
 				"громкость обработанной дорожки выравнивается по исходной (RMS), дБ — сверху. Вызовы НЕ копятся: "+
@@ -92,20 +106,34 @@ func RegisterStudioTools(s *Server) {
 			"from": prop("со stem: с какой секунды", "number"),
 			"to":   prop("со stem: по какую секунду (0 — до конца)", "number"),
 			"db":   prop("со stem: дБ к обработанной дорожке поверх выравнивания (по умолчанию 0)", "number"),
-		}, "job_id", "chain"),
+		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			params := argNumMap(args, "params")
 			if params == nil {
 				params = map[string]float64{}
 			}
+			steps, err := parseSteps(args["steps"])
+			if err != nil {
+				return "", err
+			}
+			if len(steps) == 0 && argString(args, "chain") == "" {
+				return "", errors.New("нужен chain (одна цепочка) или steps (цепочка по порядку)")
+			}
 			if stem := argString(args, "stem"); stem != "" {
 				res, err := studio.RebuildSections(context.Background(), s.client, argInt(args, "job_id"),
-					[]studio.SectionSpec{{Chain: argString(args, "chain"), Params: params, Stems: []string{stem},
+					[]studio.SectionSpec{{Chain: argString(args, "chain"), Params: params, Steps: steps, Stems: []string{stem},
 						From: argFloat(args, "from"), To: argFloat(args, "to"), Db: argFloat(args, "db")}})
 				if err != nil {
 					return "", err
 				}
 				return toJSON(res.Variant), nil
+			}
+			if len(steps) > 0 {
+				v, err := s.applySteps(argInt(args, "job_id"), steps)
+				if err != nil {
+					return "", err
+				}
+				return toJSON(v), nil
 			}
 			v, err := s.applyDsp(argInt(args, "job_id"), argString(args, "chain"), params)
 			if err != nil {
@@ -700,6 +728,21 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	if chain.Key != "" {
 		return nil, fmt.Errorf("цепочка %s — только на дорожку: укажи stem (ключ — дорожка %s)", chainID, chain.Key)
 	}
+	return s.runGraph(jobID, chain.FilterGraph(params), fmt.Sprintf("dsp-%s.flac", chainID), "")
+}
+
+// applySteps — цепочка эффектов по порядку на весь трек: вариант dsp-pedals.flac.
+func (s *Server) applySteps(jobID int64, steps []dsp.Step) (*yue.DspVariant, error) {
+	graph, _, err := dsp.StepsGraph(steps)
+	if err != nil {
+		return nil, err
+	}
+	return s.runGraph(jobID, graph, "dsp-pedals.flac", studio.StepsLabel(steps))
+}
+
+// runGraph — граф ffmpeg на весь трек (как в приложении): скачать flac → ffmpeg →
+// залить вариантом fname с подписью label.
+func (s *Server) runGraph(jobID int64, graph, fname, label string) (*yue.DspVariant, error) {
 	jobs, err := s.client.Jobs(context.Background())
 	if err != nil {
 		return nil, err
@@ -739,13 +782,12 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	tmpOut.Close()
 	defer os.Remove(tmpOut.Name())
 
-	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), chain.FilterGraph(params), nil); err != nil {
+	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), graph, nil); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(tmpOut.Name())
 	if err != nil {
 		return nil, err
 	}
-	fname := fmt.Sprintf("dsp-%s.flac", chainID)
-	return s.client.UploadDsp(context.Background(), jobID, fname, "", data)
+	return s.client.UploadDsp(context.Background(), jobID, fname, label, data)
 }

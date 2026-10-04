@@ -55,6 +55,8 @@ async function doRebuild(parentId) {
     keep_high_hz: it.keepHighHz || 0,
     // эффект на дорожку: цепочка и её крутилки
     ...(it.chain ? { chain: it.chain, params: it.params || {} } : {}),
+    // доска педалей на дорожку: цепочка эффектов по порядку
+    ...(it.steps ? { steps: it.steps } : {}),
     // линия громкости дорожки (по волне): точки {t, db} по всему треку
     ...(it.envelope ? { envelope: it.envelope } : {}),
   })))
@@ -121,6 +123,18 @@ async function addStemFx(parentId, { stem, chain, params, from = 0, to = 0 }) {
   const item = {
     childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'fx-' + chain, from, to, lead: 0, beat: 0, db: 0,
     stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, chain, params: { ...(params || {}) },
+  }
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
+  save()
+  return rebuild(parentId)
+}
+
+// доска педалей на дорожку в окне: одна запись реестра со списком шагов
+// (эффекты по порядку, а не сумма отдельных); label — подпись в списке вставок
+async function addStemPedals(parentId, { stem, steps, from = 0, to = 0, label = '' }) {
+  const item = {
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'pedals', from, to, lead: 0, beat: 0, db: 0,
+    stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, steps: (steps || []).map((s) => ({ ...s })), label,
   }
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
   save()
@@ -222,5 +236,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemEnvelope, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEnvelope, carryTo, flush, latestFile }
 }

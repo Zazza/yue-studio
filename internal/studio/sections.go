@@ -46,6 +46,9 @@ type SectionSpec struct {
 	// обработка микса глушила и гитары)
 	Chain  string             `json:"chain,omitempty"`
 	Params map[string]float64 `json:"params,omitempty"`
+	// Steps при ChildID 0 — вместо Chain цепочка эффектов по порядку (педалборд):
+	// выход шага — вход следующего, а не сумма разниц отдельных эффектов
+	Steps []dsp.Step `json:"steps,omitempty"`
 	// Envelope при ChildID 0 — линия громкости дорожек Stems по всему треку
 	// (точки время → дБ, между ними линейно в дБ); как у эффекта, в трек
 	// добавляется разница «дорожка с линией − дорожка»
@@ -135,7 +138,7 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	var ins []dsp.Insert
 	reports := make([]InsertReport, 0, len(specs))
 	for i, s := range specs {
-		if s.ChildID == 0 && s.Chain != "" {
+		if s.ChildID == 0 && (s.Chain != "" || len(s.Steps) > 0) {
 			fx, err := stemFxInserts(s, parent, dir, i, &inputs)
 			if err != nil {
 				return nil, err
@@ -245,6 +248,8 @@ func rebuildLabel(specs []SectionSpec) string {
 		switch {
 		case s.ChildID > 0:
 			what = fmt.Sprintf("вклейка #%d", s.ChildID)
+		case len(s.Steps) > 0:
+			what = StepsLabel(s.Steps)
 		case s.Chain != "":
 			what = s.Chain
 			if c := dsp.ByID(s.Chain); c != nil {
@@ -287,11 +292,11 @@ func labelWindow(from, to float64) string {
 // ложится обработанная дорожка и та же исходная с обратным знаком, с фейдами.
 // Громкость обработанной дорожки выравнивается по RMS исходной в окне, сверху
 // дБ из спеки (перегруз/клиппинг сжимает и громчит — без выравнивания голос
-// рвёт микс).
+// рвёт микс). Эффект — одна цепочка (Chain) или шаги по порядку (Steps).
 func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[]string) ([]dsp.Insert, error) {
-	chain := dsp.ByID(s.Chain)
-	if chain == nil {
-		return nil, fmt.Errorf("неизвестный эффект %q", s.Chain)
+	fx, err := planFx(s)
+	if err != nil {
+		return nil, err
 	}
 	fadeIn, fadeOut := s.FadeIn, s.FadeOut
 	if fadeIn <= 0 {
@@ -312,45 +317,87 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		src := parent[name]
 		tail := 0.0
 		if s.To > 0 {
-			tail = chain.TailSec(s.Params)
+			tail = fx.tail
 		}
 		if tail > 0 {
 			src = fmt.Sprintf("%s/win-%d-%s.flac", dir, idx, name)
 			if err := dsp.Run(parent[name], src, dsp.WindowGraph(from, fadeIn, s.To, fadeOut), nil); err != nil {
-				return nil, fmt.Errorf("окно эффекта %s на %s: %w", s.Chain, name, err)
+				return nil, fmt.Errorf("окно эффекта %s на %s: %w", fx.name, name, err)
 			}
 		}
-		fx := fmt.Sprintf("%s/fx-%d-%s.flac", dir, idx, name)
-		if err := runFx(chain, s.Params, src, parent, fx); err != nil {
-			return nil, fmt.Errorf("эффект %s на %s: %w", s.Chain, name, err)
+		out1 := fmt.Sprintf("%s/fx-%d-%s.flac", dir, idx, name)
+		if err := runFx(fx, src, parent, out1); err != nil {
+			return nil, fmt.Errorf("эффект %s на %s: %w", fx.name, name, err)
 		}
-		gain, err := fxGain(chain, parent[name], fx, s)
+		gain, err := fxGain(fx.voice, parent[name], out1, s)
 		if err != nil {
-			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", s.Chain, name, err)
+			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", fx.name, name, err)
 		}
 		wet := dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut}
 		if tail > 0 {
 			// вход уже с фейдами окна; короткий спад — в самом конце хвоста
 			wet = dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur + tail, Gain: gain, FadeOut: muteFadeSec}
 		}
-		*inputs = append(*inputs, fx, parent[name])
+		*inputs = append(*inputs, out1, parent[name])
 		out = append(out, wet,
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
 	}
 	return out, nil
 }
 
-// runFx — цепочка на дорожку src; цепочка с ключом (ducking) получает
-// вторым входом дорожку-ключ трека.
-func runFx(chain *dsp.Chain, params map[string]float64, src string, parent stemSet, out string) error {
-	if chain.Key == "" {
-		return dsp.Run(src, out, chain.FilterGraph(params), nil)
+// fxPlan — эффект записи пересборки: граф ffmpeg, хвост, голосовой ли
+// (выравнивание громкости), дорожка-ключ (только у одиночной цепочки).
+type fxPlan struct {
+	name  string
+	graph string
+	tail  float64
+	voice bool
+	key   string
+}
+
+func planFx(s SectionSpec) (fxPlan, error) {
+	if len(s.Steps) > 0 {
+		g, tail, err := dsp.StepsGraph(s.Steps)
+		if err != nil {
+			return fxPlan{}, err
+		}
+		return fxPlan{name: StepsLabel(s.Steps), graph: g, tail: tail, voice: dsp.StepsVoice(s.Steps)}, nil
 	}
-	key := parent[chain.Key]
+	chain := dsp.ByID(s.Chain)
+	if chain == nil {
+		return fxPlan{}, fmt.Errorf("неизвестный эффект %q", s.Chain)
+	}
+	return fxPlan{name: s.Chain, graph: chain.FilterGraph(s.Params), tail: chain.TailSec(s.Params),
+		voice: chain.Voice, key: chain.Key}, nil
+}
+
+// StepsLabel — «Фузз (Big Muff) → Хорус → Реверб: зал» (выключенные пропущены).
+func StepsLabel(steps []dsp.Step) string {
+	var names []string
+	for _, st := range steps {
+		if st.Off {
+			continue
+		}
+		name := st.Chain
+		if c := dsp.ByID(st.Chain); c != nil {
+			name = c.Name
+		}
+		names = append(names, name)
+	}
+	return strings.Join(names, " → ")
+}
+
+// runFx — эффект на дорожку src; цепочка с ключом (ducking) получает вторым
+// входом дорожку-ключ трека.
+func runFx(fx fxPlan, src string, parent stemSet, out string) error {
+	if fx.key == "" {
+		return dsp.Run(src, out, fx.graph, nil)
+	}
+	key := parent[fx.key]
 	if key == "" {
-		return fmt.Errorf("нет дорожки-ключа %q", chain.Key)
+		return fmt.Errorf("нет дорожки-ключа %q", fx.key)
 	}
-	return dsp.RunInputs([]string{src, key}, out, chain.FilterGraph(params))
+	return dsp.RunInputs([]string{src, key}, out, fx.graph)
 }
 
 // envelopeInserts — линия громкости на дорожки Stems: дорожка целиком через
@@ -380,8 +427,8 @@ func envelopeInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs 
 // (перегруз/клиппинг сжимает и громчит). «Ремонтные» цепочки (вырез свиста,
 // де-эссер) уровень дорожки менять не должны: вырез почти всего сигнала
 // «добрал» бы гейном до исходного уровня — там только дБ.
-func fxGain(chain *dsp.Chain, oldPath, fxPath string, s SectionSpec) (float64, error) {
-	if !chain.Voice {
+func fxGain(voice bool, oldPath, fxPath string, s SectionSpec) (float64, error) {
+	if !voice {
 		return math.Pow(10, s.Db/20), nil
 	}
 	dur := s.To - s.From

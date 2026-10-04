@@ -21,6 +21,7 @@ import { previewWindow } from '../fxPreview.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
+import PedalBoard from './PedalBoard.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -1769,6 +1770,13 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="ghost small-btn" :title="t('studio.dsp.del.tip')" :disabled="dspBusy"
                       @click="delVariant(v)">✕</button>
             </div>
+            </div>
+          </details>
+
+          <details class="studio-box">
+            <summary class="studio-box-head"><span>{{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
+            <div class="studio-box-body">
+              <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
             </div>
           </details>
         </template>

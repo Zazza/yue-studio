@@ -2,7 +2,7 @@ import {
   YueStatus, YueJobs, YueSubmit, YueSubmitFan, YuePlan, YueCancelJob, YueAudioURL,
   YueOpenExternal, YueSaveAudio, YueOpenURL, YueGetServerURL, YueSetServerURL,
   YueWorkerConfig, YueSetWorkerConfig, YueOllamaModels,
-  YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueFxPreview, YuePlayPreview, YueDspVariants,
+  YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueFxPreview, YuePlayPreview, YueApplySteps, YueDspPresets, YueDspVariants,
   YueCopilot,
   YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
@@ -40,6 +40,9 @@ export const api = {
   // «было/стало» остаются на ПК, играет playPreview (slot '' или A–D, which wet/dry)
   fxPreview: (id, stem, steps, from, to, slot = '') => YueFxPreview(id, stem, steps, from, to, slot),
   playPreview: (id, slot, which, startSec = 0) => YuePlayPreview(id, slot, which, startSec),
+  // доска педалей на весь трек (вариант dsp-pedals.flac) и готовые наборы
+  applySteps: (id, steps, label = '') => YueApplySteps(id, steps, label),
+  dspPresets: () => YueDspPresets(),
   copilot: (p) => YueCopilot(p),
   // v2/v3
   transcribeFile: () => YueTranscribeFile(),
