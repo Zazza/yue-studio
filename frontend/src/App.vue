@@ -862,7 +862,8 @@ function onWindowClick(e) {
         <!-- таблица треков: общая рамка, строки на одной сетке; шапки колонок нет —
              всё самоочевидно, неоднозначное (версии, статус) — в подсказках -->
         <div v-if="queuePage.length" class="job-table">
-        <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
+        <article v-for="j in queuePage" :key="j.id" class="job"
+                 :class="[j.status, { playing: songPlaying(j), open: openJobs.has(j.id) }]">
         <!-- строка-таблица: всегда видно минимум, остальное — разворот по клику -->
         <div class="job-row" :class="{ open: openJobs.has(j.id) }" @click="toggleOpenJob(j.id)">
           <span class="col-play">
@@ -1556,9 +1557,15 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
   grid-template-columns: 30px minmax(0, 1fr) 150px 56px 46px 100px minmax(60px, max-content) 24px;
   padding: 5px 12px; cursor: pointer; min-height: 30px; user-select: none;
 }
-.job-row:hover { background: color-mix(in srgb, var(--panel) 60%, transparent); }
-.job-row.open { background: var(--panel); border-bottom: 1px solid var(--border);
-  box-shadow: inset 1px 1px 0 rgba(255,255,255,.05); }
+.job-row:hover { background: color-mix(in srgb, var(--panel3) 70%, transparent); }
+/* открытый трек: полоса-акцент вдоль строки + название цветом — видно издалека */
+.job.open { box-shadow: inset 3px 0 0 var(--accent); }
+.job.open > .job-row { background: var(--panel3); }
+.job.open > .job-row .job-name { color: var(--accent); }
+.job-row.open { background: var(--panel3); border-bottom: 1px solid var(--border); }
+.job-caret { font-size: 13px; color: var(--muted); }
+.job-row:hover .job-caret { color: var(--text); }
+.job.open .job-caret { color: var(--accent); }
 .col-play { display: flex; align-items: center; justify-content: center; }
 .job-row .job-play { color: var(--text); font-size: 14px; padding: 2px 4px; }
 .job-row .job-play.is-playing { color: var(--run); }
@@ -1569,7 +1576,6 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .col-kids { text-align: center; }
 .col-dur, .job-when { white-space: nowrap; font-size: 12px; text-align: right; }
 .job-folder { white-space: nowrap; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; text-align: center; }
-.job-row > .job-caret { color: var(--muted); }
 .kids-badge { cursor: pointer; flex: none; }
 .kids-badge:hover { color: var(--text); }
 /* точка-статус вместо чипа, когда играть нельзя */
