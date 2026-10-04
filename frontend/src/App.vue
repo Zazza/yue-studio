@@ -855,8 +855,9 @@ function onWindowClick(e) {
         <p class="muted">{{ filteredJobs.length
           ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
-        <!-- шапка таблицы треков: колонки выровнены со строками -->
-        <div v-if="queuePage.length" class="job-table-head muted">
+        <!-- таблица треков: общая рамка, шапка и строки на одной сетке -->
+        <div v-if="queuePage.length" class="job-table">
+        <div class="job-table-head muted">
           <span></span>
           <span>{{ t('queue.col.title') }}</span>
           <span>{{ t('queue.col.status') }}</span>
@@ -1027,6 +1028,7 @@ function onWindowClick(e) {
         </div>
         </div>
       </article>
+        </div><!-- /job-table -->
         <div v-if="qPageMax > 1" class="pager">
           <button class="ghost small-btn" :disabled="qPageNow <= 1" @click="qPage = qPageNow - 1">←</button>
           <span class="muted">{{ qPageNow }} / {{ qPageMax }}</span>
@@ -1544,19 +1546,21 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 @keyframes progress-slide { to { left: 100%; } }
 .progress-label { font-size: 11px; white-space: nowrap; }
 
-/* карточка — колонка без паддинга: строка-сводка и разворот деталей */
+/* таблица треков: одна общая рамка, строки — линии внутри (не карточки) */
+.job-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
 .job {
-  border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-bottom: 6px;
+  border: none; border-radius: 0; padding: 0; margin-bottom: 0;
   background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
 }
-/* таблица треков: колонки фиксированы — шапка и строки на одной сетке */
+.job + .job { border-top: 1px solid var(--border); }
 .job-table-head, .job-row {
   display: grid; align-items: center; gap: 8px;
   grid-template-columns: 30px minmax(0, 1fr) 150px 56px 46px 100px minmax(60px, max-content) 24px;
 }
 .job-table-head {
   font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
-  padding: 0 12px 4px; user-select: none;
+  padding: 5px 12px 4px; user-select: none;
+  background: var(--panel); border-bottom: 1px solid var(--border);
 }
 /* строка трека: минимум информации в одну линию, клик — разворот деталей */
 .job-row {
