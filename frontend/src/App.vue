@@ -487,7 +487,7 @@ function reuseJob(j) {
   styleOverride.value = j.style
   lyrics.value = j.lyrics
   seed.value = j.seed || null
-  cot.value = ['full', 'melody', 'off'].includes(j.cot) ? j.cot : 'full'
+  cot.value = j.cot === 'melody' ? 'melody' : 'full'   // «без плана» в форме нет
   temperature.value = j.temperature || CHARACTER.temperature.def
   cfgScale.value = j.cfg || CHARACTER.cfg.def
   openNewTrack()
@@ -1077,11 +1077,13 @@ function onWindowClick(e) {
         </div>
         <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
 
-        <div class="row">
-          <label class="autotr" title="Слоты можно писать по-русски: перед отправкой строка стиля переводится в английский через Ollama (qwen2.5). Модель обучена на английских тегах.">
-            <input type="checkbox" v-model="autoTranslate" /> рус → eng
+        <!-- итоговая строка стиля, которая уйдёт модели, и её перевод на английский -->
+        <div class="row style-out">
+          <span class="style-out-cap">{{ t('form.styleout') }}:</span>
+          <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle || t('form.style.empty')) }}</span>
+          <label class="autotr" :title="t('form.autotr.tip')">
+            <input type="checkbox" v-model="autoTranslate" /> {{ t('form.autotr') }}
           </label>
-          <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
         </div>
 
         <!-- редкие настройки свёрнуты; изменённое видно в заголовке, чтобы не забыть -->
@@ -1089,11 +1091,11 @@ function onWindowClick(e) {
           <summary>{{ t('form.advanced') }}<span v-if="advancedSummary" class="muted"> · {{ advancedSummary }}</span></summary>
           <div class="row">
             <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
+            <!-- «без плана» в форме нет: он отключает студию (ноты, приёмы, драматургию); в API/MCP остался -->
             <div class="cot-radios" :title="t('form.cot.tip')">
-              <span class="cot-title">{{ t('form.cot.title') }}:</span>
-              <label><input type="radio" value="full" v-model="cot" /> {{ t('form.cot.full') }}</label>
-              <label><input type="radio" value="melody" v-model="cot" /> {{ t('form.cot.melody') }}</label>
-              <label><input type="radio" value="off" v-model="cot" /> {{ t('form.cot.off') }}</label>
+              <span class="arc-title">{{ t('form.cot.title') }}:</span>
+              <button v-for="c in ['full', 'melody']" :key="c" class="toggle small-btn"
+                      :class="{ on: cot === c }" @click="cot = c">{{ t('form.cot.' + c) }}</button>
             </div>
           </div>
 
@@ -1397,8 +1399,10 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .cot-radios { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .cot-radios label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .cot-title { font-weight: 600; }
-.compiled { font-size: 11px; color: var(--muted); margin: 0 0 10px; word-break: break-word; }
-.autotr { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.style-out { align-items: center; gap: 8px; flex-wrap: nowrap; }
+.style-out-cap { flex: none; font-size: 12px; color: var(--muted); }
+.compiled { flex: 1; min-width: 0; font-size: 12px; color: var(--text); margin: 0; word-break: break-word; }
+.autotr { flex: none; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; cursor: pointer; }
 
 .actions { display: flex; gap: 8px; }
 .actions .primary { flex: 0 0 auto; }
