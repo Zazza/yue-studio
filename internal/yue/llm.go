@@ -38,7 +38,7 @@ func (c *Client) Translate(ctx context.Context, text string) (*TranslateResult, 
 // → адаптация → поле лирики). Минуты на длинных треках.
 func (c *Client) RecognizeLyrics(ctx context.Context, name string, data []byte) (*LyricsResult, error) {
 	var out LyricsResult
-	if err := c.postRaw(ctx, "/lyrics", name, data, headerTimeout, &out); err != nil {
+	if err := c.postRaw(ctx, "/lyrics", name, data, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -53,7 +53,7 @@ func (c *Client) JobLyrics(ctx context.Context, id int64, language string) (*Lyr
 	if language != "" {
 		path += "?language=" + neturl.QueryEscape(language)
 	}
-	if err := c.post(ctx, path, headerTimeout, &out); err != nil {
+	if err := c.post(ctx, path, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

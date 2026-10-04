@@ -146,7 +146,7 @@ func (c *Client) ImportTrack(ctx context.Context, name string, data []byte, tran
 	var out map[string]any
 	path := "/tracks/import?transcribe=" + strconv.FormatBool(transcribe)
 	// транскрипция может идти минутами
-	if err := c.postRaw(ctx, path, name, data, headerTimeout, &out); err != nil {
+	if err := c.postRaw(ctx, path, name, data, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

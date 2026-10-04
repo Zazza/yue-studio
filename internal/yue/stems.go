@@ -49,7 +49,7 @@ func (c *Client) UploadDsp(ctx context.Context, id int64, fname, label string, d
 // Transcribe — трек → ABC (SheetSage2; первый вызов грузит модель).
 func (c *Client) Transcribe(ctx context.Context, name string, data []byte) (*TranscribeResult, error) {
 	var out TranscribeResult
-	if err := c.postRaw(ctx, "/transcribe", name, data, copilotTimeout, &out); err != nil {
+	if err := c.postRaw(ctx, "/transcribe", name, data, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -58,7 +58,7 @@ func (c *Client) Transcribe(ctx context.Context, name string, data []byte) (*Tra
 // MakeStems — demucs: drums/bass/other/vocals + подробные guitar/piano (грузит модель при первом вызове).
 func (c *Client) MakeStems(ctx context.Context, id int64) (map[string]any, error) {
 	var out map[string]any
-	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/stems", id), planTimeout, &out); err != nil {
+	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/stems", id), gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

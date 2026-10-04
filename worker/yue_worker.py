@@ -37,6 +37,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
 from abcparse import parse_abc
@@ -79,8 +80,26 @@ app = FastAPI(title="yue-worker")
 
 _pipe = None
 _pipe_lock = threading.Lock()   # одна операция с моделью одновременно
+_gpu_lock = threading.RLock()   # очередь к GPU: рендер/транскрипция/стемы/whisper не работают параллельно
 _load_lock = threading.Lock()
 _load_error: str | None = None
+
+
+@contextmanager
+def gpu_queue(section: str = "gpu"):
+    """Очередь к единственному GPU: всё тяжёлое (YuE2, demucs, SheetSage,
+    whisper-сабпроцесс) проходит через один лок, иначе параллельные CUDA-контексты
+    ломают друг другу graph capture (cudaErrorStreamCaptureInvalidated).
+    Порядок захвата везде _pipe_lock → _gpu_lock, обратного нет — дедлока не будет."""
+    t0 = time.monotonic()
+    _gpu_lock.acquire()
+    try:
+        wait = time.monotonic() - t0
+        if wait > 1.0:
+            logger.info("gpu queue: %s ждал(а) лок %.1f с", section, wait)
+        yield
+    finally:
+        _gpu_lock.release()
 
 db_lock = threading.Lock()
 
@@ -431,7 +450,7 @@ def _run_job(job_id: int):
         return
     watch_stop = _progress_watcher(job_id, counters, time.time(), budget)
     try:  # noqa: SIM105 - очистка состояния после любого исхода
-        with _pipe_lock:
+        with _pipe_lock, gpu_queue(f"render {job_id}"):
             pipe = _get_pipe()
             counters["phase"] = "plan"
             request = {"style": row["style"], "lyrics": row["lyrics"], "cot": row["cot"],
@@ -544,7 +563,8 @@ def _mark_failed(job_id: int, e: BaseException) -> None:
 
 def _separate(job_id: int, audio: Path, jdir: Path) -> dict:
     """Дорожки demucs + проверка голоса в треке «без голоса» (vocal_leak)."""
-    result = demucs_separate(audio, jdir)
+    with gpu_queue(f"stems {job_id}"):
+        result = demucs_separate(audio, jdir)
     check_vocal_leak(job_id)
     return result
 
@@ -568,9 +588,10 @@ def _run_voice_job(job_id: int, row, job_dir: Path):
         src = _ensure_stems(int(row["parent_id"]))
         ref = _ensure_stems(int(p["ref_job_id"]))
         parent = _job_row(int(row["parent_id"]))
-        audio = voicevc.run(src, parent["audio_file"], ref, job_dir,
-                            None if p.get("ref_from") is None else float(p["ref_from"]),
-                            float(p["ref_dur"]), int(p["steps"]))
+        with gpu_queue(f"voice {job_id}"):
+            audio = voicevc.run(src, parent["audio_file"], ref, job_dir,
+                                None if p.get("ref_from") is None else float(p["ref_from"]),
+                                float(p["ref_dur"]), int(p["steps"]))
         # ноты те же — ролл и превью работают по плану родителя
         for f in ("score.abc", "score.json"):
             if (src / f).is_file():
@@ -1035,7 +1056,7 @@ def plan(req: PlanIn):
     # пусто — случайный (раньше — всегда сид библиотеки); сид в ответе:
     # трек по этому плану с тем же сидом споёт так же
     seed = req.seed or random.randrange(1, 2**31)
-    with _pipe_lock:
+    with _pipe_lock, gpu_queue("plan"):
         pipe = _get_pipe()
         t0 = time.time()
         result = pipe.plan(style=req.style, lyrics=req.lyrics, cot=req.cot, seed=seed)
@@ -1261,7 +1282,10 @@ def _whisper_lyrics(src: Path, language: str | None = None) -> tuple[str, str]:
         cmd = [str(WHISPER_PY), str(Path(__file__).parent / "whisper_run.py"), str(src)]
         if language:
             cmd += ["--language", language]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+        # whisper-сабпроцесс тоже занимает GPU — через общую очередь, иначе
+        # ломает CUDA-контекст идущего рендера
+        with gpu_queue("whisper"):
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
         if r.returncode != 0:
             return "", (r.stderr or "whisper failed")[-500:]
         return json.loads(r.stdout).get("text", ""), ""
@@ -1292,7 +1316,8 @@ async def recognize_lyrics(request: Request):
         src = Path(td) / fname
         src.write_bytes(data)
         t0 = time.time()
-        text, err = _whisper_lyrics(src, language)
+        # whisper занимает GPU — в тредпул: ждёт очередь к GPU, не блокируя event loop
+        text, err = await run_in_threadpool(_whisper_lyrics, src, language)
     if err:
         raise HTTPException(500, f"lyrics recognition failed: {err}")
     if not text.strip():
@@ -1320,6 +1345,12 @@ def adapt_lyrics(req: LyricsAdaptIn):
 
 # ---------- Remix: транскрипция трека (SheetSage2) ----------
 
+def _ss_transcribe_queued(src: Path, dst: Path) -> dict:
+    """SheetSage-транскрипция через общую очередь к GPU."""
+    with gpu_queue(f"transcribe {src.name}"):
+        return ss_transcribe(src, dst)
+
+
 @app.post("/transcribe")
 async def transcribe(request: Request):
     """Трек (тело — байты аудио, X-Filename) → ABC лид-лист. Для каверов:
@@ -1334,7 +1365,9 @@ async def transcribe(request: Request):
     src = tdir / fname
     src.write_bytes(data)
     try:
-        result = ss_transcribe(src, tdir)
+        # GPU-транскрипция — в тредпуле через общую очередь к GPU:
+        # ждёт рендер, а не блокирует event loop воркера
+        result = await run_in_threadpool(_ss_transcribe_queued, src, tdir)
     except Exception as e:  # noqa: BLE001
         log.exception("transcribe failed")
         raise HTTPException(500, f"transcribe failed: {e}") from e
@@ -1738,7 +1771,7 @@ def job_preview(job_id: int, body: dict):
     from_s = min(max(0.0, from_s), max(0.0, total_sec - 1.0))
     to_s = min(max(to_s, from_s + 1.0), total_sec)
     a, b = int(from_s * LATENT_HZ), max(int(to_s * LATENT_HZ), int(from_s * LATENT_HZ) + 1)
-    with _pipe_lock:
+    with _pipe_lock, gpu_queue(f"preview {job_id}"):
         pipe = _get_pipe()
         try:
             audio = pipe.decode(z[a:b, :])
@@ -1894,7 +1927,7 @@ async def tracks_import(request: Request, transcribe: bool = True, title: str = 
     transcribe_error = ""
     if transcribe:
         try:
-            result = ss_transcribe(audio, jdir)
+            result = await run_in_threadpool(_ss_transcribe_queued, audio, jdir)
             (jdir / "score.abc").write_text(result.get("abc", ""), encoding="utf-8")
             abc_file = "score.abc" if result.get("abc", "").strip() else ""
         except Exception as e:  # noqa: BLE001
@@ -2082,12 +2115,12 @@ async def corpus_add_track(cid: int, request: Request):
     except Exception as e:  # noqa: BLE001
         info["metrics_error"] = str(e)
     try:
-        t = ss_transcribe(src, track_dir / "ss2")
+        t = await run_in_threadpool(_ss_transcribe_queued, src, track_dir / "ss2")
         info["abc"] = t["abc"]
         info["stats"] = t["stats"]
     except Exception as e:  # noqa: BLE001
         info["abc_error"] = str(e)
-    lyrics_text, lyrics_err = _whisper_lyrics(src)
+    lyrics_text, lyrics_err = await run_in_threadpool(_whisper_lyrics, src)
     info["lyrics"] = lyrics_text
     info["lyrics_error"] = lyrics_err
     (track_dir / "info.json").write_text(json.dumps(info, ensure_ascii=False))

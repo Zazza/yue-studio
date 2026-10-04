@@ -3,7 +3,6 @@ package yue
 import (
 	"context"
 	"fmt"
-	"time"
 )
 
 func (c *Client) CorpusCreate(ctx context.Context, name string) (int64, error) {
@@ -19,7 +18,7 @@ func (c *Client) CorpusCreate(ctx context.Context, name string) (int64, error) {
 // CorpusAddTrack — трек корпуса: DSP-паспорт + транскрипция + Whisper (минуты).
 func (c *Client) CorpusAddTrack(ctx context.Context, id int64, name string, data []byte) (map[string]any, error) {
 	var out map[string]any
-	if err := c.postRaw(ctx, fmt.Sprintf("/corpus/%d/track", id), name, data, 15*time.Minute, &out); err != nil {
+	if err := c.postRaw(ctx, fmt.Sprintf("/corpus/%d/track", id), name, data, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
