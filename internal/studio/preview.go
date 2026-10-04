@@ -113,8 +113,9 @@ func Preview(ctx context.Context, svc yue.Service, cache *Cache, spec PreviewSpe
 		return nil, fmt.Errorf("эффект на %s: %w", spec.Stem, err)
 	}
 	gain := 1.0
-	if dsp.StepsVoice(spec.Steps) {
-		// голосовая примочка: громкость обработанной дорожки в окне — по исходной
+	if match, extraDb := dsp.StepsMatch(spec.Steps); match {
+		// голосовая примочка или перегруз: громкость обработанной дорожки в окне —
+		// по исходной, крутилка «громкость» перегруза — сверху
 		ref, err := dsp.DecodeMono(stemSeg, previewRate, lead, win)
 		if err != nil {
 			return nil, err
@@ -123,7 +124,7 @@ func Preview(ctx context.Context, svc yue.Service, cache *Cache, spec PreviewSpe
 		if err != nil {
 			return nil, err
 		}
-		gain = dsp.InsertGain(dsp.RMS(ref), dsp.RMS(wet), 0)
+		gain = dsp.InsertGain(dsp.RMS(ref), dsp.RMS(wet), extraDb)
 	}
 	mix := fmt.Sprintf("[1:a]volume=%g[pv_f];[2:a]volume=-1[pv_s];"+
 		"[0:a][pv_f][pv_s]amix=inputs=3:duration=first:normalize=0,%s[out]", gain, cut)

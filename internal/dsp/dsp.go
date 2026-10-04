@@ -34,6 +34,11 @@ type Chain struct {
 	// Pedal — гитарная педаль: цепочка видна в палитре блока «Педали» (и в общем
 	// списке эффектов, как все)
 	Pedal bool `json:"pedal,omitempty"`
+	// match — громкость обработанной дорожки выравнивается по исходной (RMS в
+	// окне), крутилка level — поправка сверху. Перегрузы клиппингом выводят
+	// любую дорожку почти на полную шкалу: гитара −15 дБ после фузза становилась
+	// громче всего микса и клиппировала его (набор «Гранж» на #331: −8 → −2.2 LUFS)
+	match bool
 
 	graph func(p map[string]float64) string
 	// tail — сколько секунд эффект звучит после конца звука (реверб, дилей);
@@ -717,22 +722,22 @@ var chains = []Chain{
 	{
 		ID: "od-ts", Name: "Овердрайв (Tube Screamer)",
 		Note:   "Тёплый перегруз с горбом середины: гитара выходит вперёд и не гудит на низах — блюз, классик-рок, соло.",
-		Params: driveParams(18, 40, 3.5), graph: odTSGraph, Pedal: true,
+		Params: driveParams(18, 40, 3.5), graph: odTSGraph, Pedal: true, match: true,
 	},
 	{
 		ID: "fuzz-muff", Name: "Фузз (Big Muff)",
 		Note:   "Толстый фузз с огромным сустейном и провалом середины — стена гитар, шугейз, стоунер.",
-		Params: muffParams, graph: muffGraph, Pedal: true,
+		Params: muffParams, graph: muffGraph, Pedal: true, match: true,
 	},
 	{
 		ID: "dist-rat", Name: "Дисторшн (RAT)",
 		Note:   "Жёсткий резкий дисторшн, «фильтр» срезает верх — панк, гранж, нойз.",
-		Params: driveParams(28, 45, 4), graph: ratGraph, Pedal: true,
+		Params: driveParams(28, 45, 4), graph: ratGraph, Pedal: true, match: true,
 	},
 	{
 		ID: "fuzz-octave", Name: "Октавный фузз",
 		Note:   "Фузз с октавой вверх (как Octavia у Хендрикса): звенящий, «синтезаторный» на соло.",
-		Params: octFuzzParams, graph: octFuzzGraph, Pedal: true,
+		Params: octFuzzParams, graph: octFuzzGraph, Pedal: true, match: true,
 	},
 	{
 		ID: "boost", Name: "Бустер",

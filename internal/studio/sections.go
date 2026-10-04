@@ -329,7 +329,7 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		if err := runFx(fx, src, parent, out1); err != nil {
 			return nil, fmt.Errorf("эффект %s на %s: %w", fx.name, name, err)
 		}
-		gain, err := fxGain(fx.voice, parent[name], out1, s)
+		gain, err := fxGain(fx.voice, fx.extraDb, parent[name], out1, s)
 		if err != nil {
 			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", fx.name, name, err)
 		}
@@ -348,11 +348,12 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 // fxPlan — эффект записи пересборки: граф ffmpeg, хвост, голосовой ли
 // (выравнивание громкости), дорожка-ключ (только у одиночной цепочки).
 type fxPlan struct {
-	name  string
-	graph string
-	tail  float64
-	voice bool
-	key   string
+	name    string
+	graph   string
+	tail    float64
+	voice   bool    // выравнивать громкость по исходной дорожке
+	extraDb float64 // поправка сверху (крутилки «громкость» перегрузов)
+	key     string
 }
 
 func planFx(s SectionSpec) (fxPlan, error) {
@@ -361,14 +362,16 @@ func planFx(s SectionSpec) (fxPlan, error) {
 		if err != nil {
 			return fxPlan{}, err
 		}
-		return fxPlan{name: StepsLabel(s.Steps), graph: g, tail: tail, voice: dsp.StepsVoice(s.Steps)}, nil
+		match, extraDb := dsp.StepsMatch(s.Steps)
+		return fxPlan{name: StepsLabel(s.Steps), graph: g, tail: tail, voice: match, extraDb: extraDb}, nil
 	}
 	chain := dsp.ByID(s.Chain)
 	if chain == nil {
 		return fxPlan{}, fmt.Errorf("неизвестный эффект %q", s.Chain)
 	}
+	match, extraDb := dsp.StepsMatch([]dsp.Step{{Chain: s.Chain, Params: s.Params}})
 	return fxPlan{name: s.Chain, graph: chain.FilterGraph(s.Params), tail: chain.TailSec(s.Params),
-		voice: chain.Voice, key: chain.Key}, nil
+		voice: match, extraDb: extraDb, key: chain.Key}, nil
 }
 
 // StepsLabel — «Фузз (Big Muff) → Хорус → Реверб: зал» (выключенные пропущены).
@@ -427,7 +430,7 @@ func envelopeInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs 
 // (перегруз/клиппинг сжимает и громчит). «Ремонтные» цепочки (вырез свиста,
 // де-эссер) уровень дорожки менять не должны: вырез почти всего сигнала
 // «добрал» бы гейном до исходного уровня — там только дБ.
-func fxGain(voice bool, oldPath, fxPath string, s SectionSpec) (float64, error) {
+func fxGain(voice bool, extraDb float64, oldPath, fxPath string, s SectionSpec) (float64, error) {
 	if !voice {
 		return math.Pow(10, s.Db/20), nil
 	}
@@ -443,7 +446,7 @@ func fxGain(voice bool, oldPath, fxPath string, s SectionSpec) (float64, error) 
 	if err != nil {
 		return 0, err
 	}
-	return dsp.InsertGain(dsp.RMS(ref), dsp.RMS(wet), s.Db), nil
+	return dsp.InsertGain(dsp.RMS(ref), dsp.RMS(wet), s.Db+extraDb), nil
 }
 
 // fxWindowForever — «до конца трека» для окна эффекта (длиннее любой песни)

@@ -65,15 +65,22 @@ func StepsGraph(steps []Step) (graph string, tail float64, err error) {
 	return strings.Join(parts, ";"), tail, nil
 }
 
-// StepsVoice — есть ли в цепочке голосовая примочка: тогда громкость
-// обработанной дорожки выравнивается по исходной, как у одной голосовой цепочки.
-func StepsVoice(steps []Step) bool {
+// StepsMatch — выравнивать ли громкость обработанной дорожки по исходной: в
+// цепочке есть голосовая примочка или перегруз (match). extraDb — поправка
+// сверху: сумма крутилок «громкость» (level) у перегрузов — после выравнивания
+// внутри графа она бы потерялась.
+func StepsMatch(steps []Step) (match bool, extraDb float64) {
 	for _, s := range steps {
-		if c := ByID(s.Chain); !s.Off && c != nil && c.Voice {
-			return true
+		c := ByID(s.Chain)
+		if s.Off || c == nil || (!c.Voice && !c.match) {
+			continue
+		}
+		match = true
+		if c.match {
+			extraDb += c.values(s.Params)["level"]
 		}
 	}
-	return false
+	return match, extraDb
 }
 
 // timedParams — крутилки с секундой трека: такой цепочке нужен звук с начала
