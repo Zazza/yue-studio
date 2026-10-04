@@ -296,21 +296,52 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 		if !slices.Contains(mutable, name) || parent[name] == "" {
 			continue
 		}
+		from, dur := insertWindow(s, fadeIn, fadeOut)
+		// хвост (реверб, дилей) звучит после окна: цепочка получает дорожку,
+		// уже обрезанную по окну с теми же фейдами, что у вычитаемой исходной, —
+		// после To в обработанной остаётся только хвост, сухая не удваивается
+		src := parent[name]
+		tail := 0.0
+		if s.To > 0 {
+			tail = chain.TailSec(s.Params)
+		}
+		if tail > 0 {
+			src = fmt.Sprintf("%s/win-%d-%s.flac", dir, idx, name)
+			if err := dsp.Run(parent[name], src, dsp.WindowGraph(from, fadeIn, s.To, fadeOut), nil); err != nil {
+				return nil, fmt.Errorf("окно эффекта %s на %s: %w", s.Chain, name, err)
+			}
+		}
 		fx := fmt.Sprintf("%s/fx-%d-%s.flac", dir, idx, name)
-		if err := dsp.Run(parent[name], fx, chain.FilterGraph(s.Params), nil); err != nil {
+		if err := runFx(chain, s.Params, src, parent, fx); err != nil {
 			return nil, fmt.Errorf("эффект %s на %s: %w", s.Chain, name, err)
 		}
 		gain, err := fxGain(chain, parent[name], fx, s)
 		if err != nil {
 			return nil, fmt.Errorf("уровень эффекта %s на %s: %w", s.Chain, name, err)
 		}
-		from, dur := insertWindow(s, fadeIn, fadeOut)
+		wet := dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut}
+		if tail > 0 {
+			// вход уже с фейдами окна; короткий спад — в самом конце хвоста
+			wet = dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur + tail, Gain: gain, FadeOut: muteFadeSec}
+		}
 		*inputs = append(*inputs, fx, parent[name])
-		out = append(out,
-			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: gain, FadeIn: fadeIn, FadeOut: fadeOut},
+		out = append(out, wet,
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
 	}
 	return out, nil
+}
+
+// runFx — цепочка на дорожку src; цепочка с ключом (ducking) получает
+// вторым входом дорожку-ключ трека.
+func runFx(chain *dsp.Chain, params map[string]float64, src string, parent stemSet, out string) error {
+	if chain.Key == "" {
+		return dsp.Run(src, out, chain.FilterGraph(params), nil)
+	}
+	key := parent[chain.Key]
+	if key == "" {
+		return fmt.Errorf("нет дорожки-ключа %q", chain.Key)
+	}
+	return dsp.RunInputs([]string{src, key}, out, chain.FilterGraph(params))
 }
 
 // envelopeInserts — линия громкости на дорожки Stems: дорожка целиком через

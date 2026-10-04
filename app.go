@@ -162,6 +162,9 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	if chain == nil {
 		return nil, fmt.Errorf("unknown chain %q", chainID)
 	}
+	if chain.Key != "" {
+		return nil, fmt.Errorf("эффект %q — только на дорожку (ключ — дорожка %s)", chain.Name, chain.Key)
+	}
 	jobs, err := a.yue.Jobs(a.ctx)
 	if err != nil {
 		return nil, err

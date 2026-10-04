@@ -74,7 +74,9 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 само делают `continue_job`/`revoice_start` с `abc`) · эффект на отдельную дорожку: `dsp_apply` со `stem` (+ `from`/`to`, `db`)
 или спека `rebuild_sections` с `chain`/`params` — остальные дорожки не меняются (`soften` — «Смягчить звон» голоса);
 голосовые цепочки (`voice=true` в `dsp_chains`: мегафон/телефон/перегруз/слэпбэк) — громкость обработанной дорожки
-выравнивается по исходной (RMS), `db` сверху, крутилка `mix` — доля эффекта.
+выравнивается по исходной (RMS), `db` сверху, крутилка `mix` — доля эффекта. Цепочки с `key`
+(`ducking`, `key=drums`) — только со `stem`: ключ — стем трека; на весь трек — ошибка. Реверб и
+дилей со `stem` в окне `from`–`to` продолжают звучать хвостом после `to`.
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` (сразу с `title`/`folder`) · `voice_convert` (ЭКСПЕРИМЕНТ «голос альбома»: голос трека тембром образца, Seed-VC на воркере; голос дрожит — docs/deployment.md) ·
 `dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `volume_envelope` (линия громкости

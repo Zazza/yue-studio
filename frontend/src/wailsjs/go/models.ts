@@ -28,6 +28,7 @@ export namespace dsp {
 	    note: string;
 	    params: Param[];
 	    voice?: boolean;
+	    key?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Chain(source);
@@ -40,6 +41,7 @@ export namespace dsp {
 	        this.note = source["note"];
 	        this.params = this.convertValues(source["params"], Param);
 	        this.voice = source["voice"];
+	        this.key = source["key"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

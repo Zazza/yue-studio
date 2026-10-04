@@ -127,9 +127,20 @@ func TestChainsFromParamOnlyWithoutStart(t *testing.T) {
 func TestEveryChainDefaultsRuns(t *testing.T) {
 	needFFmpeg(t)
 	in, _ := genIn(t, "0.5*sin(2*PI*440*t)", 3)
+	// цепочки с Key (ducking) работают только с ключом — второй вход: щелчки каждые 0.5 с
+	key, _ := genIn(t, "0.8*lt(mod(t\\,0.5)\\,0.02)", 3)
 	for _, c := range All() {
 		t.Run(c.ID, func(t *testing.T) {
-			out := runChain(t, c.ID, in, nil)
+			var out []float32
+			if c.Key != "" {
+				p := filepath.Join(t.TempDir(), "out.flac")
+				if err := RunInputs([]string{in, key}, p, c.FilterGraph(nil)); err != nil {
+					t.Fatalf("RunInputs %s с ключом: %v", c.ID, err)
+				}
+				out = decode(t, p)
+			} else {
+				out = runChain(t, c.ID, in, nil)
+			}
 			if d := secs(out); d < 1 {
 				t.Errorf("выход %.2f с — подозрительно короткий", d)
 			}

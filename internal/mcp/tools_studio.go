@@ -66,7 +66,9 @@ func RegisterStudioTools(s *Server) {
 	s.Register(Tool{
 		Name: "dsp_chains",
 		Description: "Пресеты DSP-цепочек эффектов (ffmpeg на ПК): список, параметры и диапазоны крутилок. " +
-			"Цепочки с voice=true — примочки на голос (мегафон, телефон, перегруз, слэпбэк): применять на дорожку vocals.",
+			"Цепочки с voice=true — примочки на голос (мегафон, телефон, перегруз, слэпбэк): применять на дорожку vocals. " +
+			"Цепочки с key (ducking, key=drums) — только на дорожку (stem, обычно other или bass): ключ — стем key трека. " +
+			"Реверб и дилей на дорожке в окне from–to звучат хвостом и после to.",
 		InputSchema: props(nil),
 		Handler: func(s *Server, _ map[string]any) (string, error) {
 			return toJSON(dsp.All()), nil
@@ -76,7 +78,8 @@ func RegisterStudioTools(s *Server) {
 	s.Register(Tool{
 		Name: "dsp_apply",
 		Description: "Применить DSP-цепочку к треку джобы (ffmpeg локально): «стена громкости», «кассета» и т.д. " +
-			"params — {id параметра: число} (диапазоны — dsp_chains).",
+			"params — {id параметра: число} (диапазоны — dsp_chains). Цепочки с key (ducking) — только со stem: " +
+			"ключ — стем key трека, без stem — ошибка.",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
@@ -687,6 +690,9 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	chain := dsp.ByID(chainID)
 	if chain == nil {
 		return nil, fmt.Errorf("unknown chain %q (см. dsp_chains)", chainID)
+	}
+	if chain.Key != "" {
+		return nil, fmt.Errorf("цепочка %s — только на дорожку: укажи stem (ключ — дорожка %s)", chainID, chain.Key)
 	}
 	jobs, err := s.client.Jobs(context.Background())
 	if err != nil {

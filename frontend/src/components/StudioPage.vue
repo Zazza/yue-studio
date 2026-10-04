@@ -16,7 +16,7 @@ import { insertTitle, insertWindow, mixChildId, mixLabel } from '../insertLabels
 import { applyFoundTones } from '../dspTones.js'
 import { isFlat, bumpRange } from '../envelope.js'
 import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
-import { chainDefaults, voiceTarget } from '../dspVoice.js'
+import { chainDefaults, hasGrid, needsStem, voiceTarget } from '../dspVoice.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
@@ -1206,6 +1206,8 @@ async function applyEnvelope() {
 }
 const dspTarget = ref('')
 const dspTargetOptions = computed(() => DSP_TARGETS.map((v) => ({ value: v, label: t('studio.dsp.target.' + (v || 'mix')) })))
+// цели эффекта: цепочке с ключом (ducking) весь микс недоступен
+const fxTargetOptions = computed(() => dspTargetOptions.value.filter((o) => o.value || !needsStem(curChain.value)))
 
 // «найти свист»: узкие тона (воркер) в выбранной дорожке или миксе — окно =
 // выделение на ролле/волне или крутилки start/end; до трёх тонов → вырезы
@@ -1689,8 +1691,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
                        :placeholder="t('studio.dsp.chain')" style="max-width: 220px"
                        @update:model-value="(v) => selChain(v)" />
-              <VSelect v-model="dspTarget" :options="dspTargetOptions" :title="t('studio.dsp.target.tip')" style="max-width: 150px" />
-              <button class="primary small" :disabled="!dspSel || dspBusy" @click="applyDsp">
+              <VSelect v-model="dspTarget" :options="fxTargetOptions" :title="t('studio.dsp.target.tip')" style="max-width: 150px" />
+              <button class="primary small" :disabled="!dspSel || dspBusy || (needsStem(curChain) && !dspTarget)" @click="applyDsp">
                 {{ dspBusy ? t('studio.dsp.applying') : t('studio.dsp.apply') }}
               </button>
               <button class="ghost small-btn" :disabled="!dspSel || dspBusy || !!dspTarget"
@@ -1705,7 +1707,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       @click="findWhistle">{{ toneBusy ? '…' : t('studio.dsp.tones') }}</button>
               <span v-if="toneMsg" class="muted">{{ toneMsg }}</span>
             </div>
-            <div v-if="dspSel === 'gate'" class="dsp-row">
+            <div v-if="hasGrid(curChain)" class="dsp-row">
               <button class="ghost small-btn" :disabled="gridBusy || dspBusy" :title="t('studio.dsp.grid.tip')"
                       @click="findGrid">{{ gridBusy ? '…' : t('studio.dsp.grid') }}</button>
               <span v-if="gridMsg" class="muted">{{ gridMsg }}</span>

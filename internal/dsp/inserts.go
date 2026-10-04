@@ -95,3 +95,20 @@ func RunInputs(inputs []string, outPath, graph string) error {
 	}
 	return nil
 }
+
+// WindowGraph — граф для Run: звук только в окне вставки — линейный подъём
+// [from, from+fadeIn], полная громкость до to, линейный спад [to, to+fadeOut],
+// вне окна тишина. Та же форма, что у afade в InsertsGraph (кривая tri), и
+// посэмплово (aeval): окно эффекта с хвостом вычитается из трека той же
+// вставкой без остатка сухого звука.
+func WindowGraph(from, fadeIn, to, fadeOut float64) string {
+	up := fmt.Sprintf("gte(t\\,%g)", from)
+	if fadeIn > 0 {
+		up = fmt.Sprintf("clip((t-%g)/%g\\,0\\,1)", from, fadeIn)
+	}
+	down := fmt.Sprintf("lt(t\\,%g)", to)
+	if fadeOut > 0 {
+		down = fmt.Sprintf("clip((%g-t)/%g\\,0\\,1)", to+fadeOut, fadeOut)
+	}
+	return fmt.Sprintf("[0:a]aeval=exprs='val(ch)*%s*%s':c=same[out]", up, down)
+}

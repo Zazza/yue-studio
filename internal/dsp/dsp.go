@@ -27,8 +27,15 @@ type Chain struct {
 	// примочки «как у Джека Уайта или Летова». UI такой цепочке автоматически
 	// выбирает дорожку «голос»; применение на весь микс остаётся возможным
 	Voice bool `json:"voice,omitempty"`
+	// Key — дорожка-ключ (стем трека, напр. "drums"): граф читает её вторым
+	// входом [1:a]. Такая цепочка работает только эффектом на дорожку — у
+	// всего трека стемов-ключей нет
+	Key string `json:"key,omitempty"`
 
 	graph func(p map[string]float64) string
+	// tail — сколько секунд эффект звучит после конца звука (реверб, дилей);
+	// nil — хвоста нет
+	tail func(p map[string]float64) float64
 }
 
 var wallParams = []Param{
@@ -584,6 +591,126 @@ var chains = []Chain{
 			"Цепочка для дорожки «голос» — дорожка выбирается сама.",
 		Params: slapbackParams, graph: slapbackGraph, Voice: true,
 	},
+	{
+		ID: "reverb-room", Name: "Реверб: комната",
+		Note: "Небольшое помещение: плотные ранние отражения, короткий хвост — инструмент «в комнате», а не в вакууме. " +
+			"На голос — эффектом на дорожку «голос».",
+		Params: reverbParams(0.3, 1.5, 0.6, 10, 8), graph: reverbGraph("room"), tail: reverbTail,
+	},
+	{
+		ID: "reverb-hall", Name: "Реверб: зал",
+		Note:   "Большой зал: хвост нарастает и долго гаснет — объём и глубина для медленных частей и голоса.",
+		Params: reverbParams(1, 6, 2.5, 30, 6), graph: reverbGraph("hall"), tail: reverbTail,
+	},
+	{
+		ID: "reverb-plate", Name: "Реверб: плейт",
+		Note:   "Студийная пластина: сразу плотный яркий хвост без отражений — классика для голоса и малого барабана.",
+		Params: reverbParams(0.5, 4, 1.6, 5, 12), graph: reverbGraph("plate"), tail: reverbTail,
+	},
+	{
+		ID: "reverb-spring", Name: "Реверб: пружина",
+		Note:   "Гитарный пружинный ревер: узкая полоса и металлический «дребезг» — сёрф, рокабилли, даб.",
+		Params: reverbParams(0.5, 3, 1.2, 0, 4.5), graph: reverbGraph("spring"), tail: reverbTail,
+	},
+	{
+		ID: "delay", Name: "Дилей в темп",
+		Note: "Повторы в долю трека (1/4, 1/8, 1/8 с точкой…), затухают с обратной связью, пинг-понг между каналами, " +
+			"верх повторов срезан. Темп подскажет «найти сетку».",
+		Params: delayParams, graph: delayGraph, tail: delayTail,
+	},
+	{
+		ID: "width", Name: "Стерео-ширина",
+		Note:   "Шире или уже стереобазы через середину/бока; низ остаётся в центре. 0 — моно.",
+		Params: widthParams, graph: widthGraph,
+	},
+	{
+		ID: "haas", Name: "Удвоение (Хаас)",
+		Note:   "Один канал позже на 10–30 мс: звук один, но широкий — «двойной» голос или гитара.",
+		Params: haasParams, graph: haasGraph,
+	},
+	{
+		ID: "chorus", Name: "Хорус",
+		Note:   "Несколько слегка «плывущих» копий: звук шире и гуще, как несколько исполнителей.",
+		Params: chorusParams, graph: chorusGraph,
+	},
+	{
+		ID: "flanger", Name: "Фленжер",
+		Note:   "Гребёнка, которая ездит по спектру: «реактивный» свист на гитарах, тарелках, синтах.",
+		Params: flangerParams, graph: flangerGraph,
+	},
+	{
+		ID: "phaser", Name: "Фэйзер",
+		Note:   "Мягкое «качание» провалов спектра — психоделия 70-х на клавишах и гитаре.",
+		Params: phaserParams, graph: phaserGraph,
+	},
+	{
+		ID: "tremolo", Name: "Тремоло",
+		Note:   "Плавное синусное качание громкости (без краёв, в отличие от Ритм-гейта) — винтажный усилитель.",
+		Params: tremoloParams, graph: tremoloGraph,
+	},
+	{
+		ID: "eq", Name: "Эквалайзер",
+		Note:   "Полки низа и верха, колокол середины: поправить тембр дорожки или трека. 0 дБ — полоса выключена.",
+		Params: eqParams, graph: eqGraph,
+	},
+	{
+		ID: "sweep", Name: "Свип фильтра",
+		Note: "С отметки частота среза едет за N секунд — «разгон перед припевом» (срез низа вверх) или " +
+			"«уход в подушку» (срез верха вниз). После окна звук снова сухой или держит конечную частоту.",
+		Params: sweepParams, graph: sweepGraph,
+	},
+	{
+		ID: "autowah", Name: "Авто-вау",
+		Note:   "Полосовой фильтр качается между двумя частотами — «вау-вау» на гитаре или клавишах (качание, без слежения за громкостью).",
+		Params: autowahParams, graph: autowahGraph,
+	},
+	{
+		ID: "fade", Name: "Нарастание/затухание",
+		Note:   "Плавное нарастание с начала трека и/или затухание с отметки до тишины.",
+		Params: fadeParams, graph: fadeGraph,
+	},
+	{
+		ID: "multiband", Name: "Многополосный компрессор",
+		Note:   "Три полосы со своим компрессором: плотнее и ровнее, громкий бас не прижимает голос и тарелки.",
+		Params: multibandParams, graph: multibandGraph,
+	},
+	{
+		ID: "ducking", Name: "Ducking от барабанов",
+		Note: "Дорожка приседает на каждом ударе барабанов — «качающий» микс, бочка пробивается. " +
+			"Только эффектом на дорожку (обычно «прочее» или бас): ключ — барабаны трека.",
+		Params: duckingParams, graph: duckingGraph, Key: duckingKey,
+	},
+	{
+		ID: "pitch", Name: "Транспонирование",
+		Note:   "Выше или ниже на полутоны без смены темпа (rubberband), форманты голоса сохраняются.",
+		Params: pitchParams, graph: pitchGraph,
+	},
+	{
+		ID: "octaver", Name: "Октавер",
+		Note:   "Подмешивает копию на октаву ниже и/или выше — толще бас, «органный» голос.",
+		Params: octaverParams, graph: octaverGraph,
+	},
+	{
+		ID: "reverse", Name: "Реверс к отметке",
+		Note: "Перед отметкой звучит кусок задом наперёд: реверс-тарелка, «втягивающаяся» в удар, " +
+			"или реверс-хвост. Длина трека не меняется.",
+		Params: reverseParams, graph: reverseGraph,
+	},
+	{
+		ID: "stutter", Name: "Статтер",
+		Note:   "С отметки один удар сетки повторяется N раз подряд — электронное «заикание» перед сбивкой.",
+		Params: stutterParams, graph: stutterGraph,
+	},
+	{
+		ID: "tape-stop", Name: "Остановка ленты",
+		Note:   "С отметки звук замедляется и опускается вниз до остановки, как выключенный магнитофон; потом трек идёт дальше.",
+		Params: tapeStopParams, graph: tapeStopGraph,
+	},
+	{
+		ID: "vinyl", Name: "Винил",
+		Note:   "Треск и щелчки пластинки, тихий шум, чуть закрытый верх.",
+		Params: vinylParams, graph: vinylGraph,
+	},
 }
 
 // All — все пресеты (для UI).
@@ -605,6 +732,25 @@ func ByID(id string) *Chain {
 // FilterGraph строит filter_complex: недостающие параметры берутся
 // по умолчанию, значения зажимаются в диапазон крутилки.
 func (c *Chain) FilterGraph(params map[string]float64) string {
+	p := c.values(params)
+	g := c.graph(p)
+	if mix, ok := p[mixParamID]; ok {
+		g = dryWet(g, mix)
+	}
+	return withFrom(g, p[fromParamID])
+}
+
+// TailSec — хвост эффекта после конца звука, с (0 — без хвоста): эффект на
+// дорожку в окне продлевает обработанную дорожку на хвост.
+func (c *Chain) TailSec(params map[string]float64) float64 {
+	if c.tail == nil {
+		return 0
+	}
+	return c.tail(c.values(params))
+}
+
+// values — параметры цепочки: недостающие по умолчанию, зажатые в диапазон.
+func (c *Chain) values(params map[string]float64) map[string]float64 {
 	p := make(map[string]float64, len(c.Params))
 	for _, prm := range c.Params {
 		v, ok := params[prm.ID]
@@ -619,11 +765,7 @@ func (c *Chain) FilterGraph(params map[string]float64) string {
 		}
 		p[prm.ID] = v
 	}
-	g := c.graph(p)
-	if c.Voice {
-		g = dryWet(g, p[mixParamID])
-	}
-	return withFrom(g, p[fromParamID])
+	return p
 }
 
 // fromParamID — общий параметр «с какой секунды»: эффект включается с
@@ -636,28 +778,30 @@ const (
 
 var fromParam = Param{ID: fromParamID, Label: "с какой секунды (0 — весь трек)", Min: 0, Max: 600, Step: 0.5, Default: 0}
 
-// mixParamID — общий параметр голосовых цепочек «сухой/обработанный»: доля
-// эффекта в финальном микше (0 — сухой голос, 1 — только обработанный).
+// mixParamID — параметр «сухой/обработанный»: доля эффекта в финальном микше
+// (0 — сухой звук, 1 — только обработанный). Голосовые цепочки получают общий,
+// остальные (хорус, удвоение…) объявляют свой с удобным дефолтом.
 const mixParamID = "mix"
 
 var mixParam = Param{ID: mixParamID, Label: "сухой/обработанный (доля эффекта)", Min: 0, Max: 1, Step: 0.05, Default: 1}
 
 func init() {
 	for i := range chains {
-		hasStart := false
+		hasStart, hasMix := false, false
 		for _, prm := range chains[i].Params {
 			hasStart = hasStart || prm.ID == "start"
+			hasMix = hasMix || prm.ID == mixParamID
 		}
 		if !hasStart {
 			chains[i].Params = append(chains[i].Params, fromParam)
 		}
-		if chains[i].Voice {
+		if chains[i].Voice && !hasMix {
 			chains[i].Params = append(chains[i].Params, mixParam)
 		}
 	}
 }
 
-// dryWet — доля эффекта (mix) у голосовых цепочек: линейный микс сухого
+// dryWet — доля эффекта (mix): линейный микс сухого
 // сигнала и графа цепочки. mix ≥ 1 — только обработанный сигнал, граф без
 // изменений; mix = 0 — сухой голос, эффект выключен (шум/эхо внутри графа
 // гасятся вместе с веткой).
@@ -667,10 +811,10 @@ func dryWet(graph string, mix float64) string {
 	}
 	wet := strings.Replace(graph, "[0:a]", "[vx_b]", 1)
 	wet = strings.TrimSuffix(wet, "[out]") + "[vx_w0]"
-	return fmt.Sprintf("[0:a]asplit=2[vx_d][vx_b];%[1]s;"+
+	return fmt.Sprintf("[0:a]%[4]sasplit=2[vx_d][vx_b];%[1]s;"+
 		"[vx_d]volume=%.2f[vx_dry];[vx_w0]volume=%.2f[vx_wet];"+
 		"[vx_dry][vx_wet]amix=inputs=2:duration=first:normalize=0[out]",
-		wet, 1-mix, mix)
+		wet, 1-mix, mix, stereoDry(graph))
 }
 
 // withFrom — граф цепочки (вход [0:a], выход [out]) звучит только с отметки
@@ -685,11 +829,25 @@ func withFrom(graph string, from float64) string {
 	half := fromXfade / 2
 	wet := strings.Replace(graph, "[0:a]", "[from_b]", 1)
 	wet = strings.TrimSuffix(wet, "[out]") + "[from_wet0]"
-	return fmt.Sprintf("[0:a]asplit=2[from_dry0][from_b];%[1]s;"+
+	return fmt.Sprintf("[0:a]%[5]sasplit=2[from_dry0][from_b];%[1]s;"+
 		"[from_dry0]volume='clip((%[2]g-t)/%[4]g,0,1)':eval=frame[from_dry];"+
 		"[from_wet0]volume='clip((t-%[3]g)/%[4]g,0,1)':eval=frame[from_wet];"+
 		"[from_dry][from_wet]amix=inputs=2:duration=first:normalize=0[out]",
-		wet, from+half, from-half, fromXfade)
+		wet, from+half, from-half, fromXfade, stereoDry(graph))
+}
+
+// stereoUpmix — начало графа стерео-цепочки (реверб, дилей, ширина, Хаас):
+// моно-вход разводится на два канала.
+const stereoUpmix = "aformat=channel_layouts=stereo,"
+
+// stereoDry — сухой ветке стерео-цепочки тоже два канала: amix берёт
+// раскладку первого входа, и моно-сухой сводил стерео-эффект в моно (Хаас
+// на моно-входе давал моно, mix переставал быть линейным).
+func stereoDry(graph string) string {
+	if strings.HasPrefix(graph, "[0:a]"+stereoUpmix) {
+		return stereoUpmix
+	}
+	return ""
 }
 
 // Defaults — карта параметров по умолчанию (для UI).
