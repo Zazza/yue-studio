@@ -839,8 +839,9 @@ function onWindowClick(e) {
               @open-metrics="openMetrics" />
 
   <main v-else>
-    <section class="panel list">
-      <h2>{{ t('queue.title') }}</h2>
+    <!-- страница треков: без панельной обёртки и заголовка «Треки» —
+         страница и есть список; рамка у таблицы своя, двойная рамка не нужна -->
+    <section class="track-list">
       <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}
         <button class="primary" @click="openNewTrack">{{ t('nav.new') }}</button></p>
       <template v-else>
@@ -1325,7 +1326,7 @@ h2 {
 .panel.lib { position: relative; z-index: 3; } /* выпадашки VSelect выше соседних панелей (стекинг-контексты из backdrop-filter) */
 .panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
 /* очередь — правая колонка сетки: растягивается на всё свободное место */
-.panel.list { width: auto; }
+.track-list { width: auto; }
 /* приёмы студии — группы по смыслу: подпись сверху, кнопки заворачиваются
    внутри своей карточки; фон плотный, группа читается на фоне секции */
 .trick-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin-top: 0; }
