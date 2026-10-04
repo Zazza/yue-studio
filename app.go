@@ -618,7 +618,7 @@ func (a *App) YueJobGrid(jobID int64, from, to float64) (*yue.BeatGrid, error) {
 }
 
 // YueJobTones — узкие тона («свист») в окне трека — частота для «Убрать свист».
-// stem — дорожка (vocals/drums/bass/other), пусто — весь микс.
+// stem — дорожка (vocals/drums/bass/other/guitar/piano), пусто — весь микс.
 func (a *App) YueJobTones(jobID int64, from, to float64, stem string) ([]yue.Tone, error) {
 	return a.yue.JobTones(a.ctx, jobID, from, to, stem)
 }

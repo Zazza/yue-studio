@@ -131,8 +131,8 @@ func TestVolumeEnvelopeStemOnlyThatStem(t *testing.T) {
 // Кейс карточки: неизвестная дорожка — ошибка, ничего не загружено.
 func TestVolumeEnvelopeUnknownStemIsError(t *testing.T) {
 	f, _ := fxSetup(t)
-	if _, err := VolumeEnvelope(context.Background(), f, parentID, "piano", rampPts); err == nil {
-		t.Fatal("stem piano: want ошибку, got nil")
+	if _, err := VolumeEnvelope(context.Background(), f, parentID, "flute", rampPts); err == nil {
+		t.Fatal("stem flute: want ошибку, got nil")
 	}
 	if len(f.uploads) != 0 {
 		t.Errorf("при ошибке загружено: %v", keys(f.uploads))

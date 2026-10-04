@@ -55,7 +55,7 @@ func (c *Client) Transcribe(ctx context.Context, name string, data []byte) (*Tra
 	return &out, nil
 }
 
-// MakeStems — demucs: drums/bass/other/vocals (грузит модель при первом вызове).
+// MakeStems — demucs: drums/bass/other/vocals + подробные guitar/piano (грузит модель при первом вызове).
 func (c *Client) MakeStems(ctx context.Context, id int64) (map[string]any, error) {
 	var out map[string]any
 	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/stems", id), planTimeout, &out); err != nil {

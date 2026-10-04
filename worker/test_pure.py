@@ -1349,7 +1349,7 @@ class TestTonesStemParam(TestTonesEndpoint):
 
     def test_unknown_stem_422(self):
         jid = self._audio_job(duration=60.0)
-        for stem in ("guitar", "../x", "../../audio", "VOCALS", "vocals/../x", "mix"):
+        for stem in ("flute", "../x", "../../audio", "VOCALS", "vocals/../x", "mix"):
             with self.subTest(stem=stem):
                 r = self.client.get(f"/jobs/{jid}/tones", params={"stem": stem})
                 self.assertEqual(r.status_code, 422, f"{stem}: {r.text}")
@@ -1357,8 +1357,8 @@ class TestTonesStemParam(TestTonesEndpoint):
     def test_unknown_stem_422_even_if_such_file_exists(self):
         # файл с «чужим» именем не делает стем допустимым
         jid = self._audio_job(duration=60.0)
-        (self.jobs_dir / str(jid) / "stem-guitar.flac").write_bytes(b"x")
-        r = self.client.get(f"/jobs/{jid}/tones", params={"stem": "guitar"})
+        (self.jobs_dir / str(jid) / "stem-flute.flac").write_bytes(b"x")
+        r = self.client.get(f"/jobs/{jid}/tones", params={"stem": "flute"})
         self.assertEqual(r.status_code, 422, r.text)
 
     def test_stem_on_missing_job_404(self):

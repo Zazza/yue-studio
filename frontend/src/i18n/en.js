@@ -293,6 +293,8 @@ export default {
   'studio.cont': '↻ redo from here',
   'studio.cont.style.ph': 'what to change in the sound (optional)',
   'studio.cont.style.tip': 'Style addition from this point: electric guitar enters and builds, drum fill into the chorus, heavier…',
+  'studio.dsp.target.guitar': 'guitar',
+  'studio.dsp.target.piano': 'keys',
   'studio.cont.tip': 'The track stays the same up to the selection start, then the model plays anew (another take, staged tricks applied) — a new attached track without a seam at the entry. The audio is recomputed whole: loudness edits and effects of this version do not carry over — apply them again',
   'studio.cont.done': 'continuation queued: #{id}',
   'studio.import.noTokens': 'An imported track has no model tokens — it cannot be continued or re-sung. You can regenerate it with the same style, lyrics and seed (a different performance)',

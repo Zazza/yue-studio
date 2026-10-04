@@ -42,7 +42,7 @@ from abcparse import parse_abc
 from plancheck import plan_diff
 from dsp import analyze_file, beat_grid, vocal_activity
 from sheetsage import transcribe as ss_transcribe
-from stems import separate as demucs_separate
+from stems import DETAIL_STEMS, MAIN_STEMS, separate as demucs_separate
 import voice as voicevc
 
 log = logging.getLogger("yue-worker")
@@ -1521,13 +1521,13 @@ def _check_window(from_: float, to: float, dur: float):
         raise HTTPException(422, "from/to outside the track")
 
 
-_TONE_STEMS = ("vocals", "drums", "bass", "other")
+_TONE_STEMS = MAIN_STEMS + DETAIL_STEMS
 
 
 @app.get("/jobs/{job_id}/tones")
 def job_tones(job_id: int, from_: float = Query(0.0, alias="from"), to: float = 0.0, stem: str = ""):
     """Узкие тона («свист») в окне [from, to); to = 0 — до конца. stem —
-    дорожка (vocals/drums/bass/other; нужен make_stems), пусто — весь микс."""
+    дорожка (vocals/drums/bass/other/guitar/piano; нужен make_stems), пусто — весь микс."""
     row = _job_row(job_id)
     if row is None:
         raise HTTPException(404, "job not found")
@@ -1933,13 +1933,16 @@ def job_minus(job_id: int, req: MinusIn):
     if row is None or not row["audio_file"]:
         raise HTTPException(404, "job or audio not found")
     job_dir = JOBS_DIR / str(job_id)
-    stems = sorted(job_dir.glob("stem-*.flac"))
+    # только основные дорожки: гитара/клавиши уже внутри «прочего»
+    def main_stems():
+        return [p for n in MAIN_STEMS if (p := job_dir / f"stem-{n}.flac").is_file()]
+    stems = main_stems()
     if not stems:
         try:
             _separate(job_id, job_dir / row["audio_file"], job_dir)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
-        stems = sorted(job_dir.glob("stem-*.flac"))
+        stems = main_stems()
         if not stems:
             raise HTTPException(500, "no stems after demucs")
     keep = [p for p in stems if p.stem.replace("stem-", "") not in req.exclude]

@@ -89,7 +89,12 @@ const (
 var swappable = []string{"drums", "bass", "other"}
 
 // mutable — дорожки, которые можно заглушить
-var mutable = []string{"drums", "bass", "other", "vocals"}
+var mutable = []string{"drums", "bass", "other", "vocals", "guitar", "piano"}
+
+// detailStems — подробные дорожки (6-стемная модель воркера): гитара и клавиши
+// внутри «прочего». Заменять их нельзя (у куска своих нет), но эффект,
+// громкость и глушение — как у основных: в трек идёт «дорожка − исходная»
+var detailStems = []string{"guitar", "piano"}
 
 // stemSet — скачанные стемы одной джобы (имя → путь)
 type stemSet map[string]string
@@ -121,6 +126,9 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 				return nil, fmt.Errorf("стем vocals #%d: %w", parentID, err)
 			}
 		}
+	}
+	if err := fetchDetailStems(ctx, svc, parentID, specs, parent, dir); err != nil {
+		return nil, err
 	}
 
 	inputs := []string{base}
@@ -224,7 +232,8 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 }
 
 // stemLabels — дорожки по-русски, как в студии
-var stemLabels = map[string]string{"vocals": "голос", "drums": "барабаны", "bass": "бас", "other": "гитары/синты"}
+var stemLabels = map[string]string{"vocals": "голос", "drums": "барабаны", "bass": "бас", "other": "гитары/синты",
+	"guitar": "гитара", "piano": "клавиши"}
 
 // rebuildLabel — что сделано в пересборке, для подписи микса в списках:
 // «Перегруз голоса · голос + вклейка #191 · барабаны 1:20–1:28». По имени
@@ -459,6 +468,48 @@ func fetchStems(ctx context.Context, svc yue.Service, id int64, dir string) (ste
 		return nil, fmt.Errorf("стемы #%d после разделения: %w", id, err)
 	}
 	return set, nil
+}
+
+// fetchDetailStems — гитара/клавиши родителя, если их просят записи без
+// куска (эффект, громкость). Стемы, сделанные до 6-стемной модели, их не
+// имеют: один раз просим воркер разложить трек заново. Нет и после — ошибка,
+// а не молчаливый пропуск (эффект «применился», а звук тот же)
+func fetchDetailStems(ctx context.Context, svc yue.Service, id int64, specs []SectionSpec, parent stemSet, dir string) error {
+	var need []string
+	for _, s := range specs {
+		if s.ChildID != 0 {
+			continue
+		}
+		for _, n := range s.Stems {
+			if slices.Contains(detailStems, n) && !slices.Contains(need, n) {
+				need = append(need, n)
+			}
+		}
+	}
+	get := func() error {
+		for _, n := range need {
+			if parent[n] != "" {
+				continue
+			}
+			p, err := FetchTemp(ctx, svc, id, "stem-"+n+".flac", dir, tmpPattern)
+			if err != nil {
+				return err
+			}
+			parent[n] = p
+		}
+		return nil
+	}
+	if len(need) == 0 || get() == nil {
+		return nil
+	}
+	if _, err := svc.MakeStems(ctx, id); err != nil {
+		return fmt.Errorf("стемы #%d: %w", id, err)
+	}
+	if err := get(); err != nil {
+		return fmt.Errorf("дорожка %s #%d не выделилась (воркер без 6-стемной модели?): %w",
+			strings.Join(need, "/"), id, err)
+	}
+	return nil
 }
 
 // stemGain — гейн новой дорожки: её уровень в окне выравнивается по старой

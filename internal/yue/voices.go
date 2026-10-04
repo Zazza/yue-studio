@@ -67,7 +67,7 @@ func (c *Client) VocalContour(ctx context.Context, id int64, from, to float64) (
 }
 
 // JobTones — узкие тона («свист») трека (GET /jobs/{id}/tones); to ≤ 0 — до
-// конца; stem — дорожка (vocals/drums/bass/other), пусто — весь микс.
+// конца; stem — дорожка (vocals/drums/bass/other/guitar/piano), пусто — весь микс.
 func (c *Client) JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]Tone, error) {
 	var out []Tone
 	path := fmt.Sprintf("/jobs/%d/tones?from=%g&to=%g", id, from, to)

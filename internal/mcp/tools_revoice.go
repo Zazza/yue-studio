@@ -37,7 +37,9 @@ func registerRevoiceTools(s *Server) {
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to (0 — до конца трека), lead?, beat_sec?, " +
 				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, envelope?} — chain/params: эффект на " +
 				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
-				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope)", "items": map[string]any{"type": "object"}},
+				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). " +
+				"stems: drums/bass/other/vocals; при child_id 0 ещё guitar/piano — гитара и клавиши внутри other " +
+				"(заменить куском их нельзя)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
 			"title":     prop("название версии (as_track)", "string"),
 			"voice_src": prop("ID рендера, чей голос подставлен (as_track после «перепеть»)", "integer"),
@@ -385,7 +387,7 @@ func registerToneTools(s *Server) {
 			"job_id": prop("ID трека", "integer"),
 			"from":   prop("с какой секунды (по умолчанию 0)", "number"),
 			"to":     prop("до какой секунды (0 — до конца)", "number"),
-			"stem":   prop("дорожка: vocals / drums / bass / other (пусто — весь микс; нужен make_stems)", "string"),
+			"stem":   prop("дорожка: vocals / drums / bass / other / guitar / piano (пусто — весь микс; нужен make_stems)", "string"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			tones, err := s.client.JobTones(context.Background(), argInt(args, "job_id"), argFloat(args, "from"),

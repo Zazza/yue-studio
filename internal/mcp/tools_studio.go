@@ -84,7 +84,7 @@ func RegisterStudioTools(s *Server) {
 			"job_id": prop("ID джобы", "integer"),
 			"chain":  prop("id цепочки (см. dsp_chains)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
-			"stem": prop("эффект только на дорожку: vocals / drums / bass / other (пусто — весь трек); "+
+			"stem": prop("эффект только на дорожку: vocals / drums / bass / other / guitar / piano (пусто — весь трек); "+
 				"через пересборку дорожек, остальное не меняется. У голосовых цепочек (voice=true, напр. мегафон) "+
 				"громкость обработанной дорожки выравнивается по исходной (RMS), дБ — сверху. Вызовы НЕ копятся: "+
 				"каждый считается с чистой основы в один файл overdub-inst-0.flac — несколько эффектов подавай "+
@@ -126,7 +126,7 @@ func RegisterStudioTools(s *Server) {
 			"points": map[string]any{"type": "array", "description": fmt.Sprintf("точки [{t: секунда, db: дБ}], "+
 				"дБ %g…%+g, до %d точек", dsp.EnvMinDb, dsp.EnvMaxDb, dsp.EnvMaxPoints),
 				"items": map[string]any{"type": "object"}},
-			"stem": prop("только дорожка: vocals / drums / bass / other (пусто — весь трек)", "string"),
+			"stem": prop("только дорожка: vocals / drums / bass / other / guitar / piano (пусто — весь трек)", "string"),
 		}, "job_id", "points"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			v, err := studio.VolumeEnvelope(context.Background(), s.client, argInt(args, "job_id"),
@@ -247,7 +247,7 @@ func RegisterStudioTools(s *Server) {
 
 	s.Register(Tool{
 		Name:        "make_stems",
-		Description: "Разделить трек джобы на стемы demucs (drums/bass/other/vocals). Медленно при первом вызове.",
+		Description: "Разделить трек джобы на стемы demucs (drums/bass/other/vocals) и подробные дорожки guitar/piano (внутри other, в сумму трека не входят). Медленно при первом вызове.",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
 		}, "job_id"),
