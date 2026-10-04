@@ -17,6 +17,15 @@ func (c *Client) Health(ctx context.Context) (*HealthInfo, error) {
 	return &info, nil
 }
 
+// Stats — сводка для статус-бара: VRAM, очередь джоб, текущая джоба, очередь к GPU.
+func (c *Client) Stats(ctx context.Context) (*StatsInfo, error) {
+	var info StatsInfo
+	if err := c.get(ctx, "/stats", &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 func (c *Client) Jobs(ctx context.Context) ([]Job, error) {
 	var jobs []Job
 	if err := c.get(ctx, "/jobs", &jobs); err != nil {

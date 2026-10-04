@@ -5,6 +5,7 @@
 
 Эндпоинты:
   GET  /health           — статус, загружена ли модель
+  GET  /stats            — сводка для статус-бара: VRAM, очередь, текущая джоба, очередь к GPU
   POST /jobs             — постановка в очередь {title, style, lyrics, seed, cot, abc?}
   GET  /jobs             — список последних задач
   GET  /jobs/{id}        — статус задачи
@@ -81,6 +82,8 @@ app = FastAPI(title="yue-worker")
 _pipe = None
 _pipe_lock = threading.Lock()   # одна операция с моделью одновременно
 _gpu_lock = threading.RLock()   # очередь к GPU: рендер/транскрипция/стемы/whisper не работают параллельно
+_gpu_waiters = 0                # сколько потоков стоит в очереди к GPU (для /stats)
+_gpu_waiters_lock = threading.Lock()
 _load_lock = threading.Lock()
 _load_error: str | None = None
 
@@ -91,12 +94,19 @@ def gpu_queue(section: str = "gpu"):
     whisper-сабпроцесс) проходит через один лок, иначе параллельные CUDA-контексты
     ломают друг другу graph capture (cudaErrorStreamCaptureInvalidated).
     Порядок захвата везде _pipe_lock → _gpu_lock, обратного нет — дедлока не будет."""
+    global _gpu_waiters
     t0 = time.monotonic()
-    _gpu_lock.acquire()
+    with _gpu_waiters_lock:
+        _gpu_waiters += 1
+    try:
+        _gpu_lock.acquire()
+    finally:
+        with _gpu_waiters_lock:
+            _gpu_waiters -= 1
     try:
         wait = time.monotonic() - t0
         if wait > 1.0:
-            logger.info("gpu queue: %s ждал(а) лок %.1f с", section, wait)
+            log.info("gpu queue: %s ждал(а) лок %.1f с", section, wait)
         yield
     finally:
         _gpu_lock.release()
@@ -884,6 +894,41 @@ def copilot(req: CopilotIn):
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": _pipe is not None, "load_error": _load_error}
+
+
+@app.get("/stats")
+def stats():
+    """Сводка для статус-бара приложения: VRAM, очередь джоб, текущая джоба,
+    ожидающие в очереди к GPU. Лёгкий — опрашивается раз в несколько секунд."""
+    vram_total = vram_used = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            free, total = torch.cuda.mem_get_info()
+            vram_total = round(total / 1024 / 1024)
+            vram_used = round((total - free) / 1024 / 1024)
+    except Exception:  # noqa: BLE001 - CPU-воркер или CUDA недоступна: VRAM просто нет
+        pass
+    with db_lock, db() as conn:
+        counts = dict(conn.execute(
+            "SELECT status, COUNT(*) FROM jobs GROUP BY status").fetchall())
+    running = None
+    with _state_lock:
+        progress_snapshot = dict(_progress)
+    for job_id, p in progress_snapshot.items():
+        row = _job_row(job_id)
+        if row is None or row["status"] != "running":
+            continue
+        running = {"job_id": job_id, "title": row["title"],
+                   "stage": p.get("stage", ""),
+                   "progress_pct": p.get("progress_pct"),
+                   "tok_per_s": p.get("tok_per_s")}
+        break
+    return {"model_loaded": _pipe is not None,
+            "vram_total": vram_total, "vram_used": vram_used,
+            "queue": {"queued": counts.get("queued", 0), "running": counts.get("running", 0)},
+            "running": running,
+            "gpu_waiting": _gpu_waiters}
 
 
 @app.post("/translate")

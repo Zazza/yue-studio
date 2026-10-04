@@ -86,6 +86,37 @@ class TestGpuQueue(unittest.TestCase):
         t2.join()
         self.assertEqual(order, ["slow", "fast"])
 
+    def test_waiters_counter(self):
+        """_gpu_waiters: растёт, пока поток ждёт лок, и возвращается к нулю."""
+        held = threading.Event()
+        let_go = threading.Event()
+        waiter_started = threading.Event()
+        seen = []
+
+        def holder():
+            with yue_worker.gpu_queue("holder"):
+                held.set()
+                let_go.wait(2)
+
+        def waiter():
+            held.wait(1)
+            waiter_started.set()
+            with yue_worker.gpu_queue("waiter"):
+                pass
+
+        t1, t2 = threading.Thread(target=holder), threading.Thread(target=waiter)
+        t1.start()
+        t2.start()
+        waiter_started.wait(1)
+        time.sleep(0.05)
+        seen.append(yue_worker._gpu_waiters)
+        let_go.set()
+        t1.join(2)
+        t2.join(2)
+        seen.append(yue_worker._gpu_waiters)
+        self.assertGreaterEqual(seen[0], 1, "ожидающий не посчитан")
+        self.assertEqual(seen[1], 0, "счётчик не обнулился после очереди")
+
 
 if __name__ == "__main__":
     unittest.main()

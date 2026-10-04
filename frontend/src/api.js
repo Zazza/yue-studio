@@ -1,5 +1,5 @@
 import {
-  YueStatus, YueJobs, YueSubmit, YueSubmitFan, YuePlan, YueCancelJob, YueAudioURL,
+  YueStatus, YueStats, YueJobs, YueSubmit, YueSubmitFan, YuePlan, YueCancelJob, YueAudioURL,
   YueOpenExternal, YueSaveAudio, YueOpenURL, YueGetServerURL, YueSetServerURL,
   YueWorkerConfig, YueSetWorkerConfig, YueOllamaModels,
   YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueFxPreview, YuePlayPreview, YueApplySteps, YueDspPresets, YueDspVariants,
@@ -15,6 +15,7 @@ import {
 
 export const api = {
   status: () => YueStatus(),
+  stats: () => YueStats(),
   jobs: () => YueJobs(),
   submit: (p) => YueSubmit(p),
   submitFan: (p, n) => YueSubmitFan(p, n),

@@ -121,6 +121,8 @@ export function YueSetWorkerConfig(arg1:Record<string, any>):Promise<void>;
 
 export function YueSplice(arg1:number,arg2:Array<studio.SplicePart>,arg3:number):Promise<yue.DspVariant>;
 
+export function YueStats():Promise<yue.StatsInfo>;
+
 export function YueStatus():Promise<yue.HealthInfo>;
 
 export function YueStopAudio():Promise<void>;

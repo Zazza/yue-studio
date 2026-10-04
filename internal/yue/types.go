@@ -8,6 +8,7 @@ import (
 // Service — API воркера Yue Studio. Интерфейс нужен app-слою для тестирования.
 type Service interface {
 	Health(ctx context.Context) (*HealthInfo, error)
+	Stats(ctx context.Context) (*StatsInfo, error)
 	Jobs(ctx context.Context) ([]Job, error)
 	Submit(ctx context.Context, p SubmitParams) (int64, error)
 	Cancel(ctx context.Context, id int64) (bool, error)
@@ -133,6 +134,25 @@ type HealthInfo struct {
 	Status      string `json:"status"`
 	ModelLoaded bool   `json:"model_loaded"`
 	LoadError   string `json:"load_error"`
+}
+
+// StatsRunning — идущая джоба в сводке /stats (нет рендера — nil).
+type StatsRunning struct {
+	JobID       int64   `json:"job_id"`
+	Title       string  `json:"title"`
+	Stage       string  `json:"stage"`
+	ProgressPct *int    `json:"progress_pct"`
+	TokPerS     float64 `json:"tok_per_s"`
+}
+
+// StatsInfo — сводка для статус-бара приложения (лёгкий опрос раз в пару секунд).
+type StatsInfo struct {
+	ModelLoaded bool          `json:"model_loaded"`
+	VramTotal   *int          `json:"vram_total"` // МБ; nil — CPU-воркер/CUDA недоступна
+	VramUsed    *int          `json:"vram_used"`
+	Queue       map[string]int `json:"queue"`
+	Running     *StatsRunning `json:"running"`
+	GpuWaiting  int           `json:"gpu_waiting"`
 }
 
 type SubmitParams struct {

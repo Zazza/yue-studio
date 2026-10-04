@@ -234,6 +234,10 @@ export function YueSplice(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueSplice'](arg1, arg2, arg3);
 }
 
+export function YueStats() {
+  return window['go']['main']['App']['YueStats']();
+}
+
 export function YueStatus() {
   return window['go']['main']['App']['YueStatus']();
 }

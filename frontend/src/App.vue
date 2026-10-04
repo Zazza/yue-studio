@@ -294,6 +294,7 @@ function onLibExact() { if (currentItem.value) applyPreset(currentItem.value, 'l
 
 const jobs = ref([])
 const health = ref(null)
+const stats = ref(null)
 let timer = null
 
 // фильтры и пейджер списка треков (логика — jobFilter.js, там же тесты)
@@ -461,6 +462,8 @@ async function refresh() {
   } catch {
     health.value = null
   }
+  // сводка статус-бара отдельно: старый воркер без /stats не должна ронять обновление
+  api.stats().then(s => { stats.value = s }).catch(() => { stats.value = null })
   try { playerState.value = await api.audioState() } catch {}
 }
 onRefresh(refresh)
@@ -999,6 +1002,27 @@ function onWindowClick(e) {
   </main>
   </div>
 
+  <!-- статус-бар: зеркало шапки снизу — модель, VRAM, очередь рендеров, очередь к GPU, текущая джоба -->
+  <footer v-if="stats" class="statusbar">
+    <span class="health-dot" :class="stats.model_loaded ? 'up' : 'down'"
+          :title="stats.model_loaded ? t('footer.model.loaded') : t('footer.model.cold')"></span>
+    <span v-if="stats.vram_total" class="sb-vram" :title="t('footer.vram.tip')">
+      <span class="sb-vram-bar">
+        <span class="sb-vram-fill" :class="{ hot: stats.vram_used / stats.vram_total > 0.9 }"
+              :style="{ width: Math.min(100, 100 * stats.vram_used / stats.vram_total) + '%' }"></span>
+      </span>
+      <span class="sb-text">{{ (stats.vram_used / 1024).toFixed(1) }}/{{ Math.round(stats.vram_total / 1024) }} {{ t('footer.vram.gb') }}</span>
+    </span>
+    <span v-if="stats.queue && stats.queue.queued" class="sb-text">· {{ t('footer.queue', stats.queue.queued) }}</span>
+    <span v-if="stats.gpu_waiting" class="sb-text">· {{ t('footer.gpu_queue', stats.gpu_waiting) }}</span>
+    <span v-if="stats.running" class="sb-text sb-job" :title="stats.running.title">
+      · #{{ stats.running.job_id }}
+      <template v-if="stats.running.progress_pct != null">{{ stats.running.progress_pct }}%</template>
+      <template v-else>{{ t('queue.progress.' + (stats.running.stage || 'plan')) }}</template>
+      <template v-if="stats.running.tok_per_s"> · {{ stats.running.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+    </span>
+  </footer>
+
   <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
   <!-- библиотека — после формы нового трека: открывается поверх неё, закрылась — форма на месте -->
   <!-- новый трек — такая же страница-модалка, как голоса и свои треки -->
@@ -1239,6 +1263,27 @@ h2 {
 }
 .health-dot.up { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .health-dot.down { background: var(--err); box-shadow: 0 0 8px var(--err); }
+/* статус-бар — зеркало шапки снизу: модель, VRAM, очереди, текущая джоба */
+.statusbar {
+  position: relative; z-index: 5; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px; padding: 4px 16px;
+  background: color-mix(in srgb, var(--panel2) 78%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border-top: 1px solid var(--bevel-lo);
+  box-shadow: 0 -1px 4px rgba(0,0,0,.35);
+  font-size: 11.5px; color: var(--muted);
+}
+.statusbar .health-dot { width: 8px; height: 8px; }
+.sb-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb-job { max-width: 46ch; }
+.sb-vram { display: flex; align-items: center; gap: 6px; }
+.sb-vram-bar {
+  width: 80px; height: 5px; border-radius: 3px; overflow: hidden; flex: none;
+  background: var(--bevel-lo);
+}
+.sb-vram-fill { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
+.sb-vram-fill.hot { background: var(--err); }
 .settings-page { display: flex; justify-content: center; align-items: flex-start; }
 .panel.lib { position: relative; z-index: 3; } /* выпадашки VSelect выше соседних панелей (стекинг-контексты из backdrop-filter) */
 .panel { width: 640px; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }

@@ -91,6 +91,11 @@ func (a *App) YueStatus() (*yue.HealthInfo, error) {
 	return a.yue.Health(a.ctx)
 }
 
+// YueStats — сводка для футер-статусбара (VRAM, очередь, текущая джоба).
+func (a *App) YueStats() (*yue.StatsInfo, error) {
+	return a.yue.Stats(a.ctx)
+}
+
 func (a *App) YueJobs() ([]yue.Job, error) {
 	return a.yue.Jobs(a.ctx)
 }
