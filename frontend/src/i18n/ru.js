@@ -569,6 +569,11 @@ export default {
   'queue.folder.move.tip': 'Папка песни — версии внутри переезжают вместе с ней',
   'queue.rename.tip': 'Переименовать (двойной клик или ✎): своё название вместо номера — номер при переносе меняется',
   'queue.details.tip': 'Развернуть детали: стиль, сид, версии, действия',
+  'queue.col.title': 'Трек',
+  'queue.col.status': 'Статус',
+  'queue.col.dur': 'Длит.',
+  'queue.col.when': 'Дата',
+  'queue.col.folder': 'Папка',
 
   'queue.filter.shown': 'показано {shown} из {total}',
   'queue.filter.page': 'стр. {page} из {max}',

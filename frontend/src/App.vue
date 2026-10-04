@@ -855,17 +855,29 @@ function onWindowClick(e) {
         <p class="muted">{{ filteredJobs.length
           ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
+        <!-- шапка таблицы треков: колонки выровнены со строками -->
+        <div v-if="queuePage.length" class="job-table-head muted">
+          <span></span>
+          <span>{{ t('queue.col.title') }}</span>
+          <span>{{ t('queue.col.status') }}</span>
+          <span>{{ t('queue.kids.versions') }}</span>
+          <span>{{ t('queue.col.dur') }}</span>
+          <span>{{ t('queue.col.when') }}</span>
+          <span>{{ t('queue.col.folder') }}</span>
+          <span></span>
+        </div>
         <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
-        <!-- строка трека: всегда видно минимум (играть, номер+название, статус/длительность,
-             дата, счётчик версий, папка); остальное — разворот по клику -->
+        <!-- строка-таблица: всегда видно минимум, остальное — разворот по клику -->
         <div class="job-row" :class="{ open: openJob === j.id }" @click="toggleOpenJob(j.id)">
-          <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
-                  :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
-                  :title="t('queue.play')" @click.stop="togglePlay(headOf(j))">
-            {{ isPlaying('m' + headOf(j).id) ? '⏸' : '▶' }}</button>
-          <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
-          <span class="job-name" :title="j.title">#{{ j.id }} {{ j.title }}</span>
-          <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
+          <span class="col-play">
+            <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
+                    :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
+                    :title="t('queue.play')" @click.stop="togglePlay(headOf(j))">
+              {{ isPlaying('m' + headOf(j).id) ? '⏸' : '▶' }}</button>
+            <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
+          </span>
+          <span class="job-name" :title="j.title">#{{ j.id }} {{ j.title }}
+            <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span></span>
           <!-- идущая джоба: прогресс прямо в строке -->
           <span v-if="j.status === 'running'" class="job-progress" :title="progressTip(j)">
             <span class="progress-track slim" :class="{ indet: j.progress_pct == null }">
@@ -879,12 +891,17 @@ function onWindowClick(e) {
           </span>
           <span v-else-if="j.status !== 'done'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
           <span v-else-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))">⚠</span>
-          <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
-                @click.stop="openJob = j.id; if (!openKids.has(j.id)) toggleKids(j.id)">{{ t('queue.kids.versions') }} · {{ kidCount(j) }}</span>
-          <span class="spacer"></span>
-          <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
+          <span v-else class="muted">{{ statusLabelC.done }}</span>
+          <span class="col-kids">
+            <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
+                  @click.stop="openJob = j.id; if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
+          </span>
+          <span v-if="j.duration_sec" class="muted col-dur">{{ fmtDur(j.duration_sec) }}</span>
+          <span v-else class="muted col-dur"></span>
           <span v-if="fmtWhen(j.created_at)" class="muted job-when" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
+          <span v-else class="job-when"></span>
           <span v-if="(j.folder || '').trim()" class="muted job-folder">{{ j.folder.trim() }}</span>
+          <span v-else class="job-folder"></span>
           <button class="ghost icon job-caret" :title="t('queue.details.tip')">{{ openJob === j.id ? '▾' : '▸' }}</button>
         </div>
         <!-- разворот: служебное, стиль, версии, действия — всё, что было в карточке -->
@@ -1532,20 +1549,33 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
   border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-bottom: 6px;
   background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
 }
+/* таблица треков: колонки фиксированы — шапка и строки на одной сетке */
+.job-table-head, .job-row {
+  display: grid; align-items: center; gap: 8px;
+  grid-template-columns: 30px minmax(0, 1fr) 150px 56px 46px 100px minmax(60px, max-content) 24px;
+}
+.job-table-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+  padding: 0 12px 4px; user-select: none;
+}
 /* строка трека: минимум информации в одну линию, клик — разворот деталей */
 .job-row {
-  display: flex; align-items: center; gap: 8px; padding: 5px 12px;
-  cursor: pointer; min-height: 30px; user-select: none;
+  padding: 5px 12px; cursor: pointer; min-height: 30px; user-select: none;
 }
 .job-row:hover { background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .job-row.open { background: var(--panel); border-bottom: 1px solid var(--border);
   box-shadow: inset 1px 1px 0 rgba(255,255,255,.05); }
+.col-play { display: flex; align-items: center; justify-content: center; }
 .job-row .job-play { color: var(--text); font-size: 14px; padding: 2px 4px; }
 .job-row .job-play.is-playing { color: var(--run); }
 .job-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.job-when { white-space: nowrap; font-size: 11.5px; }
-.job-folder { white-space: nowrap; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
-.job-caret { flex: none; color: var(--muted); }
+.job-name .badge { margin-left: 6px; }
+.job-progress { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.progress-track.slim { width: 76px; height: 5px; flex: none; }
+.col-kids { text-align: center; }
+.col-dur, .job-when { white-space: nowrap; font-size: 11.5px; text-align: right; }
+.job-folder { white-space: nowrap; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; text-align: center; }
+.job-row > .job-caret { color: var(--muted); }
 .kids-badge { cursor: pointer; flex: none; }
 .kids-badge:hover { color: var(--text); }
 /* точка-статус вместо чипа, когда играть нельзя */
@@ -1553,8 +1583,6 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .status-mini.running { background: var(--run); animation: trickpulse 1.2s ease-in-out infinite; }
 .status-mini.error { background: var(--err); }
 .status-mini.queued { background: var(--muted); }
-.job-progress { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.progress-track.slim { width: 90px; height: 5px; }
 .job-detail { display: flex; flex-direction: column; }
 .job-detail .job-meta-extra { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
   font-size: 12px; color: var(--muted); margin-left: 10px; min-width: 0; }
