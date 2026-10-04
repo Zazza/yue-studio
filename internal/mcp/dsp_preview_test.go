@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"fmt"
+	"math"
 	"os/exec"
 	"strings"
 	"testing"
@@ -126,5 +128,71 @@ func TestDspPreviewSchemaHasNewArgs(t *testing.T) {
 		if r == "chain" {
 			t.Errorf("dsp_preview: chain обязателен, а должен быть один из chain/steps")
 		}
+	}
+}
+
+// Карточка 1.10: dsp_preview solo: true без stem — ошибка, ничего не загружено
+// (у превью на весь трек соло нет).
+func TestDspPreviewSoloWithoutStemIsError(t *testing.T) {
+	s, fake := pvServer(t)
+	out, ok := call(t, s, "dsp_preview", jsonArgs(t,
+		`{"job_id":5,"solo":true,"from":1,"to":3,"steps":[{"chain":"eq","params":{"high":-12}}]}`))
+	if ok {
+		t.Fatalf("solo без stem: want ошибку, ответ: %s", out)
+	}
+	if len(fake.uploads) != 0 {
+		t.Errorf("при ошибке загружено: %v", fake.uploads)
+	}
+}
+
+// Карточка 1.10: dsp_preview solo: true со stem — вариант из WetSolo: обработанная
+// дорожка без микса. В миксе есть тон drums 300 Гц (0.2), в соло other его нет;
+// тон other 440 Гц (eq режет только верх) — на месте. Без solo — тот же запрос
+// даёт микс (300 Гц есть): так проверяется, что solo что-то меняет.
+func TestDspPreviewSoloOnStemIsWetSolo(t *testing.T) {
+	args := func(solo bool) string {
+		return fmt.Sprintf(`{"job_id":5,"stem":"other","solo":%t,"from":2.5,"to":4.5,`+
+			`"steps":[{"chain":"eq","params":{"high":-12}}]}`, solo)
+	}
+	upload := func(t *testing.T, solo bool) []float32 {
+		t.Helper()
+		s, fake := pvServer(t)
+		out, ok := call(t, s, "dsp_preview", jsonArgs(t, args(solo)))
+		if !ok {
+			t.Fatalf("dsp_preview solo=%t: %s", solo, out)
+		}
+		if len(fake.uploads) != 1 {
+			t.Fatalf("solo=%t: загружено вариантов %d (%v), want 1", solo, len(fake.uploads), fake.uploads)
+		}
+		if !strings.Contains(out, `"file"`) {
+			t.Errorf("solo=%t: ответ без варианта (нет \"file\"): %s", solo, out)
+		}
+		for _, data := range fake.uploads {
+			return fxDecode(t, data)
+		}
+		return nil
+	}
+	solo := upload(t, true)
+	if a := fxTone(solo, 300, 0.2, 1.8); a > 0.02 {
+		t.Errorf("solo: тон drums 300 Гц амплитудой %.3f, want ≈ 0 (дорожка без микса)", a)
+	}
+	if a := fxTone(solo, 440, 0.2, 1.8); math.Abs(a-0.3) > 0.05 {
+		t.Errorf("solo: тон other 440 Гц амплитудой %.3f, want ≈ 0.3", a)
+	}
+	mix := upload(t, false)
+	if a := fxTone(mix, 300, 0.2, 1.8); a < 0.1 {
+		t.Errorf("без solo: тон drums 300 Гц амплитудой %.3f, want ≈ 0.2 (вариант — микс)", a)
+	}
+}
+
+// Карточка 1.10: схема dsp_preview описывает solo.
+func TestDspPreviewSchemaHasSolo(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.mu.RLock()
+	tool := s.tools["dsp_preview"]
+	s.mu.RUnlock()
+	schema, _ := tool.InputSchema["properties"].(map[string]any)
+	if _, ok := schema["solo"]; !ok {
+		t.Errorf("dsp_preview: в схеме нет параметра solo")
 	}
 }

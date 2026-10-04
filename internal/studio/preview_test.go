@@ -2,6 +2,7 @@ package studio
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
@@ -499,5 +500,114 @@ func TestPreviewUsesCache(t *testing.T) {
 	pvPreview(t, f, cache, pvSpec("other", dsp.Step{Chain: "grit"}))
 	if after := len(f.fetched); after != before {
 		t.Errorf("повторное превью скачало ещё %d файлов: %v, want 0 (тёплый кэш)", after-before, f.fetched[before:])
+	}
+}
+
+// ---------- 1.10 Соло ----------
+
+// pvOtherEq — параметры eq, заметно меняющие шум other (верх −12, низ +6).
+func pvOtherEq() map[string]float64 {
+	return map[string]float64{"high": -12, "highf": 2000, "low": 6}
+}
+
+// Карточка 1.10: превью на дорожку отдаёт ещё WetSolo/DrySolo; DrySolo — кусок
+// исходной дорожки [From, …] (≤ −50 дБ), без микса (тона drums 300 Гц нет).
+func TestPreviewStemSoloDryIsStemSlice(t *testing.T) {
+	f, pf := pvSetup(t)
+	res := pvPreview(t, f, NewCache(t.TempDir()), pvSpec("other", dsp.Step{Chain: "eq", Params: pvOtherEq()}))
+	if res.WetSolo == "" || res.DrySolo == "" {
+		t.Fatalf("превью на дорожку без соло: WetSolo=%q DrySolo=%q", res.WetSolo, res.DrySolo)
+	}
+	drySolo := pvDecode(t, res.DrySolo)
+	src := slice(decodeFile(t, pf["stem-other.flac"]), pvFrom, pvDur)
+	n := int((pvTo - pvFrom) * sr)
+	if d := pvRelDb(drySolo, src, 0, n); d > -50 {
+		t.Errorf("DrySolo vs дорожка other [%.1f, %.1f]: %.1f дБ, want ≤ −50", pvFrom, pvTo, d)
+	}
+	if a := toneAmp(drySolo, 300, 0, 2); a > 0.01 {
+		t.Errorf("в DrySolo тон drums 300 Гц амплитудой %.3f, want ≈ 0 (дорожка без микса)", a)
+	}
+}
+
+// Карточка 1.10: WetSolo − DrySolo ≈ обработанная − исходная дорожка (≤ −30 дБ);
+// в WetSolo нет микса (drums 300 Гц).
+func TestPreviewStemSoloWetIsProcessedStem(t *testing.T) {
+	f, pf := pvSetup(t)
+	params := pvOtherEq()
+	res := pvPreview(t, f, NewCache(t.TempDir()), pvSpec("other", dsp.Step{Chain: "eq", Params: params}))
+	wetSolo, drySolo := pvDecode(t, res.WetSolo), pvDecode(t, res.DrySolo)
+
+	refPath := filepath.Join(t.TempDir(), "other-eq.flac")
+	if err := dsp.Run(pf["stem-other.flac"], refPath, dsp.ByID("eq").FilterGraph(params), nil); err != nil {
+		t.Fatal(err)
+	}
+	other := decodeFile(t, pf["stem-other.flac"])
+	want := pvSub(slice(decodeFile(t, refPath), pvFrom, pvTo), slice(other, pvFrom, pvTo))
+	if rms(want) < 0.01 {
+		t.Fatalf("эталонная разница слишком мала (%.4f) — синтетика не годится", rms(want))
+	}
+	n := int((pvTo - pvFrom) * sr)
+	if d := pvRelDb(pvSub(wetSolo, drySolo), want, 0, n); d > -30 {
+		t.Errorf("WetSolo − DrySolo vs (обработанная − исходная other): %.1f дБ, want ≤ −30", d)
+	}
+	if a := toneAmp(wetSolo, 300, 0, 2); a > 0.01 {
+		t.Errorf("в WetSolo тон drums 300 Гц амплитудой %.3f, want ≈ 0 (дорожка без микса)", a)
+	}
+}
+
+// Карточка 1.10: соло той же длины, что Wet/Dry (±10 мс) — и без хвоста, и с хвостом.
+func TestPreviewStemSoloSameLength(t *testing.T) {
+	f, _ := pvSetup(t)
+	cache := NewCache(t.TempDir())
+	for name, step := range map[string]dsp.Step{
+		"eq, без хвоста": {Chain: "eq", Params: pvOtherEq()},
+		"зал 1.5 с":      {Chain: "reverb-hall", Params: map[string]float64{"size": 1.5, "predelay": 0}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := pvPreview(t, f, cache, pvSpec("other", step))
+			wet, dry := pvSecs(pvDecode(t, res.Wet)), pvSecs(pvDecode(t, res.Dry))
+			ws, ds := pvSecs(pvDecode(t, res.WetSolo)), pvSecs(pvDecode(t, res.DrySolo))
+			for _, c := range []struct {
+				name      string
+				got, want float64
+			}{{"WetSolo vs Wet", ws, wet}, {"DrySolo vs Dry", ds, dry}, {"WetSolo vs DrySolo", ws, ds}} {
+				if math.Abs(c.got-c.want) > 0.010 {
+					t.Errorf("%s: %.3f vs %.3f с, разница %.0f мс, want ≤ 10", c.name, c.got, c.want, (c.got-c.want)*1000)
+				}
+			}
+		})
+	}
+}
+
+// Карточка 1.10: у превью на весь трек соло нет — поля пустые и в JSON не выходят;
+// у превью на дорожку — ключи wet_solo/dry_solo.
+func TestPreviewSoloOnlyForStem(t *testing.T) {
+	f, _ := pvSetup(t)
+	cache := NewCache(t.TempDir())
+	whole := pvPreview(t, f, cache, pvSpec("", dsp.Step{Chain: "eq", Params: pvOtherEq()}))
+	if whole.WetSolo != "" || whole.DrySolo != "" {
+		t.Errorf("превью на весь трек с соло: WetSolo=%q DrySolo=%q, want пустые", whole.WetSolo, whole.DrySolo)
+	}
+	b, err := json.Marshal(whole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	if v, ok := m["wet_solo"]; ok && v != "" {
+		t.Errorf("весь трек: wet_solo=%v в JSON, want нет/пусто", v)
+	}
+
+	stem := pvPreview(t, f, cache, pvSpec("other", dsp.Step{Chain: "eq", Params: pvOtherEq()}))
+	b, err = json.Marshal(stem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = map[string]any{}
+	_ = json.Unmarshal(b, &m)
+	for _, k := range []string{"wet_solo", "dry_solo"} {
+		if v, _ := m[k].(string); v == "" {
+			t.Errorf("превью на дорожку: в JSON нет %q: %s", k, b)
+		}
 	}
 }

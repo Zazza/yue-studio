@@ -432,6 +432,7 @@ export default {
   'pedals.stem.tip': 'What the pedals process: a stem (usually guitar — separated automatically) or the whole track',
   'pedals.preset': 'preset…',
   'pedals.add': '+ pedal',
+  'pedals.noguitar': 'This track has no separate guitar stem — the pedals process “guitars/synths”.',
   'pedals.empty': 'The board is empty: pick a preset or add a pedal',
   'pedals.toggle.tip': 'Pedal on/off (a switched-off pedal stays on the board)',
   'pedals.remove': 'Remove pedal',

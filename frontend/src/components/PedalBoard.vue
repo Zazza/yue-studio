@@ -27,6 +27,8 @@ const inserts = useInserts()
 
 const STEMS = ['guitar', 'other', 'piano', 'vocals', 'bass', '']
 const SLOTS = ['A', 'B', 'C', 'D']
+const SLOT = 'P'                    // свой слот превью: не путается с превью блока DSP
+const NO_STEM = 'не выделилась'     // ошибка Go: дорожки в треке нет (воркер без 6-стемной модели)
 const PLAY_KEY = 'pedals'           // «сейчас играет превью педалей» в общем плеере
 const STATE_KEY = 'yue_studio_state'
 
@@ -113,15 +115,30 @@ async function play(slot, which, start = 0) {
   refreshPlayer()
 }
 
+// withStem — вызов на выбранной дорожке; гитары в треке нет (старые стемы без
+// 6-стемной модели, воркер её не выделил) — педали переходят на «гитары/синты»
+// и повторяют вызов, а не падают ошибкой
+async function withStem(fn) {
+  try {
+    return await fn(stem.value)
+  } catch (e) {
+    if (stem.value !== 'guitar' || !String(e).includes(NO_STEM)) throw e
+    stem.value = 'other'
+    const r = await fn(stem.value)
+    msg.value = t('pedals.noguitar')
+    return r
+  }
+}
+
 async function preview() {
   const w = win()
   busy.value = true
+  msg.value = ''
   try {
-    const r = await api.fxPreview(props.job.id, stem.value, boardSteps(board.value), w.from, w.to, '')
-    prev.value = { from: r.from, to: r.to, which: 'wet', slot: '', hasSolo: !!r.wet_solo }
+    const r = await withStem((st) => api.fxPreview(props.job.id, st, boardSteps(board.value), w.from, w.to, SLOT))
+    prev.value = { from: r.from, to: r.to, which: 'wet', slot: SLOT, hasSolo: !!r.wet_solo }
     cmp.value = []
-    await play('', 'wet')
-    msg.value = ''
+    await play(SLOT, 'wet')
   } catch (e) { msg.value = String(e) } finally { busy.value = false }
 }
 async function toggleAB() {
@@ -140,17 +157,17 @@ async function compare() {
     if (p) boards.push({ label: p.name, steps: boardSteps(applyPreset(p, props.chains)) })
   }
   busy.value = true
+  msg.value = ''
   try {
     const done = []
     for (let i = 0; i < boards.length; i++) {
       if (!boards[i].steps.some((s) => !s.off)) continue
-      const r = await api.fxPreview(props.job.id, stem.value, boards[i].steps, w.from, w.to, SLOTS[i])
+      const r = await withStem((st) => api.fxPreview(props.job.id, st, boards[i].steps, w.from, w.to, SLOTS[i]))
       done.push({ slot: SLOTS[i], label: boards[i].label })
       prev.value = { from: r.from, to: r.to, which: 'wet', slot: SLOTS[i], hasSolo: !!r.wet_solo }
     }
     cmp.value = done
     if (done.length) await play(done[0].slot, 'wet')
-    msg.value = ''
   } catch (e) { msg.value = String(e) } finally { busy.value = false }
 }
 async function playSlot(slot) {
@@ -161,15 +178,22 @@ async function apply() {
   const steps = boardSteps(board.value)
   const label = presetSel.value && presets.value.find((p) => p.id === presetSel.value)?.name || ''
   busy.value = true
+  msg.value = ''
   try {
     if (stem.value) {
       const s = props.sel
-      await inserts.addStemPedals(props.job.id, { stem: stem.value, steps, from: s ? s.from : 0, to: s ? s.to : 0, label })
+      await withStem(async (st) => {
+        // запись реестра с дорожкой, которой нет, пересборку роняет каждый раз — сначала
+        // проверяем дорожку быстрым превью (то же скачивание/разделение, тот же кэш)
+        const w = win()
+        await api.fxPreview(props.job.id, st, steps, w.from, w.to, SLOT)
+        await inserts.addStemPedals(props.job.id, { stem: st, steps, from: s ? s.from : 0, to: s ? s.to : 0, label })
+      })
     } else {
       await api.applySteps(props.job.id, steps, label)
     }
     emit('applied')
-    msg.value = t('pedals.applied')
+    msg.value = (msg.value ? msg.value + ' ' : '') + t('pedals.applied')
   } catch (e) { msg.value = String(e) } finally { busy.value = false }
 }
 

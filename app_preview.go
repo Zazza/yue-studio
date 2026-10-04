@@ -19,8 +19,9 @@ const fxCacheDirPattern = "yue-studio-fx-*"
 // previewPieces — куски превью: стало/было в миксе и соло дорожки.
 var previewPieces = []string{"wet", "dry", "wet_solo", "dry_solo"}
 
-// previewSlots — куски превью: "" — обычное превью, A–D — «сравнить наборы».
-var previewSlots = []string{"", "A", "B", "C", "D"}
+// previewSlots — куски превью: "" — блок DSP, P — блок «Педали» (свой, чтобы
+// «было/стало» одного блока не играло кусок другого), A–D — «сравнить наборы».
+var previewSlots = []string{"", "P", "A", "B", "C", "D"}
 
 // fxCache — кэш трека и стемов для превью. Создаётся при первом обращении во
 // временном каталоге, удаляется при закрытии окна (fxCleanup).
