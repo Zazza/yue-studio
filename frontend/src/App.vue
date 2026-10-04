@@ -88,6 +88,17 @@ const arcKind = ref('')  // драматургия: '' | build | wave | burst
 const temperature = ref(CHARACTER.temperature.def)
 const cfgScale = ref(CHARACTER.cfg.def)
 const characterDefault = computed(() => !Object.keys(characterPayload(temperature.value, cfgScale.value)).length)
+// «Дополнительно» свёрнуто — изменённое показывается в его заголовке
+const advancedSummary = computed(() => {
+  const parts = []
+  if (seed.value) parts.push('seed ' + seed.value)
+  if (cot.value !== 'full') parts.push(t('form.cot.' + cot.value))
+  if (arcKind.value) parts.push(t('arc.' + arcKind.value))
+  const ch = characterPayload(temperature.value, cfgScale.value)
+  const chl = characterLabel(ch)
+  if (chl) parts.push(chl)
+  return parts.join(' · ')
+})
 function characterReset() {
   temperature.value = CHARACTER.temperature.def
   cfgScale.value = CHARACTER.cfg.def
@@ -279,6 +290,24 @@ const qPage = ref(1)
 const grouped = computed(() => groupJobs(jobs.value))
 const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
 const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
+const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
+function toggleStyle(id) {
+  const s = new Set(openStyle.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  openStyle.value = s
+}
+// выпадающее меню на <details>: выбор пункта его закрывает
+function closeMenu(e) {
+  const d = e.target.closest('details')
+  if (d) d.open = false
+}
+// клик мимо открытого меню «⤓ скачать» / «⋯» — закрыть его
+function closeMenusOutside(e) {
+  for (const d of document.querySelectorAll('details.menu-pop[open]')) if (!d.contains(e.target)) d.open = false
+}
+onMounted(() => document.addEventListener('click', closeMenusOutside))
+onUnmounted(() => document.removeEventListener('click', closeMenusOutside))
 // готовые миксы с вклейками (файлы эффектов родителя overdub-inst-*) — по раскрытию
 const kidMixes = ref({})
 const insertsSvc = useInserts()
@@ -509,9 +538,9 @@ function openNewTrack() {
   newTrackPage.value = true
 }
 
-// Esc закрывает модалку нового трека — но не из-под открытых поверх плана/копайтера
+// Esc закрывает модалку нового трека — но не из-под открытых поверх плана/копайтера/библиотеки
 function onNewTrackKey(e) {
-  if (e.key === 'Escape' && newTrackPage.value && !planOpen.value && !copOpen.value) newTrackPage.value = false
+  if (e.key === 'Escape' && newTrackPage.value && !planOpen.value && !copOpen.value && !libraryPage.value) newTrackPage.value = false
 }
 onMounted(() => window.addEventListener('keydown', onNewTrackKey))
 onUnmounted(() => window.removeEventListener('keydown', onNewTrackKey))
@@ -784,8 +813,7 @@ function onWindowClick(e) {
 
   <!-- всё под шапкой прокручивается само: шапка с плеером всегда на виду -->
   <div class="app-body">
-  <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
-  <StudioPage v-else-if="studioJob" :job="studioJob" :auto-translate="autoTranslate"
+  <StudioPage v-if="studioJob" :job="studioJob" :auto-translate="autoTranslate"
               @close="studioJob = null; refresh()"
               @open-metrics="openMetrics" />
 
@@ -820,7 +848,7 @@ function onWindowClick(e) {
           <span v-if="fmtWhen(j.created_at)" class="muted" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
-          <span v-if="j.cot && j.cot !== 'full'" class="muted">cot {{ j.cot }}</span>
+          <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
           <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
@@ -846,12 +874,19 @@ function onWindowClick(e) {
                    :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
           <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
                   :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
-          <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
-          <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
+          <template v-if="!(j.status === 'done' && j.audio_file)">
+            <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
+            <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
+          </template>
         </div>
         <div class="job-body">
           <!-- строка стиля по смыслу: язык, жанр, ритм… — таблица «что где» -->
-          <div v-if="j.style" class="style-tags" :title="j.style">
+          <!-- стиль — одной строкой (карточка в 2 раза ниже), по клику — таблица «что где» -->
+          <div v-if="j.style" class="style-line">
+            <button class="ghost small-btn style-toggle" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ openStyle.has(j.id) ? '▾' : '▸' }} {{ t('queue.style') }}</button>
+            <span v-if="!openStyle.has(j.id)" class="style-sum" :title="j.style">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
+          </div>
+          <div v-if="j.style && openStyle.has(j.id)" class="style-tags" :title="j.style">
             <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
               <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
               <span class="style-tag-val">{{ parts.join(', ') }}</span>
@@ -919,13 +954,25 @@ function onWindowClick(e) {
           </button>
           <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
           <!-- всё на карточке — про основную версию песни: играть, скачать, ноты -->
-          <button class="ghost" @click="openListen(headOf(j))" :title="t('queue.browser.tip')">{{ t('queue.browser') }}</button>
-          <button v-if="j.status === 'done'" class="ghost" @click="studioJob = headOf(j)">студия →</button>
-          <button class="ghost icon" :title="t('queue.save.flac.tip')" @click="saveAudio(headOf(j))">{{ t('queue.save.flac') }}</button>
-          <button class="ghost icon" :disabled="playBusy['mp3' + headOf(j).id]" :title="t('queue.save.mp3.tip')" @click="saveMp3(headOf(j))">{{ t('queue.save.mp3') }}</button>
-          <button v-if="headOf(j).abc_file" class="ghost" @click="loadJobAbc(headOf(j))"
-                  :title="t('queue.notes.tip')">{{ t('queue.notes') }}</button>
-          <button v-if="headOf(j).abc_file" class="ghost icon" :title="t('queue.notes.save.tip')" @click="saveAudio(headOf(j), headOf(j).abc_file)">⤓ abc</button>
+          <button v-if="j.status === 'done'" class="ghost" @click="studioJob = headOf(j)">{{ t('queue.studio') }}</button>
+          <details class="menu-pop">
+            <summary class="ghost-btn">{{ t('queue.download') }}</summary>
+            <ul class="nav-menu" @click="closeMenu">
+              <li :title="t('queue.save.flac.tip')" @click="saveAudio(headOf(j))">flac</li>
+              <li :title="t('queue.save.mp3.tip')" @click="!playBusy['mp3' + headOf(j).id] && saveMp3(headOf(j))">mp3</li>
+              <li v-if="headOf(j).abc_file" :title="t('queue.notes.save.tip')" @click="saveAudio(headOf(j), headOf(j).abc_file)">{{ t('queue.download.abc') }}</li>
+            </ul>
+          </details>
+          <span class="spacer"></span>
+          <details class="menu-pop">
+            <summary class="ghost-btn" :title="t('queue.more.tip')">⋯</summary>
+            <ul class="nav-menu" @click="closeMenu">
+              <li :title="t('queue.browser.tip')" @click="openListen(headOf(j))"><span class="nav-ico">🌐</span>{{ t('queue.browser') }}</li>
+              <li v-if="headOf(j).abc_file" :title="t('queue.notes.tip')" @click="loadJobAbc(headOf(j))"><span class="nav-ico">♪</span>{{ t('queue.notes') }}</li>
+              <li :title="t('queue.repeat.tip')" @click="reuseJob(j)"><span class="nav-ico">↺</span>{{ t('queue.repeat') }}</li>
+              <li class="danger" :title="t('queue.delete.tip')" @click="deleteJob(j)"><span class="nav-ico">✕</span>{{ t('queue.delete') }}</li>
+            </ul>
+          </details>
         </div>
       </article>
         <div v-if="qPageMax > 1" class="pager">
@@ -939,6 +986,7 @@ function onWindowClick(e) {
   </div>
 
   <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
+  <!-- библиотека — после формы нового трека: открывается поверх неё, закрылась — форма на месте -->
   <!-- новый трек — такая же страница-модалка, как голоса и свои треки -->
   <div v-if="newTrackPage" class="modal-backdrop page-backdrop" @click.self="newTrackPage = false">
     <section class="panel page-modal form newtrack-modal">
@@ -952,7 +1000,7 @@ function onWindowClick(e) {
           <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
           <button v-if="currentItem" class="ghost small-btn" :title="t('form.lib.exact.tip')" @click="onLibExact">{{ t('form.lib.exact') }}</button>
           <button class="ghost small-btn" :title="t('form.lib.save.tip')" @click="saveStyleToLibrary">{{ t('form.lib.save') }}</button>
-          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="newTrackPage = false; libraryPage = true">{{ t('form.lib.manage') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="libraryPage = true">{{ t('form.lib.manage') }}</button>
         </div>
         <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
 
@@ -1030,42 +1078,49 @@ function onWindowClick(e) {
         <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
 
         <div class="row">
-          <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
-          <div class="cot-radios" :title="t('form.cot.tip')">
-            <span class="cot-title">генерация:</span>
-            <label><input type="radio" value="full" v-model="cot" /> полная</label>
-            <label><input type="radio" value="melody" v-model="cot" /> мелодия</label>
-            <label><input type="radio" value="off" v-model="cot" /> без размышлений</label>
-          </div>
           <label class="autotr" title="Слоты можно писать по-русски: перед отправкой строка стиля переводится в английский через Ollama (qwen2.5). Модель обучена на английских тегах.">
             <input type="checkbox" v-model="autoTranslate" /> рус → eng
           </label>
           <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
         </div>
 
-        <div class="row arc-row">
-          <span class="arc-title">{{ t('arc.title') }}:</span>
-          <button v-for="a in ['', 'build', 'wave', 'burst']" :key="a" class="toggle small-btn"
-                  :class="{ on: arcKind === a }" :title="t('arc.' + (a || 'flat') + '.tip')"
-                  @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
-        </div>
+        <!-- редкие настройки свёрнуты; изменённое видно в заголовке, чтобы не забыть -->
+        <details class="form-advanced">
+          <summary>{{ t('form.advanced') }}<span v-if="advancedSummary" class="muted"> · {{ advancedSummary }}</span></summary>
+          <div class="row">
+            <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
+            <div class="cot-radios" :title="t('form.cot.tip')">
+              <span class="cot-title">{{ t('form.cot.title') }}:</span>
+              <label><input type="radio" value="full" v-model="cot" /> {{ t('form.cot.full') }}</label>
+              <label><input type="radio" value="melody" v-model="cot" /> {{ t('form.cot.melody') }}</label>
+              <label><input type="radio" value="off" v-model="cot" /> {{ t('form.cot.off') }}</label>
+            </div>
+          </div>
 
-        <div class="row character-row">
-          <span class="arc-title">{{ t('character.title') }}:</span>
-          <label class="character-knob" :title="t('character.temperature.tip')">
-            {{ t('character.temperature') }}
-            <input type="range" v-model.number="temperature" :min="CHARACTER.temperature.min"
-                   :max="CHARACTER.temperature.max" :step="CHARACTER.temperature.step" />
-            <span class="character-val">{{ temperature }}</span>
-          </label>
-          <label class="character-knob" :title="t('character.cfg.tip')">
-            {{ t('character.cfg') }}
-            <input type="range" v-model.number="cfgScale" :min="CHARACTER.cfg.min"
-                   :max="CHARACTER.cfg.max" :step="CHARACTER.cfg.step" />
-            <span class="character-val">{{ cfgScale }}</span>
-          </label>
-          <button class="ghost small-btn" :disabled="characterDefault" @click="characterReset">{{ t('character.reset') }}</button>
-        </div>
+          <div class="row arc-row">
+            <span class="arc-title">{{ t('arc.title') }}:</span>
+            <button v-for="a in ['', 'build', 'wave', 'burst']" :key="a" class="toggle small-btn"
+                    :class="{ on: arcKind === a }" :title="t('arc.' + (a || 'flat') + '.tip')"
+                    @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
+          </div>
+
+          <div class="row character-row">
+            <span class="arc-title">{{ t('character.title') }}:</span>
+            <label class="character-knob" :title="t('character.temperature.tip')">
+              {{ t('character.temperature') }}
+              <input type="range" v-model.number="temperature" :min="CHARACTER.temperature.min"
+                     :max="CHARACTER.temperature.max" :step="CHARACTER.temperature.step" />
+              <span class="character-val">{{ temperature }}</span>
+            </label>
+            <label class="character-knob" :title="t('character.cfg.tip')">
+              {{ t('character.cfg') }}
+              <input type="range" v-model.number="cfgScale" :min="CHARACTER.cfg.min"
+                     :max="CHARACTER.cfg.max" :step="CHARACTER.cfg.step" />
+              <span class="character-val">{{ cfgScale }}</span>
+            </label>
+            <button class="ghost small-btn" :disabled="characterDefault" @click="characterReset">{{ t('character.reset') }}</button>
+          </div>
+        </details>
 
         <div class="actions">
           <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
@@ -1098,6 +1153,8 @@ function onWindowClick(e) {
   <VoicesPage v-if="voicesPage"
               @close="voicesPage = false; loadVoiceCards()"
               @apply-voice="applyVoice" />
+
+  <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
 
   <PlanModal v-model:abc="planAbc" :open="planOpen" :busy="planBusy" :err="planErr"
              :submitting="submitting" :info="planInfo"
@@ -1198,6 +1255,8 @@ h2 {
 .set-h { margin: 14px 0 2px; font-size: 13px; }
 .set-row { display: flex; align-items: center; gap: 10px; }
 .set-row input, .set-row select { flex: 1; min-width: 0; width: 100%; }
+/* галочки и переключатели в строке настроек не растягиваются в полосу */
+.set-row input[type=checkbox], .set-row input[type=radio] { flex: none; width: auto; }
 .slot-box { display: flex; flex-direction: column; position: relative; }
 .slot-box > span { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
 .slot-drop {
@@ -1333,6 +1392,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .character-knob { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .character-knob input[type=range] { width: 110px; }
 .character-val { min-width: 2.5em; font-variant-numeric: tabular-nums; }
+.form-advanced > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0; }
+.form-advanced[open] > summary { margin-bottom: 6px; }
 .cot-radios { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .cot-radios label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .cot-title { font-weight: 600; }
@@ -1390,6 +1451,21 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .status.running { background: rgba(217,160,61,.2); color: var(--run); }
 .status.error { background: rgba(224,93,61,.2); color: var(--err); }
 /* строка стиля — таблица «что где»: колонка меток и колонка значений */
+.style-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 4px 0; }
+.style-toggle { flex: none; }
+.style-sum { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* выпадающее меню на <details>: кнопка-summary, список — как меню в шапке */
+.menu-pop { position: relative; }
+.menu-pop > summary { list-style: none; cursor: pointer; }
+.menu-pop > summary::-webkit-details-marker { display: none; }
+.menu-pop > summary.ghost-btn {
+  display: inline-block; padding: 4px 10px; font-size: 12px; color: var(--muted); user-select: none;
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid var(--border); border-top-color: var(--bevel-hi);
+}
+.menu-pop > summary.ghost-btn:hover, .menu-pop[open] > summary.ghost-btn { color: var(--text); filter: brightness(1.1); }
+.menu-pop > .nav-menu { top: auto; bottom: 100%; margin: 0 0 2px; }
+.menu-pop .nav-menu li.danger { color: var(--err, #e5534b); }
 .style-tags { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0; align-items: baseline; }
 .style-tag-key {
   font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
@@ -1508,9 +1584,11 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 /* студия — без общей панели (секции-блоки лежат прямо на фоне страницы,
    не «форма в форме»); заголовок — строкой, без плашки h2 */
 .studio-page .studio-sheet { width: auto; max-width: none; flex: 1; margin: 0 16px; min-width: 0; padding-bottom: 12px; }
-.studio-sheet > h2 {
+.studio-sheet > h2, .studio-top > h2 {
   margin: 8px 2px 2px; padding: 0; background: none; border: none; text-shadow: none;
 }
+.studio-top { display: flex; align-items: center; gap: 12px; }
+.studio-top > h2 { margin: 0; flex: 1; min-width: 0; }
 .corpus-list { max-width: none; }
 /* секции студии (звук/план/правки/вклейки/стемы/овердаб/эффекты) — рамка
    со шапкой с фоном, как заголовок карточки трека */
@@ -1543,7 +1621,9 @@ details.studio-box[open] > .studio-box-head { margin-bottom: 0; }
 .roll-grid { display: grid; gap: 2px; font-size: 10px; user-select: none; }
 .roll-grid + .roll-grid { margin-top: 8px; }
 .roll-voice { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; }
-.roll-sec { font-size: 9px; color: var(--muted); text-align: center; overflow: hidden; }
+.roll-sec { font-size: 9px; color: var(--muted); white-space: nowrap; overflow: visible; }
+/* начало секции: подпись целиком (поверх соседних пустых ячеек) и метка-граница */
+.roll-sec.start { border-left: 1px solid var(--border); padding-left: 2px; position: relative; z-index: 1; }
 .roll-cell { height: 18px; border-radius: 3px; cursor: pointer; border: 1px solid transparent; position: relative; }
 .roll-cell.d0 { background: var(--panel); }
 .roll-cell.d1 { background: rgba(120,140,255,.18); }

@@ -94,7 +94,7 @@ function applyAbc(p) {
   <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
     <section class="panel lib page-modal">
       <div class="page-modal-head">
-        <h2>{{ t('corpus.title') }} · {{ t('corpus.import.title') }}</h2>
+        <h2>{{ t('corpus.title') }}</h2>
         <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
       </div>
       <div class="page-modal-body">

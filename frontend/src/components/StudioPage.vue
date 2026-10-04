@@ -2,7 +2,7 @@
 // Студия трека: пиано-ролл партитуры, минус по стемам, овердаб, DSP-цепочки.
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../i18n/index.js'
-const { t } = useI18n()
+const { t, locale } = useI18n()
 import { api } from '../api.js'
 import { usePlayer, fmtDur } from '../composables/usePlayer.js'
 import { useConfirm } from '../composables/useConfirm.js'
@@ -18,6 +18,7 @@ import { isFlat, bumpRange } from '../envelope.js'
 import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
 import { chainDefaults, hasGrid, needsStem, voiceTarget } from '../dspVoice.js'
 import { previewWindow } from '../fxPreview.js'
+import { sectionLabel } from '../sectionNames.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
@@ -110,7 +111,7 @@ function posTime(pos) {
 const posTimes = computed(() => Array.from({ length: posCount.value }, (_, i) => posTime(i)))
 const waveDuration = computed(() => (wavePeaks.value && wavePeaks.value.duration_sec) || props.job.duration_sec || 0)
 const waveEdges = computed(() => posEdges(posTimes.value))
-const waveColumns = computed(() => posTimes.value.map((tm, i) => ({ sec: tm.from, section: posSection(i) })))
+const waveColumns = computed(() => posTimes.value.map((tm, i) => ({ sec: tm.from, section: sectionLabel(posSection(i), locale.value) })))
 const waveMarks = computed(() => gridMarks(waveColumns.value, waveDuration.value))
 
 // селектор файла волны: все артефакты джобы (трек, эффекты, вклейки, стемы, минус)
@@ -121,7 +122,7 @@ const waveFiles = computed(() => {
     if (file && !seen.has(file)) { seen.add(file); out.push({ value: file, label: label || file }) }
   }
   for (const v of dspVariants.value) add(v.file, variantLabel(v))
-  for (const s of stemsList.value) add(s.file, t('studio.wave.stem', { name: s.name || s.file }))
+  for (const s of stemsList.value) add(s.file, t('studio.wave.stem', { name: stemLabel(s.name) || s.file }))
   if (minusReady.value) add('minus.flac', t('studio.wave.minus'))
   return out
 })
@@ -353,6 +354,13 @@ const posSection = (pos) => {
   }
   return ''
 }
+// подпись секции в плане: по-русски и только в её начале (раньше «ver ver ver…» в каждом такте)
+const secLabel = (pos) => sectionLabel(posSection(pos), locale.value)
+const isSecStart = (pos) => pos === 0 || posSection(pos) !== posSection(pos - 1)
+// голоса партитуры (Vocal/Ins) — по-русски; неизвестный — как есть
+// дорожки demucs по-русски (барабаны, бас, гитары/синты, голос, гитара, клавиши); неизвестная — как есть
+const stemLabel = (n) => { if (!n) return ''; const k = 'studio.dsp.target.' + n; const s = t(k); return s === k ? n : s }
+const voiceLabel = (v) => { const k = 'studio.roll.voice.' + v; const s = t(k); return s === k ? v : s }
 const posChord = (pos) => {
   for (const v of (rollData.value && rollData.value.voice_order) || []) {
     const b = barAt(v, pos)
@@ -362,10 +370,10 @@ const posChord = (pos) => {
 }
 function cellTitle(v, pos) {
   const b = barAt(v, pos)
-  if (!b) return `${v}: в этом такте у голоса нет своей партии`
+  if (!b) return `${voiceLabel(v)}: в этом такте у голоса нет своей партии`
   const tail = b.start_sec >= props.job.duration_sec ? ' · за пределами звука' : ''
   const mark = isTrickCell(v, pos) ? ' · ✋ ' + trickTitle(v, pos) : ''
-  return `${b.section} · такт ${pos + 1} · ${b.start_sec.toFixed(1)}–${b.end_sec.toFixed(1)}с${tail}${mark}`
+  return `${sectionLabel(b.section, locale.value)} · такт ${pos + 1} · ${b.start_sec.toFixed(1)}–${b.end_sec.toFixed(1)}с${tail}${mark}`
 }
 
 function barSelStart(idx) {
@@ -1378,7 +1386,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
 <template>
   <main class="settings-page studio-page">
     <section class="studio-sheet">
-      <h2>{{ t('studio.title') }} <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
+      <!-- «назад» — сверху, у названия: страница длинная, нижняя кнопка не на виду -->
+      <div class="studio-top">
+        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
+        <h2>{{ t('studio.title') }} <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
+      </div>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
         <p v-if="rollErr" class="error">{{ rollErr }}</p>
@@ -1421,6 +1433,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <span v-if="waveErr" class="error">{{ waveErr }}</span>
             </div>
             <span class="wave-colors" :title="t('studio.wave.color.tip')">
+              <span class="muted wave-colors-cap">{{ t('studio.wave.color') }}</span>
               <button v-for="c in waveColors" :key="c.id" class="wave-swatch" :class="{ on: waveColor === c.hex }"
                       :style="{ background: c.hex }" :aria-label="c.id"
                       @click="waveColor = c.hex"></button>
@@ -1446,9 +1459,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <div class="roll-scroll" @wheel="onRollWheel">
             <div class="roll-grid" :style="{ gridTemplateColumns: `70px repeat(${posCount}, minmax(${rollCellW}px, 1fr))` }">
               <div></div>
-              <div v-for="pos in rollPositions" :key="'s' + pos" class="roll-sec" :title="posSection(pos)">{{ (posSection(pos) || '').slice(0, 3) }}</div>
+              <div v-for="pos in rollPositions" :key="'s' + pos" class="roll-sec" :class="{ start: isSecStart(pos) }" :title="secLabel(pos)">{{ isSecStart(pos) ? secLabel(pos) : '' }}</div>
               <template v-for="v in rollData.voice_order" :key="v">
-                <div class="roll-voice">{{ v }}</div>
+                <div class="roll-voice">{{ voiceLabel(v) }}</div>
                 <div v-for="pos in rollPositions" :key="v + pos"
                      class="roll-cell" :class="['d' + cellDensity(v, pos), { sel: isBarSel(pos), off: cellOff(v, pos), trick: isTrickCell(v, pos), empty: !barAt(v, pos) }]"
                      :title="cellTitle(v, pos)"
@@ -1631,12 +1644,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="studio-box-head"><span>{{ t('studio.stems') }}</span></div>
             <div class="studio-box-body">
             <div class="stems-inline">
-              <span class="muted">{{ t('studio.stems') }}</span>
+              <span class="muted">{{ t('studio.stems.minus') }}</span>
               <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
                 <button class="toggle" :class="{ on: !stemMute[nm] }"
-                       :title="stemMute[nm] ? 'Выключено из минуса' : 'Присутствует в минусе'"
+                       :title="stemMute[nm] ? t('studio.stem.off') : t('studio.stem.on')"
                        @click="stemMute = { ...stemMute, [nm]: !stemMute[nm] }">
-                  {{ nm }}
+                  {{ stemLabel(nm) }}
                 </button>
               </label>
               <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
@@ -1650,7 +1663,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       :disabled="playBusy['s' + job.id + ':' + st.file]" @click="playStem(st)">
                 {{ playBtn('s' + job.id + ':' + st.file) }}
               </button>
-              <strong>{{ st.name }}</strong>
+              <strong>{{ stemLabel(st.name) }}</strong>
             </div>
             </div>
           </div>

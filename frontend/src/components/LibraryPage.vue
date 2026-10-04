@@ -1,12 +1,15 @@
 <script setup>
 // Страница «Библиотека»: просмотр встроенных групп + управление своими.
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../i18n/index.js'
 const { t } = useI18n()
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from '../groups.js'
 import VSelect from '../VSelect.vue'
 
 const emit = defineEmits(['close'])
+const onKey = (e) => { if (e.key === 'Escape') emit('close') }
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 const customGroups = ref(loadCustomGroups())
 const newGroupName = ref('')
@@ -81,9 +84,14 @@ function delCustomStyle(gid, sid) {
 </script>
 
 <template>
-  <main class="settings-page">
-    <section class="panel">
-      <h2>{{ t('library.title') }}</h2>
+  <!-- страница-модалка, как голоса и свои треки: ✕/Esc/клик по фону закрывают -->
+  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+    <section class="panel page-modal">
+      <div class="page-modal-head">
+        <h2>{{ t('library.title') }}</h2>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+      </div>
+      <div class="page-modal-body">
 
       <h3 class="set-h">{{ t('library.builtin') }} <span class="muted">{{ t('library.builtin.readonly') }}</span></h3>
       <div v-for="g in builtinGroups" :key="g.id" class="lib-group">
@@ -125,10 +133,7 @@ function delCustomStyle(gid, sid) {
         <input v-model="newStyleStr" :placeholder="t('library.style.line')" @keyup.enter="addCustomStyle" />
         <button class="ghost" :disabled="!newStyleGroupId || !newStyleName.trim() || !newStyleStr.trim()" @click="addCustomStyle">{{ t('common.add') }}</button>
       </div>
-
-      <div class="set-actions">
-        <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
       </div>
     </section>
-  </main>
+  </div>
 </template>
