@@ -1204,7 +1204,7 @@ body { overflow: hidden; }
 .app-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 header { flex: 0 0 auto; }
 header {
-  /* выше панелей main (стекинг-контексты из backdrop-filter), но ниже модалок (z-index 10) */
+  /* выше панелей main (стекинг-контексты из backdrop-filter), но ниже модалок (z-index 70) */
   /* одна строка при любой ширине окна (min 900): на узком ужимается второстепенное, плеер не переносится */
   position: relative; z-index: 5; flex-wrap: nowrap;
   display: flex; align-items: center; gap: 14px; padding: 10px 16px;
@@ -1535,7 +1535,9 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 }
 .ghost.icon { padding: 2px 8px; font-size: 13px; }
 
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+/* диалоги (копайтер/план/метрики/подтверждение) — выше страниц-модалок (z-index 60):
+   страница-модалка сама есть modal-backdrop+page-backdrop, и page-backdrop ниже в файле возвращает ей 60 */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 70; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(760px, 92vw); max-height: 90vh; display: flex; flex-direction: column; gap: 10px; }
 /* страницы-модалки (настройки/свои треки/голоса) поверх основного контента:
    закрываются ✕, Esc и кликом по фону — кнопка «Вернуться» не нужна */
