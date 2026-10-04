@@ -21,7 +21,6 @@ export default {
   'nav.new': '＋ New track',
   'nav.new.tip': 'New track form: style, lyrics, character — then queue it. Your input is kept',
   'nav.home.tip': 'Back to the track list',
-  'form.back': '← to tracks',
   'nav.tracks': 'my tracks',
   'nav.tracks.tip': 'My tracks: import into the studio (stems, minus track, effects, overdub) and artist profiles from track corpora',
   'nav.voices': 'voices',

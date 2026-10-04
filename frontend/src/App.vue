@@ -503,12 +503,18 @@ function closeOverlays() {
   corpusPage.value = false; voicesPage.value = false; navOpen.value = false
 }
 
-// «＋ Новый трек»: из любого места (студия, библиотека, меню) — на форму
+// «＋ Новый трек»: модалка поверх любого экрана (список, студия, библиотека)
 function openNewTrack() {
-  closeOverlays()
-  studioJob.value = null
+  settingsPage.value = false; corpusPage.value = false; voicesPage.value = false; navOpen.value = false
   newTrackPage.value = true
 }
+
+// Esc закрывает модалку нового трека — но не из-под открытых поверх плана/копайтера
+function onNewTrackKey(e) {
+  if (e.key === 'Escape' && newTrackPage.value && !planOpen.value && !copOpen.value) newTrackPage.value = false
+}
+onMounted(() => window.addEventListener('keydown', onNewTrackKey))
+onUnmounted(() => window.removeEventListener('keydown', onNewTrackKey))
 
 // на главную — список треков (клик по названию приложения)
 function goHome() {
@@ -765,7 +771,7 @@ function onWindowClick(e) {
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <span class="spacer"></span>
     <!-- справа, у меню: левую часть шапки перекрывает отцентрованный плеер -->
-    <button class="primary new-track-btn" :class="{ on: newTrackPage && !studioJob }"
+    <button class="primary new-track-btn" :class="{ on: newTrackPage }"
             :title="t('nav.new.tip')" @click="openNewTrack">{{ t('nav.new') }}</button>
     <div class="nav-wrap">
       <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen">⋮</button>
@@ -785,152 +791,7 @@ function onWindowClick(e) {
               @open-metrics="openMetrics" />
 
   <main v-else>
-    <div v-if="newTrackPage" class="left-col new-track">
-      <section class="panel form">
-        <div class="newtrack-head">
-          <button class="ghost" @click="newTrackPage = false">{{ t('form.back') }}</button>
-          <h2>{{ t('form.title') }}</h2>
-        </div>
-        <div class="lib-row" :title="t('form.lib.tip')">
-          <VSelect v-model="libGroup" :options="libGroupOptions" :placeholder="t('form.lib.group')" @update:model-value="onLibGroupChange()" />
-          <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
-          <button v-if="currentItem" class="ghost small-btn" :title="t('form.lib.exact.tip')" @click="onLibExact">{{ t('form.lib.exact') }}</button>
-          <button class="ghost small-btn" :title="t('form.lib.save.tip')" @click="saveStyleToLibrary">{{ t('form.lib.save') }}</button>
-          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="libraryPage = true">{{ t('form.lib.manage') }}</button>
-        </div>
-        <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
-
-        <div class="slots">
-          <div v-for="key in slotKeys" :key="key" class="slot-box" :title="t('slot.' + key + '.tip')">
-            <span>{{ t('slot.' + key + '.label') }}</span>
-            <input v-model="slots[key]" :placeholder="t('slot.' + key + '.hint')"
-                   @focus="openSlot = key" @click.stop @input="openSlot = key" />
-            <ul v-if="openSlot === key && slotFiltered(key).length" class="slot-drop">
-              <li v-for="[ru] in slotFiltered(key)" :key="ru"
-                  @mousedown.prevent="slots[key] = ru; openSlot = ''">{{ ru }}</li>
-            </ul>
-          </div>
-          <label>
-            <span>BPM</span>
-            <input v-model.number="slots.bpm" type="number" min="40" max="250" placeholder="—" />
-          </label>
-        </div>
-
-        <div class="lib-row" :title="t('form.voice.tip')">
-          <VSelect v-model="voicePick" :options="voiceOptions" :disabled="!voiceCards.length"
-                   :placeholder="voiceCards.length ? t('form.voice.ph') : t('form.voice.empty')"
-                   @update:model-value="onVoicePick()" />
-        </div>
-
-        <details>
-          <summary>
-            {{ t('form.styleline') }}
-            <span v-if="styleOverride" class="muted">{{ t('form.styleline.manual') }}</span>
-            <span v-else class="muted">{{ t('form.styleline.auto') }}</span>
-          </summary>
-          <textarea v-model="styleLine" rows="3" :placeholder="t('form.styleline.ph')"></textarea>
-          <button v-if="styleOverride" class="ghost small-btn" style="margin-top:6px"
-                  :title="t('form.styleline.follow.tip')"
-                  @click="styleOverride = ''">{{ t('form.styleline.follow') }}</button>
-        </details>
-
-        <details>
-          <summary>{{ t('form.rack') }} <span class="muted">({{ rackSel.length }})</span></summary>
-          <div class="rack">
-            <div v-for="g in rackGroups" :key="g.id" class="rack-group">
-              <div class="rack-gname">{{ g.name }}</div>
-              <div v-for="it in g.items" :key="it.id" class="rack-item">
-                <label class="rack-pick">
-                  <input type="checkbox" :checked="rackSel.some(r => r.id === it.id)" @change="rackToggle(it.id)" />
-                  {{ it.name }}
-                </label>
-                <VSelect v-if="rackSel.some(r => r.id === it.id)"
-                        :model-value="rackSel.find(r => r.id === it.id).effect"
-                        :options="rackEffects.map((e) => ({ value: e.id, label: e.name }))"
-                        style="max-width: 150px"
-                        @update:model-value="(v) => rackSetEffect(it.id, v)" />
-              </div>
-            </div>
-          </div>
-        </details>
-
-        <div class="lyrics-head">
-          <label class="lyrics-label">{{ t('form.lyrics') }}</label>
-          <span class="lyrics-tools">
-            <button class="toggle" :class="{ on: noLyrics }" :title="t('form.nowords.tip')" @click="noLyrics = !noLyrics">{{ t('form.nowords') }}</button>
-            <select v-if="noLyrics" v-model="durMode" class="dur-select" title="Длина инструментала задаётся числом секций [Instrumental]">
-              <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ t('dur.' + o.id) }}</option>
-            </select>
-            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">{{ t('form.copilot') }}</button>
-            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy"
-                    :title="t('lyrics.rec.tip')" @click="recognizeLyrics">
-              {{ lyrBusy === 'rec' ? '…' : t('lyrics.rec') }}</button>
-            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy || !lyrics.trim()"
-                    :title="t('lyrics.adapt.tip')" @click="adaptLyrics">
-              {{ lyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
-            <span v-if="lyrErr" class="error">{{ lyrErr }}</span>
-          </span>
-        </div>
-        <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
-
-        <div class="row">
-          <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
-          <div class="cot-radios" :title="t('form.cot.tip')">
-            <span class="cot-title">генерация:</span>
-            <label><input type="radio" value="full" v-model="cot" /> полная</label>
-            <label><input type="radio" value="melody" v-model="cot" /> мелодия</label>
-            <label><input type="radio" value="off" v-model="cot" /> без размышлений</label>
-          </div>
-          <label class="autotr" title="Слоты можно писать по-русски: перед отправкой строка стиля переводится в английский через Ollama (qwen2.5). Модель обучена на английских тегах.">
-            <input type="checkbox" v-model="autoTranslate" /> рус → eng
-          </label>
-          <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
-        </div>
-
-        <div class="row arc-row">
-          <span class="arc-title">{{ t('arc.title') }}:</span>
-          <button v-for="a in ['', 'build', 'wave', 'burst']" :key="a" class="toggle small-btn"
-                  :class="{ on: arcKind === a }" :title="t('arc.' + (a || 'flat') + '.tip')"
-                  @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
-        </div>
-
-        <div class="row character-row">
-          <span class="arc-title">{{ t('character.title') }}:</span>
-          <label class="character-knob" :title="t('character.temperature.tip')">
-            {{ t('character.temperature') }}
-            <input type="range" v-model.number="temperature" :min="CHARACTER.temperature.min"
-                   :max="CHARACTER.temperature.max" :step="CHARACTER.temperature.step" />
-            <span class="character-val">{{ temperature }}</span>
-          </label>
-          <label class="character-knob" :title="t('character.cfg.tip')">
-            {{ t('character.cfg') }}
-            <input type="range" v-model.number="cfgScale" :min="CHARACTER.cfg.min"
-                   :max="CHARACTER.cfg.max" :step="CHARACTER.cfg.step" />
-            <span class="character-val">{{ cfgScale }}</span>
-          </label>
-          <button class="ghost small-btn" :disabled="characterDefault" @click="characterReset">{{ t('character.reset') }}</button>
-        </div>
-
-        <div class="actions">
-          <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
-            {{ submitting ? t('form.submitting') : t('form.submit') }}
-          </button>
-          <button class="primary alt" :disabled="submitting || !canSubmit" @click="submitFan(5)" :title="t('form.fan.tip')">
-            {{ t('form.fan') }}
-          </button>
-          <button class="ghost" :disabled="planBusy || !canSubmit" @click="makePlan"
-                  :title="t('form.notes.tip')">
-            {{ planBusy ? t('form.planning') : t('form.notes') }}
-          </button>
-          <button class="ghost" :disabled="submitting || !canSubmit" @click="submitDraft"
-                  :title="t('form.draft.tip')">
-            {{ t('form.draft') }}
-          </button>
-        </div>
-      </section>
-    </div>
-
-    <section v-else class="panel list">
+    <section class="panel list">
       <h2>{{ t('queue.title') }}</h2>
       <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}
         <button class="primary" @click="openNewTrack">{{ t('nav.new') }}</button></p>
@@ -1079,6 +940,154 @@ function onWindowClick(e) {
   </div>
 
   <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
+  <!-- новый трек — такая же страница-модалка, как голоса и свои треки -->
+  <div v-if="newTrackPage" class="modal-backdrop page-backdrop" @click.self="newTrackPage = false">
+    <section class="panel page-modal form newtrack-modal">
+      <div class="page-modal-head">
+        <h2>{{ t('form.title') }}</h2>
+        <button class="ghost icon" :title="t('common.close')" @click="newTrackPage = false">✕</button>
+      </div>
+      <div class="page-modal-body">
+        <div class="lib-row" :title="t('form.lib.tip')">
+          <VSelect v-model="libGroup" :options="libGroupOptions" :placeholder="t('form.lib.group')" @update:model-value="onLibGroupChange()" />
+          <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
+          <button v-if="currentItem" class="ghost small-btn" :title="t('form.lib.exact.tip')" @click="onLibExact">{{ t('form.lib.exact') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.save.tip')" @click="saveStyleToLibrary">{{ t('form.lib.save') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="newTrackPage = false; libraryPage = true">{{ t('form.lib.manage') }}</button>
+        </div>
+        <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
+
+        <div class="slots">
+          <div v-for="key in slotKeys" :key="key" class="slot-box" :title="t('slot.' + key + '.tip')">
+            <span>{{ t('slot.' + key + '.label') }}</span>
+            <input v-model="slots[key]" :placeholder="t('slot.' + key + '.hint')"
+                   @focus="openSlot = key" @click.stop @input="openSlot = key" />
+            <ul v-if="openSlot === key && slotFiltered(key).length" class="slot-drop">
+              <li v-for="[ru] in slotFiltered(key)" :key="ru"
+                  @mousedown.prevent="slots[key] = ru; openSlot = ''">{{ ru }}</li>
+            </ul>
+          </div>
+          <label>
+            <span>BPM</span>
+            <input v-model.number="slots.bpm" type="number" min="40" max="250" placeholder="—" />
+          </label>
+        </div>
+
+        <div class="lib-row" :title="t('form.voice.tip')">
+          <VSelect v-model="voicePick" :options="voiceOptions" :disabled="!voiceCards.length"
+                   :placeholder="voiceCards.length ? t('form.voice.ph') : t('form.voice.empty')"
+                   @update:model-value="onVoicePick()" />
+        </div>
+
+        <details>
+          <summary>
+            {{ t('form.styleline') }}
+            <span v-if="styleOverride" class="muted">{{ t('form.styleline.manual') }}</span>
+            <span v-else class="muted">{{ t('form.styleline.auto') }}</span>
+          </summary>
+          <textarea v-model="styleLine" rows="3" :placeholder="t('form.styleline.ph')"></textarea>
+          <button v-if="styleOverride" class="ghost small-btn" style="margin-top:6px"
+                  :title="t('form.styleline.follow.tip')"
+                  @click="styleOverride = ''">{{ t('form.styleline.follow') }}</button>
+        </details>
+
+        <details>
+          <summary>{{ t('form.rack') }} <span class="muted">({{ rackSel.length }})</span></summary>
+          <div class="rack">
+            <div v-for="g in rackGroups" :key="g.id" class="rack-group">
+              <div class="rack-gname">{{ g.name }}</div>
+              <div v-for="it in g.items" :key="it.id" class="rack-item">
+                <label class="rack-pick">
+                  <input type="checkbox" :checked="rackSel.some(r => r.id === it.id)" @change="rackToggle(it.id)" />
+                  {{ it.name }}
+                </label>
+                <VSelect v-if="rackSel.some(r => r.id === it.id)"
+                        :model-value="rackSel.find(r => r.id === it.id).effect"
+                        :options="rackEffects.map((e) => ({ value: e.id, label: e.name }))"
+                        style="max-width: 150px"
+                        @update:model-value="(v) => rackSetEffect(it.id, v)" />
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="lyrics-head">
+          <label class="lyrics-label">{{ t('form.lyrics') }}</label>
+          <span class="lyrics-tools">
+            <button class="toggle" :class="{ on: noLyrics }" :title="t('form.nowords.tip')" @click="noLyrics = !noLyrics">{{ t('form.nowords') }}</button>
+            <select v-if="noLyrics" v-model="durMode" class="dur-select" title="Длина инструментала задаётся числом секций [Instrumental]">
+              <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ t('dur.' + o.id) }}</option>
+            </select>
+            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">{{ t('form.copilot') }}</button>
+            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy"
+                    :title="t('lyrics.rec.tip')" @click="recognizeLyrics">
+              {{ lyrBusy === 'rec' ? '…' : t('lyrics.rec') }}</button>
+            <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy || !lyrics.trim()"
+                    :title="t('lyrics.adapt.tip')" @click="adaptLyrics">
+              {{ lyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
+            <span v-if="lyrErr" class="error">{{ lyrErr }}</span>
+          </span>
+        </div>
+        <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
+
+        <div class="row">
+          <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
+          <div class="cot-radios" :title="t('form.cot.tip')">
+            <span class="cot-title">генерация:</span>
+            <label><input type="radio" value="full" v-model="cot" /> полная</label>
+            <label><input type="radio" value="melody" v-model="cot" /> мелодия</label>
+            <label><input type="radio" value="off" v-model="cot" /> без размышлений</label>
+          </div>
+          <label class="autotr" title="Слоты можно писать по-русски: перед отправкой строка стиля переводится в английский через Ollama (qwen2.5). Модель обучена на английских тегах.">
+            <input type="checkbox" v-model="autoTranslate" /> рус → eng
+          </label>
+          <span class="compiled" :title="compiledStyle">{{ translateBusy ? t('form.translating') : (compiledStyle ? '→ ' + compiledStyle : t('form.style.empty')) }}</span>
+        </div>
+
+        <div class="row arc-row">
+          <span class="arc-title">{{ t('arc.title') }}:</span>
+          <button v-for="a in ['', 'build', 'wave', 'burst']" :key="a" class="toggle small-btn"
+                  :class="{ on: arcKind === a }" :title="t('arc.' + (a || 'flat') + '.tip')"
+                  @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
+        </div>
+
+        <div class="row character-row">
+          <span class="arc-title">{{ t('character.title') }}:</span>
+          <label class="character-knob" :title="t('character.temperature.tip')">
+            {{ t('character.temperature') }}
+            <input type="range" v-model.number="temperature" :min="CHARACTER.temperature.min"
+                   :max="CHARACTER.temperature.max" :step="CHARACTER.temperature.step" />
+            <span class="character-val">{{ temperature }}</span>
+          </label>
+          <label class="character-knob" :title="t('character.cfg.tip')">
+            {{ t('character.cfg') }}
+            <input type="range" v-model.number="cfgScale" :min="CHARACTER.cfg.min"
+                   :max="CHARACTER.cfg.max" :step="CHARACTER.cfg.step" />
+            <span class="character-val">{{ cfgScale }}</span>
+          </label>
+          <button class="ghost small-btn" :disabled="characterDefault" @click="characterReset">{{ t('character.reset') }}</button>
+        </div>
+
+        <div class="actions">
+          <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
+            {{ submitting ? t('form.submitting') : t('form.submit') }}
+          </button>
+          <button class="primary alt" :disabled="submitting || !canSubmit" @click="submitFan(5)" :title="t('form.fan.tip')">
+            {{ t('form.fan') }}
+          </button>
+          <button class="ghost" :disabled="planBusy || !canSubmit" @click="makePlan"
+                  :title="t('form.notes.tip')">
+            {{ planBusy ? t('form.planning') : t('form.notes') }}
+          </button>
+          <button class="ghost" :disabled="submitting || !canSubmit" @click="submitDraft"
+                  :title="t('form.draft.tip')">
+            {{ t('form.draft') }}
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <SettingsPage v-if="settingsPage" v-model:server-url="serverURL"
                 @close="settingsPage = false" @saved="refresh" />
   <CorpusPage v-if="corpusPage"
@@ -1282,10 +1291,8 @@ main {
   grid-template-columns: minmax(0, 1fr);
   gap: 20px; padding: 20px 24px; max-width: 1800px; margin: 0 auto;
 }
-/* форма не растягивается на весь экран: строки стиха и слоты читаются */
-.new-track { width: 100%; max-width: 860px; margin: 0 auto; }
-.newtrack-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.newtrack-head h2 { margin: 0; padding: 0; border: none; background: none; text-shadow: none; flex: 1; }
+/* тело модалки прокручивается само: части формы не сжимаются (иначе стих — в одну строку) */
+.newtrack-modal .page-modal-body > * { flex-shrink: 0; }
 .home-link { cursor: pointer; }
 .new-track-btn { font-weight: 600; padding: 6px 14px; }
 .new-track-btn.on { outline: 2px solid var(--accent, currentColor); outline-offset: 1px; }
