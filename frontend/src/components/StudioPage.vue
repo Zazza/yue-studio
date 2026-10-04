@@ -1,6 +1,6 @@
 <script setup>
 // Студия трека: пиано-ролл партитуры, минус по стемам, овердаб, DSP-цепочки.
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from '../i18n/index.js'
 const { t, locale } = useI18n()
 import { api } from '../api.js'
@@ -238,6 +238,7 @@ async function openRoll() {
   try {
     const d = await api.jobScore(props.job.id)
     rollData.value = d
+    nextTick(watchSteps)   // разделы шагов появились в DOM — следить за прокруткой
   } catch (e) {
     rollErr.value = String(e)
   } finally { rollBusy.value = false }
@@ -360,6 +361,47 @@ const isSecStart = (pos) => pos === 0 || posSection(pos) !== posSection(pos - 1)
 // голоса партитуры (Vocal/Ins) — по-русски; неизвестный — как есть
 // дорожки demucs по-русски (барабаны, бас, гитары/синты, голос, гитара, клавиши); неизвестная — как есть
 const stemLabel = (n) => { if (!n) return ''; const k = 'studio.dsp.target.' + n; const s = t(k); return s === k ? n : s }
+// шаги студии: ссылки на разделы, активный — по прокрутке
+const STUDIO_STEPS = ['listen', 'edit', 'sound', 'done']
+const activeStep = ref('listen')
+const fxBox = ref(null)
+function goStep(st) {
+  const el = document.getElementById('st-' + st)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  activeStep.value = st
+}
+// активный шаг — последний раздел, чей заголовок поднялся выше 40% экрана; в самом низу
+// страницы — последний шаг (до верха он не доедет: страница кончается раньше)
+let stepScroller = null
+function updateStep() {
+  const c = stepScroller
+  if (!c) return
+  if (c.scrollTop + c.clientHeight >= c.scrollHeight - 4) { activeStep.value = STUDIO_STEPS[STUDIO_STEPS.length - 1]; return }
+  let cur = STUDIO_STEPS[0]
+  for (const st of STUDIO_STEPS) {
+    const el = document.getElementById('st-' + st)
+    if (el && el.getBoundingClientRect().top < window.innerHeight * 0.4) cur = st
+  }
+  activeStep.value = cur
+}
+function watchSteps() {
+  if (stepScroller) return
+  const first = document.getElementById('st-' + STUDIO_STEPS[0])
+  stepScroller = first && first.closest('.app-body')
+  if (stepScroller) stepScroller.addEventListener('scroll', updateStep, { passive: true })
+}
+onUnmounted(() => { if (stepScroller) stepScroller.removeEventListener('scroll', updateStep) })
+// «Готово» → цепочка в «Эффектах звука» (напр. «Громкость альбома»): раскрыть и показать
+function goChain(id) {
+  selChain(id)
+  if (fxBox.value) { fxBox.value.open = true; fxBox.value.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+}
+// подсказка правок — по состоянию, одной строкой
+const trickHint = computed(() => {
+  if (planDraft.value) return t('studio.trick.hint.build')
+  if (hasSel.value) return t('studio.trick.hint.pick')
+  return t('studio.trick.hint.select')
+})
 const voiceLabel = (v) => { const k = 'studio.roll.voice.' + v; const s = t(k); return s === k ? v : s }
 const posChord = (pos) => {
   for (const v of (rollData.value && rollData.value.voice_order) || []) {
@@ -1391,6 +1433,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
         <button class="ghost" @click="emit('close')">{{ t('common.back') }}</button>
         <h2>{{ t('studio.title') }} <span class="muted">#{{ job.id }} {{ job.title }}</span></h2>
       </div>
+      <!-- шаги работы с треком: ссылки на разделы одной страницы (волна нужна всем шагам — не вкладки) -->
+      <nav v-if="rollData" class="studio-steps">
+        <button v-for="(st, i) in STUDIO_STEPS" :key="st" class="ghost small-btn" :class="{ on: activeStep === st }"
+                @click="goStep(st)">{{ i + 1 }} · {{ t('studio.step.' + st) }}</button>
+      </nav>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
         <p v-if="rollErr" class="error">{{ rollErr }}</p>
@@ -1400,6 +1447,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             {{ posCount }} тактов · ~{{ fmtDur(rollData.duration_sec) }}
             <template v-if="selRange"> · выделено {{ selRange.from.toFixed(0) }}–{{ selRange.to.toFixed(0) }} с</template>
           </p>
+          <h3 id="st-listen" class="studio-step">1 · {{ t('studio.step.listen') }} <span class="muted">{{ t('studio.step.listen.sub') }}</span></h3>
           <div class="studio-box wave-panel">
             <div class="studio-box-head">
               <span>{{ t('studio.wave.caption') }}</span>
@@ -1473,6 +1521,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </div>
             </div>
           </div>
+          <h3 id="st-edit" class="studio-step">2 · {{ t('studio.step.edit') }} <span class="muted">{{ t('studio.step.edit.sub') }}</span></h3>
           <!-- правки: секция с шапкой, приёмы — по смысловым группам -->
           <div class="studio-box">
             <div class="studio-box-head"><span>{{ t('studio.trick.caption') }}</span></div>
@@ -1569,8 +1618,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               </div>
             </div>
           </div>
-          <p class="muted trick-hint">{{ t('studio.preview.hint') }}</p>
-          <p class="muted trick-hint">{{ t('studio.trick.hint') }}</p>
+          <p class="muted trick-hint" :title="t('studio.trick.hint')">{{ trickHint }}</p>
           <p v-if="trickMsg" class="ok trick-hint">{{ trickMsg }}</p>
           <p v-if="fragJob" class="trick-hint" :class="fragJob.status === 'error' ? 'error' : 'muted'">
             <template v-if="fragJob.status === 'starting'"><span class="pulse">♪</span> {{ t('studio.trick.fragment.starting') }}</template>
@@ -1640,34 +1688,6 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </div>
           </div>
 
-          <div class="studio-box">
-            <div class="studio-box-head"><span>{{ t('studio.stems') }}</span></div>
-            <div class="studio-box-body">
-            <div class="stems-inline">
-              <span class="muted">{{ t('studio.stems.minus') }}</span>
-              <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
-                <button class="toggle" :class="{ on: !stemMute[nm] }"
-                       :title="stemMute[nm] ? t('studio.stem.off') : t('studio.stem.on')"
-                       @click="stemMute = { ...stemMute, [nm]: !stemMute[nm] }">
-                  {{ stemLabel(nm) }}
-                </button>
-              </label>
-              <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
-                      :title="t('studio.minus.tip')" @click="makeMinus">
-                {{ rollBusy ? '…' : t('studio.minus') }}
-              </button>
-              <span class="muted">{{ t('studio.minus.hint') }}</span>
-            </div>
-            <div v-for="st in stemsList" :key="st.file" class="stem-row">
-              <button class="ghost play-mini" :class="{ stop: isPlaying('s' + job.id + ':' + st.file) }"
-                      :disabled="playBusy['s' + job.id + ':' + st.file]" @click="playStem(st)">
-                {{ playBtn('s' + job.id + ':' + st.file) }}
-              </button>
-              <strong>{{ stemLabel(st.name) }}</strong>
-            </div>
-            </div>
-          </div>
-
           <details class="studio-box">
             <summary class="studio-box-head"><span>{{ t('studio.overdub') }}</span> <span class="muted studio-box-hint">{{ t('studio.overdub.sub') }}</span></summary>
             <div class="studio-box-body">
@@ -1714,19 +1734,10 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             </div>
           </details>
 
-          <details class="studio-box">
+          <h3 id="st-sound" class="studio-step">3 · {{ t('studio.step.sound') }} <span class="muted">{{ t('studio.step.sound.sub') }}</span></h3>
+          <details ref="fxBox" class="studio-box">
             <summary class="studio-box-head"><span>{{ t('studio.dsp') }}</span> <span class="muted studio-box-hint">{{ t('studio.dsp.sub') }}</span></summary>
             <div class="studio-box-body">
-            <div class="dsp-row">
-              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyOneClick('master')">
-                {{ dspBusy ? '…' : t('studio.dsp.master') }}
-              </button>
-              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.breathe.tip')" @click="applyOneClick('breathe')">
-                {{ dspBusy ? '…' : t('studio.dsp.breathe') }}
-              </button>
-              <VSelect v-model="oneClickLevel" :title="t('studio.dsp.level.tip')" style="max-width: 130px"
-                       :options="ONE_CLICK_LEVELS.map((l) => ({ value: l, label: t('studio.dsp.level.' + l) }))" />
-            </div>
             <div class="dsp-row">
               <VSelect :model-value="dspSel" :options="dspChains.map((c) => ({ value: c.id, label: c.name }))"
                        :placeholder="t('studio.dsp.chain')" style="max-width: 220px"
@@ -1764,6 +1775,61 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 <span class="dsp-pval">{{ dspParams[p.id] }}</span>
               </label>
             </div>
+            </div>
+          </details>
+
+          <details class="studio-box">
+            <summary class="studio-box-head"><span>{{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
+            <div class="studio-box-body">
+              <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
+            </div>
+          </details>
+
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('studio.stems') }}</span></div>
+            <div class="studio-box-body">
+            <div class="stems-inline">
+              <span class="muted">{{ t('studio.stems.minus') }}</span>
+              <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
+                <button class="toggle" :class="{ on: !stemMute[nm] }"
+                       :title="stemMute[nm] ? t('studio.stem.off') : t('studio.stem.on')"
+                       @click="stemMute = { ...stemMute, [nm]: !stemMute[nm] }">
+                  {{ stemLabel(nm) }}
+                </button>
+              </label>
+              <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
+                      :title="t('studio.minus.tip')" @click="makeMinus">
+                {{ rollBusy ? '…' : t('studio.minus') }}
+              </button>
+              <span class="muted">{{ t('studio.minus.hint') }}</span>
+            </div>
+            <div v-for="st in stemsList" :key="st.file" class="stem-row">
+              <button class="ghost play-mini" :class="{ stop: isPlaying('s' + job.id + ':' + st.file) }"
+                      :disabled="playBusy['s' + job.id + ':' + st.file]" @click="playStem(st)">
+                {{ playBtn('s' + job.id + ':' + st.file) }}
+              </button>
+              <strong>{{ stemLabel(st.name) }}</strong>
+            </div>
+            </div>
+          </div>
+
+          <h3 id="st-done" class="studio-step">4 · {{ t('studio.step.done') }} <span class="muted">{{ t('studio.step.done.sub') }}</span></h3>
+          <!-- готово: мастеринг одним кликом, громкость альбома и все результаты (варианты) с ▶ / ⤓ / → в треки -->
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('studio.done') }}</span></div>
+            <div class="studio-box-body">
+            <div class="dsp-row">
+              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyOneClick('master')">
+                {{ dspBusy ? '…' : t('studio.dsp.master') }}
+              </button>
+              <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.breathe.tip')" @click="applyOneClick('breathe')">
+                {{ dspBusy ? '…' : t('studio.dsp.breathe') }}
+              </button>
+              <VSelect v-model="oneClickLevel" :title="t('studio.dsp.level.tip')" style="max-width: 130px"
+                       :options="ONE_CLICK_LEVELS.map((l) => ({ value: l, label: t('studio.dsp.level.' + l) }))" />
+              <button class="ghost" :title="t('studio.done.level.tip')" @click="goChain('level')">{{ t('studio.done.level') }}</button>
+            </div>
+            <p v-if="!dspVariants.length" class="muted">{{ t('studio.done.empty') }}</p>
             <div v-for="v in dspVariants" :key="v.file" class="dsp-variant">
               <button class="ghost play-mini" :class="{ stop: isPlaying('v' + job.id + ':' + v.file) }"
                       :disabled="playBusy['v' + job.id + ':' + v.file]" @click="playVariant(v)">
@@ -1784,14 +1850,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                       @click="delVariant(v)">✕</button>
             </div>
             </div>
-          </details>
-
-          <details class="studio-box">
-            <summary class="studio-box-head"><span>{{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
-            <div class="studio-box-body">
-              <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
-            </div>
-          </details>
+          </div>
         </template>
       </div>
       <div class="set-actions">

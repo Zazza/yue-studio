@@ -1588,6 +1588,14 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
   margin: 8px 2px 2px; padding: 0; background: none; border: none; text-shadow: none;
 }
 .studio-top { display: flex; align-items: center; gap: 12px; }
+/* полоса шагов студии прилипает к верху при прокрутке; активный шаг — по видимому разделу */
+.studio-steps {
+  position: sticky; top: 0; z-index: 4; display: flex; gap: 6px; flex-wrap: wrap;
+  margin: 10px 0 4px; padding: 6px 0; background: var(--bg);
+}
+.studio-steps .on { color: var(--lcd-text); border-color: var(--lcd-text); }
+.studio-step { margin: 22px 2px 8px; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; scroll-margin-top: 52px; }
+.studio-step .muted { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; }
 .studio-top > h2 { margin: 0; flex: 1; min-width: 0; }
 .corpus-list { max-width: none; }
 /* секции студии (звук/план/правки/вклейки/стемы/овердаб/эффекты) — рамка
