@@ -184,6 +184,8 @@ export namespace studio {
 	export class PreviewResult {
 	    wet: string;
 	    dry: string;
+	    wet_solo?: string;
+	    dry_solo?: string;
 	    from: number;
 	    to: number;
 	    dur_sec: number;
@@ -196,6 +198,8 @@ export namespace studio {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.wet = source["wet"];
 	        this.dry = source["dry"];
+	        this.wet_solo = source["wet_solo"];
+	        this.dry_solo = source["dry_solo"];
 	        this.from = source["from"];
 	        this.to = source["to"];
 	        this.dur_sec = source["dur_sec"];

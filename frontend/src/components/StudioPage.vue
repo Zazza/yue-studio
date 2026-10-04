@@ -1203,14 +1203,16 @@ async function reloadVariants() {
 // Быстрое превью: кусок трека (выделение, иначе 15 с от курсора) с эффектом на
 // весь трек или на выбранную дорожку; «было» и «стало» — куски на ПК, в список
 // вариантов не попадают. Переключение было↔стало — с той же позиции.
-const fxPrev = ref(null)          // {from, to, dur_sec, which: 'wet'|'dry', label}
+const fxPrev = ref(null)          // {from, to, dur_sec, wet_solo?, which: 'wet'|'dry', label}
+const fxSolo = ref(false)         // только дорожка, без остального микса
 const FX_PREV_KEY = 'fxprev'      // ключ «сейчас играет превью» в общем плеере
 function fxPrevPos() {
   const playing = nowPlayingKey.value === FX_PREV_KEY && playerState.value.job_id === props.job.id
   return playing ? (playerState.value.position_sec || 0) : 0
 }
 async function playFxPrev(which, startSec = 0) {
-  await api.playPreview(props.job.id, '', which, startSec)
+  const piece = fxSolo.value && fxPrev.value && fxPrev.value.wet_solo ? which + '_solo' : which
+  await api.playPreview(props.job.id, '', piece, startSec)
   nowPlayingKey.value = FX_PREV_KEY
   fxPrev.value = { ...fxPrev.value, which }
   refreshPlayer()
@@ -1753,6 +1755,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button v-if="fxPrev" class="ghost small-btn" :title="t('studio.dsp.ab.tip')" @click="toggleFxPrev">
                 {{ fxPrev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}
               </button>
+              <label v-if="fxPrev && fxPrev.wet_solo" class="muted" :title="t('studio.dsp.solo.tip')">
+                <input v-model="fxSolo" type="checkbox" @change="playFxPrev(fxPrev.which, fxPrevPos())" /> {{ t('studio.dsp.solo') }}
+              </label>
               <span v-if="fxPrev" class="muted">{{ fxPrev.label }} · {{ fmtDur(fxPrev.from) }}–{{ fmtDur(fxPrev.to) }}</span>
               <button class="ghost" @click="emit('open-metrics', job, null)">{{ t('studio.dsp.metrics') }}</button>
             </div>

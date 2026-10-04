@@ -397,6 +397,8 @@ export default {
   'studio.vc.go': 'sing',
   'studio.vc.unavailable': 'Unavailable: Seed-VC is not installed on the worker — an optional component (~11 GB). How to install: docs/deployment.md',
   'studio.dsp': 'Audio effects',
+  'studio.dsp.solo': 'stem only',
+  'studio.dsp.solo.tip': 'Hear the processed and original stem without the rest of the mix — in a dense mix the effect is masked',
   'studio.dsp.sub': '— 50+ effects on the track or a stem, preview in place, before / after',
   'studio.dsp.chain': 'effects chain…',
   'studio.dsp.savefile.tip': 'Save this variant as a file (flac)',

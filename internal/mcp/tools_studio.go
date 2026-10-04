@@ -181,6 +181,7 @@ func RegisterStudioTools(s *Server) {
 			"stem": prop("дорожка: vocals / drums / bass / other / guitar / piano (пусто — весь трек)", "string"),
 			"from": prop("с какой секунды трека", "number"),
 			"to":   prop("по какую секунду трека", "number"),
+			"solo": prop("со stem: только обработанная дорожка без остального микса (в плотном миксе звук эффекта маскируется)", "boolean"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			steps, err := argSteps(args)
@@ -188,7 +189,7 @@ func RegisterStudioTools(s *Server) {
 				return "", err
 			}
 			v, err := s.fxPreview(argInt(args, "job_id"), argString(args, "stem"), steps,
-				argFloat(args, "from"), argFloat(args, "to"))
+				argFloat(args, "from"), argFloat(args, "to"), argBool(args, "solo"))
 			if err != nil {
 				return "", err
 			}

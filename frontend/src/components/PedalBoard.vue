@@ -37,7 +37,8 @@ const presets = ref([])
 const presetSel = ref('')
 const busy = ref(false)
 const msg = ref('')
-const prev = ref(null)              // {from, to, which: 'wet'|'dry', slot}
+const prev = ref(null)              // {from, to, which: 'wet'|'dry', slot, hasSolo}
+const solo = ref(false)             // слушать только дорожку (без микса): в стене звук педали маскируется
 const cmpSel = ref([])              // id наборов для сравнения (кроме текущей доски)
 const cmp = ref([])                 // [{slot, label}] — готовые куски сравнения
 
@@ -105,7 +106,8 @@ function curPos() {
   return playing ? (playerState.value.position_sec || 0) : 0
 }
 async function play(slot, which, start = 0) {
-  await api.playPreview(props.job.id, slot, which, start)
+  const piece = solo.value && prev.value && prev.value.hasSolo ? which + '_solo' : which
+  await api.playPreview(props.job.id, slot, piece, start)
   nowPlayingKey.value = PLAY_KEY
   prev.value = { ...prev.value, slot, which }
   refreshPlayer()
@@ -116,7 +118,7 @@ async function preview() {
   busy.value = true
   try {
     const r = await api.fxPreview(props.job.id, stem.value, boardSteps(board.value), w.from, w.to, '')
-    prev.value = { from: r.from, to: r.to, which: 'wet', slot: '' }
+    prev.value = { from: r.from, to: r.to, which: 'wet', slot: '', hasSolo: !!r.wet_solo }
     cmp.value = []
     await play('', 'wet')
     msg.value = ''
@@ -144,7 +146,7 @@ async function compare() {
       if (!boards[i].steps.some((s) => !s.off)) continue
       const r = await api.fxPreview(props.job.id, stem.value, boards[i].steps, w.from, w.to, SLOTS[i])
       done.push({ slot: SLOTS[i], label: boards[i].label })
-      prev.value = { from: r.from, to: r.to, which: 'wet', slot: SLOTS[i] }
+      prev.value = { from: r.from, to: r.to, which: 'wet', slot: SLOTS[i], hasSolo: !!r.wet_solo }
     }
     cmp.value = done
     if (done.length) await play(done[0].slot, 'wet')
@@ -229,6 +231,9 @@ async function findGrid() {
       {{ busy ? '…' : t('studio.dsp.preview') }}</button>
     <button v-if="prev" class="ghost small-btn" :title="t('studio.dsp.ab.tip')" @click="toggleAB">
       {{ prev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}</button>
+    <label v-if="prev && prev.hasSolo" class="muted" :title="t('studio.dsp.solo.tip')">
+      <input v-model="solo" type="checkbox" @change="play(prev.slot, prev.which, curPos())" /> {{ t('studio.dsp.solo') }}
+    </label>
     <span v-if="prev" class="muted">{{ fmtDur(prev.from) }}–{{ fmtDur(prev.to) }}</span>
     <button class="primary small" :disabled="busy || !hasOn" :title="t('pedals.apply.tip')" @click="apply">
       {{ t('pedals.apply') }}</button>

@@ -26,13 +26,18 @@ type PreviewSpec struct {
 
 // PreviewResult — «стало» (Wet) и «было» (Dry): куски одной длины с одного
 // места трека, файлы на ПК. From/To — окно трека, DurSec — длина кусков
-// (окно + хвост эффекта).
+// (окно + хвост эффекта). У превью на дорожку ещё соло: обработанная и
+// исходная дорожка без остального микса — в плотном миксе (стена гитар) звук
+// педали маскируется, соло слышно без помех (замер #331: тремоло на гитаре
+// −17 дБ к миксу — в миксе на слух «ничего не меняется»).
 type PreviewResult struct {
-	Wet    string  `json:"wet"`
-	Dry    string  `json:"dry"`
-	From   float64 `json:"from"`
-	To     float64 `json:"to"`
-	DurSec float64 `json:"dur_sec"`
+	Wet     string  `json:"wet"`
+	Dry     string  `json:"dry"`
+	WetSolo string  `json:"wet_solo,omitempty"`
+	DrySolo string  `json:"dry_solo,omitempty"`
+	From    float64 `json:"from"`
+	To      float64 `json:"to"`
+	DurSec  float64 `json:"dur_sec"`
 }
 
 const (
@@ -130,6 +135,13 @@ func Preview(ctx context.Context, svc yue.Service, cache *Cache, spec PreviewSpe
 		"[0:a][pv_f][pv_s]amix=inputs=3:duration=first:normalize=0,%s[out]", gain, cut)
 	if err := dsp.RunInputs([]string{baseSeg, fx, stemSeg}, res.Wet, mix); err != nil {
 		return nil, fmt.Errorf("микс превью: %w", err)
+	}
+	res.WetSolo, res.DrySolo = filepath.Join(outDir, "wet_solo.flac"), filepath.Join(outDir, "dry_solo.flac")
+	if err := dsp.Run(fx, res.WetSolo, fmt.Sprintf("[0:a]volume=%g,%s[out]", gain, cut), nil); err != nil {
+		return nil, fmt.Errorf("соло дорожки: %w", err)
+	}
+	if err := dsp.Run(stemSeg, res.DrySolo, "[0:a]"+cut+"[out]", nil); err != nil {
+		return nil, fmt.Errorf("соло дорожки: %w", err)
 	}
 	return res, nil
 }

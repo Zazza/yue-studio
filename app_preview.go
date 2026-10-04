@@ -16,6 +16,9 @@ import (
 // приложения (второй экземпляр или тест не стирает кэш работающего)
 const fxCacheDirPattern = "yue-studio-fx-*"
 
+// previewPieces — куски превью: стало/было в миксе и соло дорожки.
+var previewPieces = []string{"wet", "dry", "wet_solo", "dry_solo"}
+
 // previewSlots — куски превью: "" — обычное превью, A–D — «сравнить наборы».
 var previewSlots = []string{"", "A", "B", "C", "D"}
 
@@ -73,6 +76,7 @@ func (a *App) YueFxPreview(jobID int64, stem string, steps []dsp.Step, from, to 
 }
 
 // YuePlayPreview — сыграть кусок превью: which "wet" (стало) или "dry" (было),
+// "wet_solo"/"dry_solo" — то же соло дорожки (только у превью на дорожку),
 // с секунды startSec куска — переключение было↔стало на той же позиции. Длину
 // куска (без неё плеер не перематывает) App запомнил при превью. Файл
 // выбирается по имени слота, а не по пути: фронт не может попросить сыграть
@@ -82,7 +86,7 @@ func (a *App) YuePlayPreview(jobID int64, slot, which string, startSec float64) 
 	if err != nil {
 		return err
 	}
-	if which != "wet" && which != "dry" {
+	if !slices.Contains(previewPieces, which) {
 		return fmt.Errorf("неизвестный кусок превью %q", which)
 	}
 	a.fxMu.Lock()

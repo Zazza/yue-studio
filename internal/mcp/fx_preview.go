@@ -26,7 +26,7 @@ func (s *Server) fxCache() *studio.Cache {
 
 // fxPreview — превью шагов на куске трека (как в приложении), «стало» — вариантом
 // на воркер: агенту нужны метрики, а их считает воркер.
-func (s *Server) fxPreview(jobID int64, stem string, steps []dsp.Step, from, to float64) (*yue.DspVariant, error) {
+func (s *Server) fxPreview(jobID int64, stem string, steps []dsp.Step, from, to float64, solo bool) (*yue.DspVariant, error) {
 	if to <= from {
 		from, to = mcpPreviewFrom, mcpPreviewTo
 	}
@@ -37,7 +37,14 @@ func (s *Server) fxPreview(jobID int64, stem string, steps []dsp.Step, from, to 
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(res.Wet)
+	wet := res.Wet
+	if solo {
+		if res.WetSolo == "" {
+			return nil, errors.New("solo — только с stem (дорожка без остального микса)")
+		}
+		wet = res.WetSolo
+	}
+	data, err := os.ReadFile(wet)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +55,9 @@ func (s *Server) fxPreview(jobID int64, stem string, steps []dsp.Step, from, to 
 	label := fmt.Sprintf("превью %s %.0f–%.0f с", name, from, to)
 	if stem != "" {
 		label += " · " + stem
+	}
+	if solo {
+		label += " (соло)"
 	}
 	return s.client.UploadDsp(context.Background(), jobID, "dsp-preview-"+name+".flac", label, data)
 }
