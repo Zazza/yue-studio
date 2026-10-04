@@ -569,11 +569,6 @@ export default {
   'queue.folder.move.tip': 'Song folder — its versions move with it',
   'queue.rename.tip': 'Rename (double-click or ✎): your own title instead of a number — numbers change on transfer',
   'queue.details.tip': 'Expand details: style, seed, versions, actions',
-  'queue.col.title': 'Track',
-  'queue.col.status': 'Status',
-  'queue.col.dur': 'Length',
-  'queue.col.when': 'Date',
-  'queue.col.folder': 'Folder',
 
   'queue.filter.shown': 'showing {shown} of {total}',
   'queue.filter.page': 'page {page} of {max}',
