@@ -1553,6 +1553,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
   background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
 }
 .job + .job { border-top: 1px solid var(--border); }
+/* зебра: нечётные строки чуть темнее — глаз держит строку по ширине таблицы */
+.job-table .job:nth-child(even) { background: color-mix(in srgb, var(--panel2) 88%, var(--bg)); }
 .job-table-head, .job-row {
   display: grid; align-items: center; gap: 8px;
   grid-template-columns: 30px minmax(0, 1fr) 150px 56px 46px 100px minmax(60px, max-content) 24px;
@@ -1577,8 +1579,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .job-progress { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .progress-track.slim { width: 76px; height: 5px; flex: none; }
 .col-kids { text-align: center; }
-.col-dur, .job-when { white-space: nowrap; font-size: 11.5px; text-align: right; }
-.job-folder { white-space: nowrap; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; text-align: center; }
+.col-dur, .job-when { white-space: nowrap; font-size: 12px; text-align: right; }
+.job-folder { white-space: nowrap; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; text-align: center; }
 .job-row > .job-caret { color: var(--muted); }
 .kids-badge { cursor: pointer; flex: none; }
 .kids-badge:hover { color: var(--text); }

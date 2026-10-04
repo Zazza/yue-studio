@@ -4,15 +4,15 @@
    тёмно-синие LCD. Всё векторное (CSS), поэтому чётко на 2K/4K. */
 
 :root {
-  --bg: #0b0b0f;
-  --panel: #23232d;
-  --panel2: #2f2f3b;
-  --panel3: #3a3a48;
-  --border: #0a0a0d;
-  --bevel-hi: #4c4c5e;      /* светлая грань фаски */
+  --bg: #08080c;
+  --panel: #1e1e27;
+  --panel2: #2b2b37;
+  --panel3: #3a3a49;
+  --border: #454556;
+  --bevel-hi: #56566a;      /* светлая грань фаски */
   --bevel-lo: #101015;      /* тёмная грань фаски */
-  --text: #ececf1;
-  --muted: #b4b4c1;
+  --text: #f2f3f7;
+  --muted: #c9cbd8;
   --accent: #e8674a;
   --ok: #4caf7d;
   --err: #e8674a;
@@ -30,15 +30,15 @@
   --badge-fg: #9aa5ff;
 }
 [data-theme="light"] {
-  --bg: #e9ebef;
+  --bg: #d7dbe3;
   --panel: #ffffff;
-  --panel2: #edeef2;
-  --panel3: #e0e3e9;
-  --border: #c3c6cf;
+  --panel2: #f2f3f7;
+  --panel3: #e4e7ee;
+  --border: #8f96a5;
   --bevel-hi: #ffffff;
-  --bevel-lo: #cfd2d9;
-  --text: #16191d;
-  --muted: #51555d;
+  --bevel-lo: #c6cad4;
+  --text: #101319;
+  --muted: #3c414c;
   --accent: #c2410c;
   --ok: #15803d;
   --err: #b91c1c;
