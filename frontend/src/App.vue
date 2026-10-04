@@ -769,8 +769,7 @@ function onWindowClick(e) {
     <button class="icon-btn" @click="setLocale(locale === 'ru' ? 'en' : 'ru')"
             :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
-    <span class="spacer"></span>
-    <!-- справа, у меню: левую часть шапки перекрывает отцентрованный плеер -->
+    <!-- справа, у меню; плеер между ними забирает всю свободную ширину -->
     <button class="primary new-track-btn" :class="{ on: newTrackPage }"
             :title="t('nav.new.tip')" @click="openNewTrack">{{ t('nav.new') }}</button>
     <div class="nav-wrap">
@@ -1225,18 +1224,14 @@ h2 {
 .set-info { font-size: 11px; line-height: 1.6; word-break: break-all; }
 .set-actions { display: flex; gap: 8px; margin-top: 8px; }
 .ok { color: var(--ok); font-size: 12px; }
-.player-center {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  /* ширина, а не max-width: абсолютный контейнер сжимается под содержимое,
-     и flex-полоса прокрутки не могла расти — запаса не было */
-  width: min(56vw, 720px); min-width: 0; z-index: 2;
+/* плеер — гибкая часть шапки: всё место между левыми кнопками и «＋ Новый трек»
+   (раньше — абсолютный центр фиксированной ширины: полоса короткая, по краям пусто) */
+.player-center { flex: 1 1 auto; min-width: 0; }
+/* узкое окно — плеер отдельной строкой во всю ширину */
+@media (max-width: 900px) {
+  .player-center { order: 9; flex-basis: 100%; }
 }
-@media (max-width: 1150px) {
-  .player-center {
-    position: static; transform: none; order: 9; flex-basis: 100%;
-    width: auto; justify-content: flex-start; z-index: auto;
-  }
-}
+.new-track-btn { margin-left: auto; }
 .playerbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 /* полоса прокрутки растягивается на свободное место шапки; под ней —
    метки минут-секунд: плеер здесь — навигация по треку, не просто индикатор */
@@ -1252,7 +1247,8 @@ h2 {
 .playerbar .vol input { width: 80px; }
 /* название — фиксированной ширины: длина названия не двигает полосу прокрутки;
    длинное бежит строкой (две копии подряд, сдвиг на половину — без шва) */
-.playerbar .now { flex: none; width: 220px; overflow: hidden; white-space: nowrap; }
+/* ширина по названию (не больше 220 px, длиннее — бегущая строка): короткое «#523» не оставляет дыры */
+.playerbar .now { flex: 0 1 auto; max-width: 220px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .playerbar .now-track { display: inline-flex; }
 .playerbar .now-track.scroll { animation: now-marquee linear infinite; }
 .playerbar .now-track.scroll .now-text { padding-right: 3em; }

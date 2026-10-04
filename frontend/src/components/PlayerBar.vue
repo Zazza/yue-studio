@@ -77,7 +77,8 @@ function onSeekHover(e) {
     <button class="ghost" :disabled="!playerState.job_id && !playRange" @click="togglePlay" :title="t('player.pause')"><svg v-if="playerState.playing" width="10" height="10" viewBox="0 0 10 10"><path d="M1 0h2.8v10H1zM6.2 0H9v10H6.2z" fill="currentColor"/></svg><svg v-else width="10" height="10" viewBox="0 0 10 10"><path d="M1 0l8 5-8 5z" fill="currentColor"/></svg></button>
     <button class="ghost" :disabled="!playerState.job_id" @click="stopPlaying" :title="t('player.stop')"><svg width="9" height="9" viewBox="0 0 9 9"><rect width="9" height="9" fill="currentColor"/></svg></button>
     <button class="ghost" :disabled="!playerState.job_id" :title="t('player.next')" style="letter-spacing:-2px" @click="playNeighbor(jobs, 1)"><svg width="12" height="10" viewBox="0 0 12 10"><path d="M1 0v10l6.6-5zM8.4 0H10v10H8.4z" fill="currentColor"/></svg></button>
-    <span ref="nowBox" class="now" :title="playerState.error || nowLabel">
+    <!-- название — только когда что-то играет: пустое занимало 220 px между кнопками и полосой -->
+    <span v-show="nowLabel" ref="nowBox" class="now" :title="playerState.error || nowLabel">
       <span class="now-track" :class="{ scroll: marquee }" :style="marquee ? { animationDuration: marquee + 's' } : null">
         <span ref="nowText" class="now-text">{{ nowLabel }}</span><span v-if="marquee" class="now-text" aria-hidden="true">{{ nowLabel }}</span>
       </span>
