@@ -185,6 +185,7 @@ async function submit() {
   submitting.value = true
   try {
     await api.submit({ ...payload(), style: await finalStyle() })
+    newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
   } finally { submitting.value = false }
 }
@@ -195,6 +196,7 @@ async function submitDraft() {
   submitting.value = true
   try {
     await api.submit({ ...payload({ draft: true }), style: await finalStyle() })
+    newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
   } finally { submitting.value = false }
 }
@@ -204,6 +206,7 @@ async function submitFan(n) {
   submitting.value = true
   try {
     await api.submitFan({ ...payload(), style: await finalStyle() }, n)
+    newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
   } finally { submitting.value = false }
 }
@@ -458,6 +461,7 @@ function reuseJob(j) {
   cot.value = ['full', 'melody', 'off'].includes(j.cot) ? j.cot : 'full'
   temperature.value = j.temperature || CHARACTER.temperature.def
   cfgScale.value = j.cfg || CHARACTER.cfg.def
+  openNewTrack()
 }
 
 function openListen(j) {
@@ -491,6 +495,27 @@ const libraryPage = ref(false)
 const corpusPage = ref(false)
 const voicesPage = ref(false)
 const studioJob = ref(null)
+// главная — список треков; форма нового трека — отдельная страница
+const newTrackPage = ref(false)
+
+function closeOverlays() {
+  libraryPage.value = false; settingsPage.value = false
+  corpusPage.value = false; voicesPage.value = false; navOpen.value = false
+}
+
+// «＋ Новый трек»: из любого места (студия, библиотека, меню) — на форму
+function openNewTrack() {
+  closeOverlays()
+  studioJob.value = null
+  newTrackPage.value = true
+}
+
+// на главную — список треков (клик по названию приложения)
+function goHome() {
+  closeOverlays()
+  studioJob.value = null
+  newTrackPage.value = false
+}
 
 // страницы в меню «⋮»: треки/голоса переключаются, настройки просто открываются
 const navOpen = ref(false)
@@ -539,7 +564,7 @@ function profileStyleToLibrary({ corpus, profile }) {
 
 function applyProfileStyle(style) {
   styleOverride.value = style
-  corpusPage.value = false   // применяем — возвращаемся к основной форме
+  openNewTrack()   // применяем — к форме нового трека
 }
 
 // голос из примерочной → форма: дескриптор в слот вокала + seed карточки
@@ -548,7 +573,7 @@ function applyVoice({ vocals, seed }) {
   slots.value.vocals = vocals
   styleOverride.value = ''
   seed.value = seed || null
-  voicesPage.value = false
+  openNewTrack()
 }
 
 // сохранённые голоса прямо в форме: выбор карточки = слот вокала + seed
@@ -619,6 +644,7 @@ async function renderFromAbc(abc, draft = false) {
     })
     inheritTrickMarks(id)
     planOpen.value = false
+    newTrackPage.value = false
     await refresh()
   } finally { submitting.value = false }
 }
@@ -731,13 +757,16 @@ function onWindowClick(e) {
 
 <template>
   <header>
-    <h1>{{ t('app.title') }}</h1>
+    <h1 class="home-link" :title="t('nav.home.tip')" @click="goHome">{{ t('app.title') }}</h1>
     <span class="health-dot" :class="health ? 'up' : 'down'" :title="healthTitle"></span>
     <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? t('app.theme.light') : t('app.theme.dark')">{{ theme === 'dark' ? '☀' : '☾' }}</button>
     <button class="icon-btn" @click="setLocale(locale === 'ru' ? 'en' : 'ru')"
             :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <span class="spacer"></span>
+    <!-- справа, у меню: левую часть шапки перекрывает отцентрованный плеер -->
+    <button class="primary new-track-btn" :class="{ on: newTrackPage && !studioJob }"
+            :title="t('nav.new.tip')" @click="openNewTrack">{{ t('nav.new') }}</button>
     <div class="nav-wrap">
       <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen">⋮</button>
       <ul v-if="navOpen" class="nav-menu">
@@ -756,9 +785,12 @@ function onWindowClick(e) {
               @open-metrics="openMetrics" />
 
   <main v-else>
-    <div class="left-col">
+    <div v-if="newTrackPage" class="left-col new-track">
       <section class="panel form">
-        <h2>{{ t('form.title') }}</h2>
+        <div class="newtrack-head">
+          <button class="ghost" @click="newTrackPage = false">{{ t('form.back') }}</button>
+          <h2>{{ t('form.title') }}</h2>
+        </div>
         <div class="lib-row" :title="t('form.lib.tip')">
           <VSelect v-model="libGroup" :options="libGroupOptions" :placeholder="t('form.lib.group')" @update:model-value="onLibGroupChange()" />
           <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
@@ -898,9 +930,10 @@ function onWindowClick(e) {
       </section>
     </div>
 
-    <section class="panel list">
+    <section v-else class="panel list">
       <h2>{{ t('queue.title') }}</h2>
-      <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}</p>
+      <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}
+        <button class="primary" @click="openNewTrack">{{ t('nav.new') }}</button></p>
       <template v-else>
         <div class="queue-tools">
           <VSelect v-model="qf.status" :options="qStatusOptions" />
@@ -1245,11 +1278,17 @@ h2 {
 
 main {
   display: grid;
-  /* левая колонка (форма) фиксированная — очередь забирает всё остальное */
-  grid-template-columns: 520px minmax(340px, 1fr);
+  /* одна страница за раз: список треков или форма нового трека */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px; padding: 20px 24px; max-width: 1800px; margin: 0 auto;
 }
-@media (max-width: 780px) { main { grid-template-columns: minmax(0, 1fr); } }
+/* форма не растягивается на весь экран: строки стиха и слоты читаются */
+.new-track { width: 100%; max-width: 860px; margin: 0 auto; }
+.newtrack-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.newtrack-head h2 { margin: 0; padding: 0; border: none; background: none; text-shadow: none; flex: 1; }
+.home-link { cursor: pointer; }
+.new-track-btn { font-weight: 600; padding: 6px 14px; }
+.new-track-btn.on { outline: 2px solid var(--accent, currentColor); outline-offset: 1px; }
 .left-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .left-col input, .left-col textarea { min-width: 0; max-width: 100%; }
 .panel {
