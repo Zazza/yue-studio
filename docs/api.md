@@ -6,7 +6,9 @@
 ```
 GET/POST /config       настройки: ollama_url, ollama_model (меняются на лету)
 GET  /health           статус, модель в памяти?
-POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max_tokens?} — abc: свой план; draft: черновик ~15-20 с;
+POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max_tokens?, temperature?, cfg?} — abc: свой план; draft: черновик ~15-20 с;
+                       temperature (0 или 0.5–1.5, смелость игры) и cfg (0 или 1–4, точность по стилю/нотам) —
+                       характер исполнения, 0 = по умолчанию (1.0 / YUE2_CFG_SCALE); у parent_id и /continue — как у родителя;
                        max_tokens — жёсткий потолок длины (~25 т/с: 3000 ≈ 1–2 мин), 0 = бюджет воркера;
                        arc: драматургия поверх плана (build|wave|burst: дуга темпа по секциям,
                        burst — голос на октаву выше в финале; с abc несовместим);

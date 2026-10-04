@@ -116,6 +116,10 @@ type Job struct {
 	// источник голоса: рендер, чей голос звучит в этой версии (у версии,
 	// созданной подстановкой голоса); пусто — голос свой или от родителя
 	VoiceSrc *int64 `json:"voice_src,omitempty"`
+	// характер исполнения: температура (смелость игры) и cfg (точность по
+	// стилю/нотам); 0 — по умолчанию воркера
+	Temperature float64 `json:"temperature,omitempty"`
+	Cfg         float64 `json:"cfg,omitempty"`
 
 	// живой прогресс (только у running-джоб; дополняется воркером поверх строки БД)
 	Stage       string   `json:"stage,omitempty"`
@@ -148,6 +152,10 @@ type SubmitParams struct {
 	// производный трек: родитель и роль (см. Job.ParentID/Role)
 	ParentID int64  `json:"parent_id,omitempty"`
 	Role     string `json:"role,omitempty"`
+	// характер исполнения: 0 — по умолчанию (у производного трека — как у родителя);
+	// температура 0.5–1.5 (выше — смелее игра), cfg 1–4 (выше — точнее по стилю и нотам)
+	Temperature float64 `json:"temperature,omitempty"`
+	Cfg         float64 `json:"cfg,omitempty"`
 }
 
 type PlanParams struct {

@@ -6,6 +6,7 @@ import { api } from './api.js'
 import { rackGroups, rackEffects, rackCompile } from './rack.js'
 import { groups as builtinGroups, loadCustomGroups, saveCustomGroups } from './groups.js'
 import { slotKeys, slotHints, durOptions, durTokens } from './slotOptions.js'
+import { CHARACTER, characterPayload, characterLabel } from './character.js'
 import { useI18n } from './i18n/index.js'
 import { voiceDescriptor, normalizeVoiceParams } from './voiceLab.js'
 import { defaultJobFilter, filterJobs, groupJobs, pageJobs, pageCount, folderNames, FOLDER_NONE } from './jobFilter.js'
@@ -83,6 +84,14 @@ const lyrics = ref(`[Verse]\n...\n\n[Chorus]\n...`)
 const seed = ref(null)
 const cot = ref('full')
 const arcKind = ref('')  // драматургия: '' | build | wave | burst
+// характер исполнения: смелость игры (температура) и точность по стилю/нотам (cfg)
+const temperature = ref(CHARACTER.temperature.def)
+const cfgScale = ref(CHARACTER.cfg.def)
+const characterDefault = computed(() => !Object.keys(characterPayload(temperature.value, cfgScale.value)).length)
+function characterReset() {
+  temperature.value = CHARACTER.temperature.def
+  cfgScale.value = CHARACTER.cfg.def
+}
 // «без слов»: стих не нужен, на воркер уйдёт заглушка [Instrumental]
 const noLyrics = ref(false)
 // длительность инструментала: длина трека у YuE2 задаётся числом секций в тексте,
@@ -162,6 +171,7 @@ function payload(extra = {}) {
     arc: arcKind.value,
     // потолок длины из селектора длительности (0 = бюджет воркера)
     max_tokens: durTokens[durMode.value] || 0,
+    ...characterPayload(temperature.value, cfgScale.value),
     ...extra,
   }
 }
@@ -446,6 +456,8 @@ function reuseJob(j) {
   lyrics.value = j.lyrics
   seed.value = j.seed || null
   cot.value = ['full', 'melody', 'off'].includes(j.cot) ? j.cot : 'full'
+  temperature.value = j.temperature || CHARACTER.temperature.def
+  cfgScale.value = j.cfg || CHARACTER.cfg.def
 }
 
 function openListen(j) {
@@ -850,6 +862,23 @@ function onWindowClick(e) {
                   @click="arcKind = a">{{ t('arc.' + (a || 'flat')) }}</button>
         </div>
 
+        <div class="row character-row">
+          <span class="arc-title">{{ t('character.title') }}:</span>
+          <label class="character-knob" :title="t('character.temperature.tip')">
+            {{ t('character.temperature') }}
+            <input type="range" v-model.number="temperature" :min="CHARACTER.temperature.min"
+                   :max="CHARACTER.temperature.max" :step="CHARACTER.temperature.step" />
+            <span class="character-val">{{ temperature }}</span>
+          </label>
+          <label class="character-knob" :title="t('character.cfg.tip')">
+            {{ t('character.cfg') }}
+            <input type="range" v-model.number="cfgScale" :min="CHARACTER.cfg.min"
+                   :max="CHARACTER.cfg.max" :step="CHARACTER.cfg.step" />
+            <span class="character-val">{{ cfgScale }}</span>
+          </label>
+          <button class="ghost small-btn" :disabled="characterDefault" @click="characterReset">{{ t('character.reset') }}</button>
+        </div>
+
         <div class="actions">
           <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
             {{ submitting ? t('form.submitting') : t('form.submit') }}
@@ -899,6 +928,7 @@ function onWindowClick(e) {
           <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
           <span v-if="j.cot && j.cot !== 'full'" class="muted">cot {{ j.cot }}</span>
+          <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
           <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
           <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
@@ -1257,6 +1287,10 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .seed input { width: 110px; min-width: 0; }
 .arc-row { align-items: center; gap: 6px; }
 .arc-title { font-size: 12px; color: var(--muted); }
+.character-row { align-items: center; gap: 12px; flex-wrap: wrap; }
+.character-knob { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.character-knob input[type=range] { width: 110px; }
+.character-val { min-width: 2.5em; font-variant-numeric: tabular-nums; }
 .cot-radios { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .cot-radios label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .cot-title { font-weight: 600; }

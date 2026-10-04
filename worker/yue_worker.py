@@ -36,7 +36,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from abcparse import parse_abc
 from plancheck import plan_diff
@@ -67,6 +67,9 @@ MAX_SEM_TOKENS = int(os.environ.get("YUE2_MAX_TOKENS", "16000"))
 # cfg_scale (classifier-free guidance): выше — точнее следует стилю, но суше;
 # 1.5 — сбалансированное среднее. 0/отсутствие — дефолт библиотеки.
 CFG_SCALE = float(os.environ.get("YUE2_CFG_SCALE", "1.5"))
+# пределы характера исполнения на трек (за ними модель разваливается: шум/повторы)
+TEMPERATURE_RANGE = (0.5, 1.5)
+CFG_RANGE = (1.0, 4.0)
 
 app = FastAPI(title="yue-worker")
 
@@ -159,6 +162,12 @@ def _migrate():
         # где в треке «без голоса» звучит дорожка голоса (секунды через запятую)
         if "vocal_leak" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN vocal_leak TEXT DEFAULT ''")
+        # характер исполнения: температура (смелость игры) и cfg (точность по
+        # стилю/нотам); 0 — по умолчанию (температура библиотеки, CFG_SCALE)
+        if "temperature" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN temperature REAL DEFAULT 0")
+        if "cfg" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN cfg REAL DEFAULT 0")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS corpus (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -342,7 +351,8 @@ def _continue_song(pipe, row, request):
         negative = negative_prefix(plan.request, pipe.tokenizer, plan.abc_ids) + forced
     budget = request["semantic_sampling"].max_tokens if request.get("semantic_sampling") else MAX_SEM_TOKENS
     room = CONTEXT - max(len(prefix), len(negative or []))
-    sampling = Sampling(max_tokens=max(200, min(budget - k, room)))
+    temperature = request["semantic_sampling"].temperature if request.get("semantic_sampling") else 1.0
+    sampling = Sampling(max_tokens=max(200, min(budget - k, room)), temperature=temperature)
     ids, timing, truncated = pipe._generate(
         prefix, sampling, plan.request.seed, "semantic", negative=negative,
         cfg_scale=plan.request.guidance, legacy_off=plan.request.cot == "off",
@@ -423,12 +433,14 @@ def _run_job(job_id: int):
             request = {"style": row["style"], "lyrics": row["lyrics"], "cot": row["cot"],
                        "on_token": on_token,
                        "cancelled": lambda: cancel_ev.is_set()}
-            if CFG_SCALE > 0:
-                request["cfg_scale"] = CFG_SCALE
-            # бюджет длины — параметр Sampling, не запроса
+            cfg = row["cfg"] or CFG_SCALE
+            if cfg > 0:
+                request["cfg_scale"] = cfg
+            # бюджет длины и смелость игры — параметры Sampling, не запроса
             try:
                 from yue2.protocol import Sampling
-                request["semantic_sampling"] = Sampling(max_tokens=budget)
+                request["semantic_sampling"] = Sampling(max_tokens=budget,
+                                                        temperature=row["temperature"] or 1.0)
             except ImportError:
                 pass
             if row["seed"]:
@@ -662,6 +674,23 @@ class JobIn(BaseModel):
     # производный трек: от какого трека и зачем (см. _migrate)
     parent_id: int | None = None
     role: str = Field(default="", pattern=JOB_ROLE_PATTERN)
+    # характер исполнения: 0 — по умолчанию; у производного трека 0 — как у родителя
+    temperature: float = 0
+    cfg: float = 0
+
+    @field_validator("temperature")
+    @classmethod
+    def _temperature_range(cls, v: float) -> float:
+        if v != 0 and not TEMPERATURE_RANGE[0] <= v <= TEMPERATURE_RANGE[1]:
+            raise ValueError(f"temperature: 0 or {TEMPERATURE_RANGE[0]}..{TEMPERATURE_RANGE[1]}")
+        return v
+
+    @field_validator("cfg")
+    @classmethod
+    def _cfg_range(cls, v: float) -> float:
+        if v != 0 and not CFG_RANGE[0] <= v <= CFG_RANGE[1]:
+            raise ValueError(f"cfg: 0 or {CFG_RANGE[0]}..{CFG_RANGE[1]}")
+        return v
 
 
 class PlanIn(BaseModel):
@@ -854,12 +883,19 @@ def submit(req: JobIn):
     if req.arc and req.cot == "off":
         raise HTTPException(422, "arc requires cot=full or cot=melody (needs the plan)")
     with db_lock, db() as conn:
+        temperature, cfg = req.temperature, req.cfg
+        if req.parent_id is not None and not (temperature and cfg):
+            # кусок для вклейки — в характере родителя, иначе шов слышен
+            par = conn.execute("SELECT temperature, cfg FROM jobs WHERE id=?", (req.parent_id,)).fetchone()
+            if par is not None:
+                temperature = temperature or par["temperature"] or 0
+                cfg = cfg or par["cfg"] or 0
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,"
-            "arc,max_tokens,parent_id,role,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "arc,max_tokens,parent_id,role,temperature,cfg,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
              req.lyrics, req.seed, req.cot, int(req.draft), req.arc,
-             int(req.max_tokens or 0), req.parent_id, req.role,
+             int(req.max_tokens or 0), req.parent_id, req.role, temperature, cfg,
              time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
@@ -896,11 +932,12 @@ def continue_job(job_id: int, req: ContinueIn):
             raise HTTPException(422, "from_sec must be inside the track")
         seed = req.seed if req.seed is not None else random.randrange(1, 2**31)
         cur = conn.execute(
-            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,cont_from,created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO jobs(title,status,style,lyrics,seed,cot,parent_id,role,cont_from,"
+            "temperature,cfg,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (req.title or f"{row['title']} · с {req.from_sec:.0f} с", "queued",
              row["style"].strip().rstrip(",") + (", " + req.style_add.strip() if req.style_add.strip() else ""),
              row["lyrics"], seed, row["cot"], job_id, "continue", req.from_sec,
+             row["temperature"] or 0, row["cfg"] or 0,
              time.strftime("%Y-%m-%dT%H:%M:%S")))
         new_id = cur.lastrowid
         if req.abc is not None and req.abc.strip():
