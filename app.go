@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -21,8 +22,6 @@ const (
 	maxUploadBytes = 200 << 20
 	// fanLimits — границы веера best-of-N.
 	fanMin, fanMax = 1, 10
-	// previewSpan — превью DSP-цепочки: кусок трека с 20-й секунды.
-	previewStartSec, previewDurSec = 20, 15
 )
 
 var audioFileFilter = []runtime.FileFilter{
@@ -35,6 +34,13 @@ type App struct {
 	ctx    context.Context
 	yue    yue.Service
 	player Player
+
+	// fx — кэш трека/стемов на ПК для быстрого превью эффектов (app_preview.go)
+	fxOnce sync.Once
+	fx     *studio.Cache
+	fxDir  string
+	fxMu   sync.Mutex
+	fxDur  map[string]float64 // каталог превью → длина кусков, с
 }
 
 func NewApp(client *yue.Client, player Player) *App {
@@ -48,6 +54,7 @@ func (a *App) startup(ctx context.Context) {
 // shutdown — окно закрыто: глушим плеер, иначе он играет сиротой.
 func (a *App) shutdown(ctx context.Context) {
 	a.player.Stop()
+	a.fxCleanup()
 }
 
 // pickAudioFile — диалог выбора аудио-файла; "" = отмена.
@@ -156,8 +163,8 @@ func (a *App) YueDspChains() []dsp.Chain {
 }
 
 // runDsp — общий конвейер DSP-варианта: скачать flac джобы, прогнать цепочку
-// локальным ffmpeg (весь трек или кусок-превью), залить обратно на воркер.
-func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, preview bool) (*yue.DspVariant, error) {
+// локальным ffmpeg, залить обратно на воркер. Превью — YueFxPreview (app_preview.go).
+func (a *App) runDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
 	chain := dsp.ByID(chainID)
 	if chain == nil {
 		return nil, fmt.Errorf("unknown chain %q", chainID)
@@ -191,11 +198,7 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 	tmpOut.Close()
 	defer os.Remove(tmpOut.Name())
 
-	var span *dsp.Span
-	if preview {
-		span = &dsp.Span{StartSec: previewStartSec, DurSec: previewDurSec}
-	}
-	if err := dsp.Run(tmpIn, tmpOut.Name(), chain.FilterGraph(params), span); err != nil {
+	if err := dsp.Run(tmpIn, tmpOut.Name(), chain.FilterGraph(params), nil); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(tmpOut.Name())
@@ -203,9 +206,6 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64, pre
 		return nil, err
 	}
 	fname := fmt.Sprintf("dsp-%s.flac", chainID)
-	if preview {
-		fname = fmt.Sprintf("dsp-preview-%s.flac", chainID)
-	}
 	return a.yue.UploadDsp(a.ctx, jobID, fname, "", data)
 }
 
@@ -219,19 +219,13 @@ func (a *App) YueRebuildSections(parentID int64, specs []studio.SectionSpec) (*s
 
 // YueApplyDsp — применить цепочку к треку джобы и вернуть метрики варианта.
 func (a *App) YueApplyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
-	return a.runDsp(jobID, chainID, params, false)
+	return a.runDsp(jobID, chainID, params)
 }
 
 // YueVolumeEnvelope — линия громкости по волне (точки время → дБ): stem "" —
 // весь трек (вариант dsp-envelope.flac), иначе только дорожка через пересборку.
 func (a *App) YueVolumeEnvelope(jobID int64, stem string, points []dsp.EnvPoint) (*yue.DspVariant, error) {
 	return studio.VolumeEnvelope(a.ctx, a.yue, jobID, stem, points)
-}
-
-// YueDspPreview — превью цепочки: кусок трека через те же эффекты.
-// Файл кладётся как вариант dsp-preview-<chain>.flac и сразу проигрывается.
-func (a *App) YueDspPreview(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
-	return a.runDsp(jobID, chainID, params, true)
 }
 
 func (a *App) YueDspVariants(jobID int64) ([]yue.DspVariant, error) {
@@ -481,6 +475,7 @@ func (a *App) YueSubmitOverdub(id int64, style, lyrics string, gain float64, abc
 }
 
 func (a *App) YueMakeStems(id int64) (map[string]any, error) {
+	defer a.fxCache().Invalidate(id) // стемы на воркере переписаны — кэш превью устарел
 	return a.yue.MakeStems(a.ctx, id)
 }
 

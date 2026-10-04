@@ -86,6 +86,10 @@ export function YueEnsureMp3(arg1) {
   return window['go']['main']['App']['YueEnsureMp3'](arg1);
 }
 
+export function YueFxPreview(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['YueFxPreview'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function YueGetServerURL() {
   return window['go']['main']['App']['YueGetServerURL']();
 }
@@ -168,6 +172,10 @@ export function YuePlayAudio(arg1) {
 
 export function YuePlayFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['YuePlayFile'](arg1, arg2, arg3);
+}
+
+export function YuePlayPreview(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['YuePlayPreview'](arg1, arg2, arg3, arg4);
 }
 
 export function YueRebuildSections(arg1, arg2) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"yue-studio/internal/dsp"
 	"yue-studio/internal/yue"
 )
 
@@ -30,8 +31,9 @@ func TestApplyDspKeyChainWholeTrackIsError(t *testing.T) {
 			_, err := a.YueApplyDsp(1, "ducking", nil)
 			return err
 		},
-		"YueDspPreview": func(a *App) error {
-			_, err := a.YueDspPreview(1, "ducking", nil)
+		"YueFxPreview": func(a *App) error {
+			defer a.fxCleanup()
+			_, err := a.YueFxPreview(1, "", []dsp.Step{{Chain: "ducking"}}, 20, 35, "")
 			return err
 		},
 	} {

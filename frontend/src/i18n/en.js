@@ -386,8 +386,11 @@ export default {
   'studio.dsp.oneclick.none': '“{name}” chain unavailable — update the app',
   'studio.dsp.apply': 'apply',
   'studio.dsp.applying': 'running…',
-  'studio.dsp.preview': '15s preview',
-  'studio.dsp.preview.tip': 'A 15-second slice of the track through the selected chain — quickly hear the result',
+  'studio.dsp.preview': 'preview spot',
+  'studio.dsp.preview.tip': 'Hear the effect on the selected spot (no selection — 15 seconds from the cursor) — on the whole track or the chosen stem. Not added to variants',
+  'studio.dsp.ab.wet': '▶ after ⇄',
+  'studio.dsp.ab.dry': '▶ before ⇄',
+  'studio.dsp.ab.tip': 'Switch before / after — the same slice without and with the effect, from the same second',
   'studio.dsp.metrics': 'track metrics',
 
   'copilot.title': 'Lyricist',

@@ -2,7 +2,7 @@ import {
   YueStatus, YueJobs, YueSubmit, YueSubmitFan, YuePlan, YueCancelJob, YueAudioURL,
   YueOpenExternal, YueSaveAudio, YueOpenURL, YueGetServerURL, YueSetServerURL,
   YueWorkerConfig, YueSetWorkerConfig, YueOllamaModels,
-  YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueDspPreview, YueDspVariants,
+  YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueFxPreview, YuePlayPreview, YueDspVariants,
   YueCopilot,
   YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
@@ -36,7 +36,10 @@ export const api = {
   dspChains: () => YueDspChains(),
   applyDsp: (id, chain, params) => YueApplyDsp(id, chain, params),
   dspVariants: (id) => YueDspVariants(id),
-  dspPreview: (id, chain, params) => YueDspPreview(id, chain, params),
+  // быстрое превью эффектов (steps — цепочка по порядку) на куске трека; куски
+  // «было/стало» остаются на ПК, играет playPreview (slot '' или A–D, which wet/dry)
+  fxPreview: (id, stem, steps, from, to, slot = '') => YueFxPreview(id, stem, steps, from, to, slot),
+  playPreview: (id, slot, which, startSec = 0) => YuePlayPreview(id, slot, which, startSec),
   copilot: (p) => YueCopilot(p),
   // v2/v3
   transcribeFile: () => YueTranscribeFile(),

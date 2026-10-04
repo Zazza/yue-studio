@@ -17,6 +17,7 @@ import { applyFoundTones } from '../dspTones.js'
 import { isFlat, bumpRange } from '../envelope.js'
 import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
 import { chainDefaults, hasGrid, needsStem, voiceTarget } from '../dspVoice.js'
+import { previewWindow } from '../fxPreview.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
@@ -1148,17 +1149,41 @@ async function reloadVariants() {
   try { dspVariants.value = (await api.dspVariants(props.job.id)) || [] } catch {}
 }
 
+// Быстрое превью: кусок трека (выделение, иначе 15 с от курсора) с эффектом на
+// весь трек или на выбранную дорожку; «было» и «стало» — куски на ПК, в список
+// вариантов не попадают. Переключение было↔стало — с той же позиции.
+const fxPrev = ref(null)          // {from, to, dur_sec, which: 'wet'|'dry', label}
+const FX_PREV_KEY = 'fxprev'      // ключ «сейчас играет превью» в общем плеере
+function fxPrevPos() {
+  const playing = nowPlayingKey.value === FX_PREV_KEY && playerState.value.job_id === props.job.id
+  return playing ? (playerState.value.position_sec || 0) : 0
+}
+async function playFxPrev(which, startSec = 0) {
+  await api.playPreview(props.job.id, '', which, startSec)
+  nowPlayingKey.value = FX_PREV_KEY
+  fxPrev.value = { ...fxPrev.value, which }
+  refreshPlayer()
+}
 async function previewDsp() {
   const c = curChain.value
   if (!c) return
+  const win = previewWindow(selTimeRange(), waveCursor.value || null, props.job.duration_sec)
   dspBusy.value = true
   try {
-    const v = await api.dspPreview(props.job.id, c.id, dspParams.value || {})
-    await reloadVariants()
-    if (v && v.file) playVariant(v)   // сразу слушаем кусок
+    const res = await api.fxPreview(props.job.id, dspTarget.value, [{ chain: c.id, params: { ...(dspParams.value || {}) } }],
+      win.from, win.to)
+    fxPrev.value = { ...res, which: 'wet', label: c.name + (dspTarget.value ? ' · ' + t('studio.dsp.target.' + dspTarget.value) : '') }
+    await playFxPrev('wet')
+    rollErr.value = ''
   } catch (e) {
     rollErr.value = String(e)
   } finally { dspBusy.value = false }
+}
+async function toggleFxPrev() {
+  if (!fxPrev.value) return
+  try {
+    await playFxPrev(fxPrev.value.which === 'wet' ? 'dry' : 'wet', fxPrevPos())
+  } catch (e) { rollErr.value = String(e) }
 }
 
 // на что эффект: '' — весь трек, иначе дорожка (стем) — через пересборку
@@ -1696,10 +1721,14 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="primary small" :disabled="!dspSel || dspBusy || (needsStem(curChain) && !dspTarget)" @click="applyDsp">
                 {{ dspBusy ? t('studio.dsp.applying') : t('studio.dsp.apply') }}
               </button>
-              <button class="ghost small-btn" :disabled="!dspSel || dspBusy || !!dspTarget"
+              <button class="ghost small-btn" :disabled="!dspSel || dspBusy || needsStem(curChain)"
                       :title="t('studio.dsp.preview.tip')" @click="previewDsp">
                 {{ dspBusy ? '…' : t('studio.dsp.preview') }}
               </button>
+              <button v-if="fxPrev" class="ghost small-btn" :title="t('studio.dsp.ab.tip')" @click="toggleFxPrev">
+                {{ fxPrev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}
+              </button>
+              <span v-if="fxPrev" class="muted">{{ fxPrev.label }} · {{ fmtDur(fxPrev.from) }}–{{ fmtDur(fxPrev.to) }}</span>
               <button class="ghost" @click="emit('open-metrics', job, null)">{{ t('studio.dsp.metrics') }}</button>
             </div>
             <p v-if="curChain" class="muted dsp-note">{{ curChain.note }}</p>

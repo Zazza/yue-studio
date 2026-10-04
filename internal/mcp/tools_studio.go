@@ -107,7 +107,7 @@ func RegisterStudioTools(s *Server) {
 				}
 				return toJSON(res.Variant), nil
 			}
-			v, err := s.applyDsp(argInt(args, "job_id"), argString(args, "chain"), params, false)
+			v, err := s.applyDsp(argInt(args, "job_id"), argString(args, "chain"), params)
 			if err != nil {
 				return "", err
 			}
@@ -139,23 +139,28 @@ func RegisterStudioTools(s *Server) {
 	})
 
 	s.Register(Tool{
-		Name:        "dsp_preview",
-		Description: "Превью DSP-цепочки: 15-секундный кусок трека через эффекты (быстро послушать результат).",
+		Name: "dsp_preview",
+		Description: "Превью эффектов на куске трека (быстро послушать до применения): одна цепочка (chain + params) " +
+			"или цепочка эффектов по порядку (steps — как педали). Без stem — весь трек, со stem — только эта дорожка " +
+			"в миксе (остальное не меняется). Окно from–to (секунды трека; по умолчанию 20–35), плюс хвост реверба/" +
+			"дилея до 3 с. Результат — вариант dsp-preview-*.flac с метриками (перезаписывается следующим превью).",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
-			"chain":  prop("id цепочки", "string"),
+			"chain":  prop("id цепочки (или steps)", "string"),
 			"params": prop("значения крутилок {param_id: число}", "object"),
-		}, "job_id", "chain"),
+			"steps": map[string]any{"type": "array", "description": "цепочка по порядку: [{chain, params, off}] " +
+				"(off: true — эффект выключен); цепочки с key (ducking) нельзя", "items": map[string]any{"type": "object"}},
+			"stem": prop("дорожка: vocals / drums / bass / other / guitar / piano (пусто — весь трек)", "string"),
+			"from": prop("с какой секунды трека", "number"),
+			"to":   prop("по какую секунду трека", "number"),
+		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
-			params := map[string]float64{}
-			if raw, ok := args["params"].(map[string]any); ok {
-				for k, v := range raw {
-					if f, ok := v.(float64); ok {
-						params[k] = f
-					}
-				}
+			steps, err := argSteps(args)
+			if err != nil {
+				return "", err
 			}
-			v, err := s.applyDsp(argInt(args, "job_id"), argString(args, "chain"), params, true)
+			v, err := s.fxPreview(argInt(args, "job_id"), argString(args, "stem"), steps,
+				argFloat(args, "from"), argFloat(args, "to"))
 			if err != nil {
 				return "", err
 			}
@@ -252,6 +257,7 @@ func RegisterStudioTools(s *Server) {
 			"job_id": prop("ID джобы", "integer"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
+			defer s.fxCache().Invalidate(argInt(args, "job_id")) // стемы переписаны — кэш превью устарел
 			out, err := s.client.MakeStems(context.Background(), argInt(args, "job_id"))
 			if err != nil {
 				return "", err
@@ -686,7 +692,7 @@ func RegisterStudioTools(s *Server) {
 }
 
 // applyDsp — конвейер как в приложении (app.go): скачать flac → ffmpeg → залить вариант.
-func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64, preview bool) (*yue.DspVariant, error) {
+func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64) (*yue.DspVariant, error) {
 	chain := dsp.ByID(chainID)
 	if chain == nil {
 		return nil, fmt.Errorf("unknown chain %q (см. dsp_chains)", chainID)
@@ -733,11 +739,7 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 	tmpOut.Close()
 	defer os.Remove(tmpOut.Name())
 
-	var span *dsp.Span
-	if preview {
-		span = &dsp.Span{StartSec: 20, DurSec: 15}
-	}
-	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), chain.FilterGraph(params), span); err != nil {
+	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), chain.FilterGraph(params), nil); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(tmpOut.Name())
@@ -745,8 +747,5 @@ func (s *Server) applyDsp(jobID int64, chainID string, params map[string]float64
 		return nil, err
 	}
 	fname := fmt.Sprintf("dsp-%s.flac", chainID)
-	if preview {
-		fname = fmt.Sprintf("dsp-preview-%s.flac", chainID)
-	}
 	return s.client.UploadDsp(context.Background(), jobID, fname, "", data)
 }

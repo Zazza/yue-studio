@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"yue-studio/internal/studio"
 	"yue-studio/internal/yue"
 )
 
@@ -33,6 +34,10 @@ type Server struct {
 	toolOrder   []string
 	mu          sync.RWMutex
 	stale       *staleChecker // MCP собран раньше, чем менялись исходники (SetBuildInfo)
+
+	fxOnce sync.Once
+	fx     *studio.Cache // трек и стемы на ПК для превью эффектов (fx_preview.go)
+	fxDir  string
 }
 
 func NewServer(client yue.Service, downloadDir string) *Server {

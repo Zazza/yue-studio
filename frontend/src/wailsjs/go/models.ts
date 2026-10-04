@@ -76,6 +76,23 @@ export namespace dsp {
 	        this.db = source["db"];
 	    }
 	}
+	
+	export class Step {
+	    chain: string;
+	    params?: Record<string, number>;
+	    off?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Step(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.chain = source["chain"];
+	        this.params = source["params"];
+	        this.off = source["off"];
+	    }
+	}
 
 }
 
@@ -124,6 +141,26 @@ export namespace studio {
 	        this.aligned = source["aligned"];
 	        this.score = source["score"];
 	        this.gain = source["gain"];
+	    }
+	}
+	export class PreviewResult {
+	    wet: string;
+	    dry: string;
+	    from: number;
+	    to: number;
+	    dur_sec: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreviewResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.wet = source["wet"];
+	        this.dry = source["dry"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.dur_sec = source["dur_sec"];
 	    }
 	}
 	export class RebuildResult {
@@ -551,6 +588,7 @@ export namespace yue {
 	    abc: string;
 	    truncated: boolean;
 	    seconds: number;
+	    seed?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PlanResult(source);
@@ -561,6 +599,7 @@ export namespace yue {
 	        this.abc = source["abc"];
 	        this.truncated = source["truncated"];
 	        this.seconds = source["seconds"];
+	        this.seed = source["seed"];
 	    }
 	}
 	export class Reference {

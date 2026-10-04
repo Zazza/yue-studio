@@ -47,6 +47,8 @@ export function YueDspVariants(arg1:number):Promise<Array<yue.DspVariant>>;
 
 export function YueEnsureMp3(arg1:number):Promise<Record<string, any>>;
 
+export function YueFxPreview(arg1:number,arg2:string,arg3:Array<dsp.Step>,arg4:number,arg5:number,arg6:string):Promise<studio.PreviewResult>;
+
 export function YueGetServerURL():Promise<string>;
 
 export function YueImportTrack():Promise<Record<string, any>>;
@@ -88,6 +90,8 @@ export function YuePlanCheck(arg1:number,arg2:string,arg3:number):Promise<yue.Pl
 export function YuePlayAudio(arg1:number):Promise<void>;
 
 export function YuePlayFile(arg1:number,arg2:string,arg3:number):Promise<void>;
+
+export function YuePlayPreview(arg1:number,arg2:string,arg3:string,arg4:number):Promise<void>;
 
 export function YueRebuildSections(arg1:number,arg2:Array<studio.SectionSpec>):Promise<studio.RebuildResult>;
 
