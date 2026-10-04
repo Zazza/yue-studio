@@ -842,7 +842,7 @@ function onWindowClick(e) {
         <textarea v-model="lyrics" rows="10" :disabled="noLyrics" :placeholder="noLyrics ? t('form.nowords.ph') : ''"></textarea>
 
         <div class="row">
-          <label class="seed">seed <input v-model.number="seed" type="number" :placeholder="t('form.name')" /></label>
+          <label class="seed" :title="t('form.seed.tip')">seed <input v-model.number="seed" type="number" :placeholder="t('form.seed.ph')" /></label>
           <div class="cot-radios" :title="t('form.cot.tip')">
             <span class="cot-title">генерация:</span>
             <label><input type="radio" value="full" v-model="cot" /> полная</label>

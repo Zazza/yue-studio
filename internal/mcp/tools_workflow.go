@@ -55,7 +55,7 @@ func RegisterWorkflowTools(s *Server) {
 			"style":       prop("строка стиля (англ. теги: жанр, инструменты, настроение, BPM)", "string"),
 			"lyrics":      prop("стих с [Verse]/[Chorus] или [Instrumental]", "string"),
 			"title":       prop("название", "string"),
-			"seed":        prop("сид (0 = случайный)", "integer"),
+			"seed":        prop("сид (0 = случайный; с parent_id — сид родителя); выбранный сид записывается в трек", "integer"),
 			"cot":         prop("режим размышлений: full | melody | off", "string"),
 			"draft":       prop("черновик ~15-20 с: быстро послушать стиль до полного рендера", "boolean"),
 			"arc":         prop("драматургия поверх плана: build (нарастание) | wave (волна) | burst (взрыв: пол-время, breakdown, голос на октаву выше в финале)", "string"),
@@ -124,7 +124,7 @@ func RegisterWorkflowTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"style":  prop("строка стиля (англ. теги)", "string"),
 			"lyrics": prop("стих с секциями", "string"),
-			"seed":   prop("сид (0 = случайный)", "integer"),
+			"seed":   prop("сид (0 = случайный; выбранный — в ответе seed)", "integer"),
 		}, "style", "lyrics"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			r, err := s.client.Plan(context.Background(), yue.PlanParams{
@@ -148,7 +148,7 @@ func RegisterWorkflowTools(s *Server) {
 			"style":  prop("строка стиля (англ. теги)", "string"),
 			"lyrics": prop("стих", "string"),
 			"title":  prop("название", "string"),
-			"seed":   prop("сид", "integer"),
+			"seed":   prop("сид (0 — сид родителя parent_id, без родителя — случайный)", "integer"),
 			"parent_id": prop("производный трек: от какого трека (кусок для вклейки — role section); "+
 				"в списке прячется под родителем «📎»", "integer"),
 			"role": prop("зачем: section (кусок для вклейки) | rebuild | fragment", "string"),

@@ -34,6 +34,8 @@ export default {
   'player.volume': 'Volume',
 
   'form.title': 'New composition',
+  'form.seed.ph': 'random',
+  'form.seed.tip': 'Empty — a random seed for each generation (saved in the track: «seed N» on the card). A number — repeat: same seed + same style and lyrics = same track',
   'form.name': 'Title',
   'form.lib.tip': 'Style library: pick a group and a style — the form fills in',
   'form.lib.group': '— group —',

@@ -346,7 +346,7 @@ export function sectionRequest(parent, abc, inst, from, to, seed) {
     title: (parent.title || 'трек') + ' · ' + inst.id,
     style: sectionStyle(parent.style, inst),
     lyrics: '[Instrumental]',
-    seed: seed || parent.seed || Math.floor(Math.random() * 1e9),
+    seed: seed || parent.seed || 0,   // 0 — воркер возьмёт сид родителя
     cot: parent.cot === 'off' || !parent.cot ? 'melody' : parent.cot,
     abc: sliceAbc(abc, from, to, 1),
     draft: false,

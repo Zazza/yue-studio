@@ -441,7 +441,7 @@ async function renderInstrumental() {
       title: (props.job.title || 'трек') + ' · инструментал',
       style: trickStyle(props.job.style) + ', instrumental, no vocals',
       lyrics: '[Instrumental]',
-      seed: props.job.seed || Math.floor(Math.random() * 1e9),
+      seed: props.job.seed || 0,   // 0 — воркер возьмёт сид родителя
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,
       abc,
       parent_id: props.job.id, role: 'rebuild',
@@ -671,7 +671,7 @@ async function rebuild(draft = false) {
       title: (props.job.title || 'трек') + (draft ? ' · ✦' : ' · приёмы'),
       style: trickStyle(props.job.style),
       lyrics: props.job.lyrics,
-      seed: props.job.seed || Math.floor(Math.random() * 1e9),   // тот же seed = тот же голос
+      seed: props.job.seed || 0,   // тот же seed = тот же голос; 0 — воркер возьмёт сид родителя
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,   // abc требует full|melody
       abc,
       draft,
@@ -986,7 +986,7 @@ async function renderFragment() {
       title: (props.job.title || 'трек') + ' · кусок',
       style: trickStyle(props.job.style),
       lyrics: props.job.lyrics,
-      seed: props.job.seed || Math.floor(Math.random() * 1e9),
+      seed: props.job.seed || 0,   // 0 — воркер возьмёт сид родителя
       cot: props.job.cot === 'off' ? 'melody' : props.job.cot,
       abc: mini,
       draft: true,

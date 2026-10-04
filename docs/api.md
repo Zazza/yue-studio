@@ -9,12 +9,13 @@ GET  /health           статус, модель в памяти?
 POST /jobs             {title, style, lyrics, seed, cot, abc?, draft?, arc?, max_tokens?, temperature?, cfg?} — abc: свой план; draft: черновик ~15-20 с;
                        temperature (0 или 0.5–1.5, смелость игры) и cfg (0 или 1–4, точность по стилю/нотам) —
                        характер исполнения, 0 = по умолчанию (1.0 / YUE2_CFG_SCALE); у parent_id и /continue — как у родителя;
+                       seed пустой/0 — случайный (записывается в трек), с parent_id — сид родителя (старый родитель без сида → 831001);
                        max_tokens — жёсткий потолок длины (~25 т/с: 3000 ≈ 1–2 мин), 0 = бюджет воркера;
                        arc: драматургия поверх плана (build|wave|burst: дуга темпа по секциям,
                        burst — голос на октаву выше в финале; с abc несовместим);
                        parent_id?, role? — производный трек (section | rebuild | fragment | variant;
                        continue — только через /continue): в списке приложения прячется под родителем («📎 N»)
-POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds}  — только план
+POST /plan             {style, lyrics, seed, cot} → {abc, truncated, seconds, seed}  — только план (seed пустой — случайный, в ответе)
 GET  /jobs[/{id}]      список/статус (req_abc = рендер по своему ABC)
                        mixes — число готовых миксов (overdub-inst-*.flac: вклейки, эффекты на дорожки)
 POST /jobs/{id}/cancel отмена: queued — из очереди; running — остановка генерации

@@ -169,6 +169,8 @@ type PlanResult struct {
 	Abc       string  `json:"abc"`
 	Truncated bool    `json:"truncated"`
 	Seconds   float64 `json:"seconds"`
+	// сид плана (пустой в запросе — случайный): рендер с ним споёт так же
+	Seed int64 `json:"seed,omitempty"`
 }
 
 type CopilotParams struct {

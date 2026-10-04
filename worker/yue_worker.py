@@ -21,6 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
 import os
+import random
 import re
 import sqlite3
 import tempfile
@@ -67,6 +68,9 @@ MAX_SEM_TOKENS = int(os.environ.get("YUE2_MAX_TOKENS", "16000"))
 # cfg_scale (classifier-free guidance): выше — точнее следует стилю, но суше;
 # 1.5 — сбалансированное среднее. 0/отсутствие — дефолт библиотеки.
 CFG_SCALE = float(os.environ.get("YUE2_CFG_SCALE", "1.5"))
+# сид, с которым yue2 генерирует без явного сида: так шли треки с пустым полем
+# seed до того, как воркер стал выбирать случайный (у них в строке 0/NULL)
+LIB_DEFAULT_SEED = 831001
 # пределы характера исполнения на трек (за ними модель разваливается: шум/повторы)
 TEMPERATURE_RANGE = (0.5, 1.5)
 CFG_RANGE = (1.0, 4.0)
@@ -883,18 +887,26 @@ def submit(req: JobIn):
     if req.arc and req.cot == "off":
         raise HTTPException(422, "arc requires cot=full or cot=melody (needs the plan)")
     with db_lock, db() as conn:
-        temperature, cfg = req.temperature, req.cfg
-        if req.parent_id is not None and not (temperature and cfg):
+        temperature, cfg, seed = req.temperature, req.cfg, req.seed
+        par = None
+        if req.parent_id is not None:
+            par = conn.execute("SELECT seed, temperature, cfg FROM jobs WHERE id=?", (req.parent_id,)).fetchone()
+        if par is not None:
             # кусок для вклейки — в характере родителя, иначе шов слышен
-            par = conn.execute("SELECT temperature, cfg FROM jobs WHERE id=?", (req.parent_id,)).fetchone()
-            if par is not None:
-                temperature = temperature or par["temperature"] or 0
-                cfg = cfg or par["cfg"] or 0
+            temperature = temperature or par["temperature"] or 0
+            cfg = cfg or par["cfg"] or 0
+            # без сида — сид родителя (тот же голос); старый родитель без
+            # сида генерировался с сидом библиотеки
+            seed = seed or par["seed"] or LIB_DEFAULT_SEED
+        if not seed:
+            # пусто — случайный, и он остаётся в треке: видно и повторяемо
+            # (раньше пустое поле давало всегда сид библиотеки — один и тот же трек)
+            seed = random.randrange(1, 2**31)
         cur = conn.execute(
             "INSERT INTO jobs(title,status,style,lyrics,seed,cot,draft,"
             "arc,max_tokens,parent_id,role,temperature,cfg,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (req.title or f"Untitled {time.strftime('%H:%M')}", "queued", req.style,
-             req.lyrics, req.seed, req.cot, int(req.draft), req.arc,
+             req.lyrics, seed, req.cot, int(req.draft), req.arc,
              int(req.max_tokens or 0), req.parent_id, req.role, temperature, cfg,
              time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
@@ -1016,15 +1028,18 @@ def plan(req: PlanIn):
     """
     if req.cot == "off":
         raise HTTPException(422, "plan requires cot=full or cot=melody (off does not produce ABC)")
+    # пусто — случайный (раньше — всегда сид библиотеки); сид в ответе:
+    # трек по этому плану с тем же сидом споёт так же
+    seed = req.seed or random.randrange(1, 2**31)
     with _pipe_lock:
         pipe = _get_pipe()
         t0 = time.time()
-        result = pipe.plan(style=req.style, lyrics=req.lyrics, cot=req.cot,
-                           **({"seed": req.seed} if req.seed else {}))
+        result = pipe.plan(style=req.style, lyrics=req.lyrics, cot=req.cot, seed=seed)
     truncated = result.truncated
     if isinstance(truncated, dict):
         truncated = any(truncated.values())
-    return {"abc": result.abc, "truncated": bool(truncated), "seconds": round(time.time() - t0, 1)}
+    return {"abc": result.abc, "truncated": bool(truncated), "seconds": round(time.time() - t0, 1),
+            "seed": seed}
 
 
 def _job_dict(row) -> dict:
