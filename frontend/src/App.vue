@@ -305,6 +305,10 @@ const grouped = computed(() => groupJobs(jobs.value))
 const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
 const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
 const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
+const openJob = ref(null)         // id трека с развёрнутой строкой (один за раз)
+function toggleOpenJob(id) {
+  openJob.value = openJob.value === id ? null : id
+}
 function toggleStyle(id) {
   const s = new Set(openStyle.value)
   if (s.has(id)) s.delete(id)
@@ -852,70 +856,83 @@ function onWindowClick(e) {
           ? t('queue.filter.shown', { shown: queuePage.length, total: filteredJobs.length })
           : t('queue.filter.none') }}<template v-if="filteredJobs.length > queuePage.length && qPageMax > 1"> · {{ t('queue.filter.page', { page: qPageNow, max: qPageMax }) }}</template></p>
         <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
-        <!-- название с номером — шапка карточки во всю ширину, без отступа от краёв -->
-        <div class="job-title-row">
-          <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
-                 @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
-          <strong v-else :title="t('queue.rename.tip')" class="job-title" @dblclick="startRename(j)">#{{ j.id }} {{ j.title }}</strong>
-          <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)">✎</button>
-        </div>
-        <!-- служебная строка: статус, дата, сид, папка — отдельная информация -->
-        <div class="job-meta">
-          <span class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
-          <span v-if="fmtWhen(j.created_at)" class="muted" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
-          <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
-          <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
-          <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
-          <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
+        <!-- строка трека: всегда видно минимум (играть, номер+название, статус/длительность,
+             дата, счётчик версий, папка); остальное — разворот по клику -->
+        <div class="job-row" :class="{ open: openJob === j.id }" @click="toggleOpenJob(j.id)">
+          <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
+                  :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
+                  :title="t('queue.play')" @click.stop="togglePlay(headOf(j))">
+            {{ isPlaying('m' + headOf(j).id) ? '⏸' : '▶' }}</button>
+          <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
+          <span class="job-name" :title="j.title">#{{ j.id }} {{ j.title }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
-          <span v-if="j.req_abc" class="badge" :title="t('form.abc.tip')">свой ABC</span>
-          <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
-          <span v-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))">⚠ {{ t('queue.vocalLeak') }}</span>
-          <span v-if="j.status === 'running'" class="progress-wrap" role="progressbar"
-                :aria-valuenow="j.progress_pct ?? undefined" :title="progressTip(j)">
-            <span class="progress-track" :class="{ indet: j.progress_pct == null }">
+          <!-- идущая джоба: прогресс прямо в строке -->
+          <span v-if="j.status === 'running'" class="job-progress" :title="progressTip(j)">
+            <span class="progress-track slim" :class="{ indet: j.progress_pct == null }">
               <span v-if="j.progress_pct != null" class="progress-fill" :style="{ width: j.progress_pct + '%' }"></span>
             </span>
-            <span class="progress-label muted">
-              <!-- есть процент — слово стадии не нужно: «41% · 82.5 т/с» -->
+            <span class="muted progress-label">
               <template v-if="j.progress_pct != null">{{ j.progress_pct }}%</template>
               <template v-else>{{ t('queue.progress.' + (j.stage || 'plan')) }}</template>
               <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
             </span>
           </span>
+          <span v-else-if="j.status !== 'done'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
+          <span v-else-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))">⚠</span>
+          <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
+                @click.stop="openJob = j.id; if (!openKids.has(j.id)) toggleKids(j.id)">{{ t('queue.kids.versions') }} · {{ kidCount(j) }}</span>
           <span class="spacer"></span>
-          <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
-                 :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
-                 @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
-          <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 200px"
-                   :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
-          <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
-                  :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
-          <template v-if="!(j.status === 'done' && j.audio_file)">
-            <button v-if="j.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
-            <button class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
-          </template>
+          <span v-if="j.duration_sec" class="muted">{{ fmtDur(j.duration_sec) }}</span>
+          <span v-if="fmtWhen(j.created_at)" class="muted job-when" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
+          <span v-if="(j.folder || '').trim()" class="muted job-folder">{{ j.folder.trim() }}</span>
+          <button class="ghost icon job-caret" :title="t('queue.details.tip')">{{ openJob === j.id ? '▾' : '▸' }}</button>
         </div>
-        <div class="job-body">
-          <!-- строка стиля по смыслу: язык, жанр, ритм… — таблица «что где» -->
-          <!-- стиль — одной строкой (карточка в 2 раза ниже), по клику — таблица «что где» -->
-          <div v-if="j.style" class="style-line">
-            <button class="ghost small-btn style-toggle" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ openStyle.has(j.id) ? '▾' : '▸' }} {{ t('queue.style') }}</button>
-            <span v-if="!openStyle.has(j.id)" class="style-sum" :title="j.style">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
+        <!-- разворот: служебное, стиль, версии, действия — всё, что было в карточке -->
+        <div v-if="openJob === j.id" class="job-detail">
+          <div class="job-title-row">
+            <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
+                   @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
+            <strong v-else :title="t('queue.rename.tip')" class="job-title" @dblclick="startRename(j)">#{{ j.id }} {{ j.title }}</strong>
+            <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)">✎</button>
+            <!-- мета: сид, характер, свой ABC, head — вторичная информация -->
+            <span class="job-meta-extra">
+              <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
+              <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
+              <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
+              <span v-if="j.req_abc" class="badge" :title="t('form.abc.tip')">свой ABC</span>
+              <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
+              <span v-if="j.status === 'error'" class="status error">{{ statusLabelC.error }}</span>
+            </span>
+            <span class="spacer"></span>
+            <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
+                   :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
+                   @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
+            <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 200px"
+                     :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
+            <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
+                    :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
+            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
+            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
           </div>
-          <div v-if="j.style && openStyle.has(j.id)" class="style-tags" :title="j.style">
-            <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
-              <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
-              <span class="style-tag-val">{{ parts.join(', ') }}</span>
-            </template>
-          </div>
-          <!-- версии/материал: раскрытие — строкой под стилем, стрелка = состояние -->
-          <button v-if="kidCount(j)" class="ghost small-btn kids-toggle"
-                  :class="{ on: openKids.has(j.id) }"
-                  :title="t('queue.kids.tip')" @click="toggleKids(j.id)">
-            {{ t('queue.kids.versions') }} · {{ kidCount(j) }} {{ openKids.has(j.id) ? '▲' : '▾' }}
-          </button>
-          <div v-if="openKids.has(j.id)" class="job-kids">
+          <div class="job-body">
+            <!-- строка стиля по смыслу: язык, жанр, ритм… — таблица «что где» -->
+            <div v-if="j.style" class="style-line">
+              <button class="ghost small-btn style-toggle" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ openStyle.has(j.id) ? '▾' : '▸' }} {{ t('queue.style') }}</button>
+              <span v-if="!openStyle.has(j.id)" class="style-sum" :title="j.style">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
+            </div>
+            <div v-if="j.style && openStyle.has(j.id)" class="style-tags" :title="j.style">
+              <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
+                <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
+                <span class="style-tag-val">{{ parts.join(', ') }}</span>
+              </template>
+            </div>
+            <!-- версии/материал: раскрытие — строкой под стилем, стрелка = состояние -->
+            <button v-if="kidCount(j)" class="ghost small-btn kids-toggle"
+                    :class="{ on: openKids.has(j.id) }"
+                    :title="t('queue.kids.tip')" @click="toggleKids(j.id)">
+              {{ t('queue.kids.versions') }} · {{ kidCount(j) }} {{ openKids.has(j.id) ? '▲' : '▾' }}
+            </button>
+            <div v-if="openKids.has(j.id)" class="job-kids">
             <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
               <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
               <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
@@ -990,6 +1007,7 @@ function onWindowClick(e) {
               <li class="danger" :title="t('queue.delete.tip')" @click="deleteJob(j)"><span class="nav-ico">✕</span>{{ t('queue.delete') }}</li>
             </ul>
           </details>
+        </div>
         </div>
       </article>
         <div v-if="qPageMax > 1" class="pager">
@@ -1509,11 +1527,37 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 @keyframes progress-slide { to { left: 100%; } }
 .progress-label { font-size: 11px; white-space: nowrap; }
 
-/* карточка — колонка без паддинга: шапка и панель кнопок прижаты к краям */
+/* карточка — колонка без паддинга: строка-сводка и разворот деталей */
 .job {
-  border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-bottom: 10px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-bottom: 6px;
   background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
 }
+/* строка трека: минимум информации в одну линию, клик — разворот деталей */
+.job-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+  cursor: pointer; min-height: 30px; user-select: none;
+}
+.job-row:hover { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.job-row.open { background: var(--panel); border-bottom: 1px solid var(--border);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.05); }
+.job-row .job-play { color: var(--text); font-size: 14px; padding: 2px 4px; }
+.job-row .job-play.is-playing { color: var(--run); }
+.job-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.job-when { white-space: nowrap; font-size: 11.5px; }
+.job-folder { white-space: nowrap; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+.job-caret { flex: none; color: var(--muted); }
+.kids-badge { cursor: pointer; flex: none; }
+.kids-badge:hover { color: var(--text); }
+/* точка-статус вместо чипа, когда играть нельзя */
+.status-mini { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.status-mini.running { background: var(--run); animation: trickpulse 1.2s ease-in-out infinite; }
+.status-mini.error { background: var(--err); }
+.status-mini.queued { background: var(--muted); }
+.job-progress { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.progress-track.slim { width: 90px; height: 5px; }
+.job-detail { display: flex; flex-direction: column; }
+.job-detail .job-meta-extra { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted); margin-left: 10px; min-width: 0; }
 /* название — шапка карточки во всю ширину */
 .job-title-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px;
@@ -1522,13 +1566,6 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 }
 .job-title-row .title-edit { flex: 1; min-width: 280px; font-weight: 600; }
 .job-title-row .job-title { cursor: text; }
-/* служебная строка: статус, дата, сид — приглушённым текстом, свой отступ */
-.job-meta {
-  display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
-  font-size: 12px; color: var(--muted);
-  padding: 8px 12px 0;
-}
-.job-meta .title-edit { min-width: 280px; }
 .job-body { padding: 2px 12px 8px; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--border); }
 .status.done { background: rgba(255,190,61,.16); color: var(--lcd-text); text-shadow: 0 0 8px var(--lcd-glow); }

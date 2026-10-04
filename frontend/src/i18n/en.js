@@ -568,6 +568,8 @@ export default {
   'queue.folder.tip': 'Show songs of one folder: “Album”, “Basics”, “Experiments” or your own',
   'queue.folder.move.tip': 'Song folder — its versions move with it',
   'queue.rename.tip': 'Rename (double-click or ✎): your own title instead of a number — numbers change on transfer',
+  'queue.details.tip': 'Expand details: style, seed, versions, actions',
+
   'queue.filter.shown': 'showing {shown} of {total}',
   'queue.filter.page': 'page {page} of {max}',
   'queue.filter.none': 'nothing matches the filters',
