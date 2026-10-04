@@ -305,9 +305,12 @@ const grouped = computed(() => groupJobs(jobs.value))
 const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
 const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
 const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
-const openJob = ref(null)         // id трека с развёрнутой строкой (один за раз)
+const openJobs = ref(new Set())      // id треков с развёрнутыми строками (сколько угодно)
 function toggleOpenJob(id) {
-  openJob.value = openJob.value === id ? null : id
+  const s = new Set(openJobs.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  openJobs.value = s
 }
 function toggleStyle(id) {
   const s = new Set(openStyle.value)
@@ -870,7 +873,7 @@ function onWindowClick(e) {
         </div>
         <article v-for="j in queuePage" :key="j.id" class="job" :class="[j.status, { playing: songPlaying(j) }]">
         <!-- строка-таблица: всегда видно минимум, остальное — разворот по клику -->
-        <div class="job-row" :class="{ open: openJob === j.id }" @click="toggleOpenJob(j.id)">
+        <div class="job-row" :class="{ open: openJobs.has(j.id) }" @click="toggleOpenJob(j.id)">
           <span class="col-play">
             <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
                     :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
@@ -896,7 +899,7 @@ function onWindowClick(e) {
           <span v-else class="muted">{{ statusLabelC.done }}</span>
           <span class="col-kids">
             <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
-                  @click.stop="openJob = j.id; if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
+                  @click.stop="if (!openJobs.has(j.id)) toggleOpenJob(j.id); if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
           </span>
           <span v-if="j.duration_sec" class="muted col-dur">{{ fmtDur(j.duration_sec) }}</span>
           <span v-else class="muted col-dur"></span>
@@ -904,10 +907,10 @@ function onWindowClick(e) {
           <span v-else class="job-when"></span>
           <span v-if="(j.folder || '').trim()" class="muted job-folder">{{ j.folder.trim() }}</span>
           <span v-else class="job-folder"></span>
-          <button class="ghost icon job-caret" :title="t('queue.details.tip')">{{ openJob === j.id ? '▾' : '▸' }}</button>
+          <button class="ghost icon job-caret" :title="t('queue.details.tip')">{{ openJobs.has(j.id) ? '▾' : '▸' }}</button>
         </div>
         <!-- разворот: служебное, стиль, версии, действия — всё, что было в карточке -->
-        <div v-if="openJob === j.id" class="job-detail">
+        <div v-if="openJobs.has(j.id)" class="job-detail">
           <div class="job-title-row">
             <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
                    @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
