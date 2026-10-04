@@ -22,6 +22,8 @@
    - смена архитектуры/потоков данных/деплоя → `docs/architecture.md`,
      `docs/deployment.md`, `docs/mcp.md`, `docs/api.md` — актуальными в тех же
      изменениях, не «потом»;
+   - новая/изменённая DSP-цепочка (`internal/dsp`) → строка в `docs/effects.md` с её ID
+     в виде (`id`) и число «Всего N цепочек» (тест `TestEffectsDocListsEveryChain` уронит CI);
    - смена env-переменных воркера → `worker.env.example`, таблица в
      `docs/deployment.md`, при необходимости `docs/mcp.md`;
    - заметные пользователю изменения → после выхода `v0.1.0` кандидат в CHANGELOG

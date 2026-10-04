@@ -79,7 +79,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 дилей со `stem` в окне `from`–`to` продолжают звучать хвостом после `to`.
 
 **Студия трека**: `make_stems` (demucs) · `make_minus` · `overdub` (стиль + лирика) · `import_track` (сразу с `title`/`folder`) · `voice_convert` (ЭКСПЕРИМЕНТ «голос альбома»: голос трека тембром образца, Seed-VC на воркере; голос дрожит — docs/deployment.md) ·
-`dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` · `volume_envelope` (линия громкости
+`dsp_chains` / `dsp_apply` / `dsp_preview` / `dsp_variants` (что делает каждая цепочка — [effects.md](effects.md)) · `volume_envelope` (линия громкости
 `points [{t, db}]`, весь трек или дорожка `stem`; в `rebuild_sections` — спека с `envelope`) ·
 `analyze_job` (метрики) ·
 `job_peaks` (огибающая громкости числами — найти провал/вступление, выбрать место правки) ·
