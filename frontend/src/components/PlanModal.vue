@@ -8,10 +8,9 @@ defineProps({
   open: Boolean,
   busy: Boolean,
   err: String,
-  submitting: Boolean,
   info: Object, // {seed, seconds, truncated, fromJob, fromTrack, fromProfile}
 })
-const emit = defineEmits(['close', 'render', 'new-plan', 'from-track'])
+const emit = defineEmits(['close', 'use', 'new-plan', 'from-track'])
 const abc = defineModel('abc', { type: String, default: '' })
 </script>
 
@@ -42,9 +41,8 @@ const abc = defineModel('abc', { type: String, default: '' })
       </details>
       <textarea v-model="abc" rows="18" class="abc" spellcheck="false"></textarea>
       <div class="modal-actions">
-        <button class="primary" :disabled="submitting || !abc.trim()" @click="emit('render', abc)">{{ t('plan.render') }}</button>
-        <button class="primary alt" :disabled="submitting || !abc.trim()" :title="t('plan.draft.tip')"
-                @click="emit('render', abc, true)">{{ t('plan.draft') }}</button>
+        <button class="primary" :disabled="!abc.trim()" :title="t('plan.use.tip')"
+                @click="emit('use', abc)">{{ t('plan.use') }}</button>
         <button class="ghost" :disabled="busy" @click="emit('new-plan')">{{ t('plan.new') }}</button>
         <button class="ghost" :disabled="busy" @click="emit('from-track')" :title="t('plan.fromTrack.tip')">{{ t('plan.fromTrack') }}</button>
       </div>

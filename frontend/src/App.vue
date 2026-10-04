@@ -173,16 +173,18 @@ async function finalStyle() {
 }
 
 function payload(extra = {}) {
+  const abc = customAbc.value.trim()
   return {
     title: title.value,
     lyrics: effectiveLyrics(lyrics.value, noLyrics.value, durMode.value),
     seed: seed.value ? Number(seed.value) : 0,
-    // драматургии нужен план: off его не строит — молча повышаем до melody
-    cot: arcKind.value && cot.value === 'off' ? 'melody' : cot.value,
+    // драматургии и прикреплённому ABC нужен план: off его не строит — молча повышаем до melody
+    cot: (arcKind.value || abc) && cot.value === 'off' ? 'melody' : cot.value,
     arc: arcKind.value,
     // потолок длины из селектора длительности (0 = бюджет воркера)
     max_tokens: durTokens[durMode.value] || 0,
     ...characterPayload(temperature.value, cfgScale.value),
+    ...(abc ? { abc } : {}),
     ...extra,
   }
 }
@@ -194,10 +196,14 @@ const canSubmit = computed(() =>
 async function submit() {
   if (!canSubmit.value) return
   submitting.value = true
+  submitErr.value = ''
   try {
-    await api.submit({ ...payload(), style: await finalStyle() })
+    const id = await api.submit({ ...payload(), style: await finalStyle() })
+    if (customAbc.value.trim()) inheritTrickMarks(id)
     newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
+  } catch (e) {
+    submitErr.value = String(e?.message || e)
   } finally { submitting.value = false }
 }
 
@@ -205,20 +211,27 @@ async function submit() {
 async function submitDraft() {
   if (!canSubmit.value) return
   submitting.value = true
+  submitErr.value = ''
   try {
-    await api.submit({ ...payload({ draft: true }), style: await finalStyle() })
+    const id = await api.submit({ ...payload({ draft: true }), style: await finalStyle() })
+    if (customAbc.value.trim()) inheritTrickMarks(id)
     newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
+  } catch (e) {
+    submitErr.value = String(e?.message || e)
   } finally { submitting.value = false }
 }
 
 async function submitFan(n) {
   if (!canSubmit.value) return
   submitting.value = true
+  submitErr.value = ''
   try {
     await api.submitFan({ ...payload(), style: await finalStyle() }, n)
     newTrackPage.value = false   // к списку: трек уже в очереди
     await refresh()
+  } catch (e) {
+    submitErr.value = String(e?.message || e)
   } finally { submitting.value = false }
 }
 
@@ -637,6 +650,9 @@ const planBusy = ref(false)
 const planErr = ref('')
 const planInfo = ref(null)   // {seed, seconds, truncated} — как план получен
 const planAbc = ref('')
+const customAbc = ref('')    // прикреплённый план: скелет трека в форме
+const abcOpen = ref(false)
+const submitErr = ref('')
 
 function setPlanAbc(abc, info) {
   planAbc.value = abc
@@ -664,24 +680,22 @@ async function makePlan() {
   } finally { planBusy.value = false }
 }
 
-async function renderFromAbc(abc, draft = false) {
-  if (!abc || !abc.trim()) return
-  submitting.value = true
-  try {
-    const id = await api.submit({
-      ...payload({
-        abc: abc,
-        cot: cot.value === 'off' ? 'melody' : cot.value,   // abc требует full|melody
-        seed: seed.value ? Number(seed.value) : Math.floor(Math.random() * 1e9),
-        draft,
-      }),
-      style: await finalStyle(),
-    })
-    inheritTrickMarks(id)
-    planOpen.value = false
-    newTrackPage.value = false
-    await refresh()
-  } finally { submitting.value = false }
+// план из диалога → прикрепить к форме: скелет из ABC, а жанр/инструменты/ритм,
+// дугу и сид задаём настройками; запуск — главной кнопкой генерации
+function usePlanAbc(abc) {
+  customAbc.value = (abc || '').trim()
+  submitErr.value = ''
+  planOpen.value = false
+  openNewTrack()   // план мог открыться не из формы (свои треки) — показать форму с ним
+}
+
+// «ноты» — итоговый план: с прикреплённым показываем его, без — генерируем новый
+function notesOpen() {
+  if (customAbc.value.trim()) {
+    setPlanAbc(customAbc.value, {})
+    return
+  }
+  makePlan()
 }
 
 // метки приёмов переезжают в новую версию трека: правки плана накопительные,
@@ -851,7 +865,7 @@ function onWindowClick(e) {
           <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
           <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
           <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
-          <span v-if="j.req_abc" class="badge" :title="t('plan.render')">свой ABC</span>
+          <span v-if="j.req_abc" class="badge" :title="t('form.abc.tip')">свой ABC</span>
           <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
           <span v-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))">⚠ {{ t('queue.vocalLeak') }}</span>
           <span v-if="j.status === 'running'" class="progress-wrap" role="progressbar"
@@ -1004,6 +1018,18 @@ function onWindowClick(e) {
         </div>
         <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
 
+        <!-- «Импорт ABC»: готовый план как скелет трека; жанр, инструменты, ритм — из формы -->
+        <div class="abc-row" :title="t('form.abc.tip')">
+          <button class="toggle small-btn" :class="{ on: abcOpen || !!customAbc.trim() }"
+                  @click="abcOpen = !abcOpen">{{ t('form.abc.btn') }}</button>
+          <span v-if="customAbc.trim() && !abcOpen" class="muted">
+            {{ t('form.abc.on') }} · {{ customAbc.trim().split('\n').length }} {{ t('form.abc.lines') }}
+          </span>
+          <button v-if="customAbc.trim()" class="ghost small-btn" @click="customAbc = ''">{{ t('form.abc.clear') }}</button>
+        </div>
+        <textarea v-if="abcOpen" v-model="customAbc" rows="8" class="abc" spellcheck="false"
+                  :placeholder="t('form.abc.ph')"></textarea>
+
         <div class="slots">
           <div v-for="key in slotKeys" :key="key" class="slot-box" :title="t('slot.' + key + '.tip')">
             <span>{{ t('slot.' + key + '.label') }}</span>
@@ -1131,7 +1157,7 @@ function onWindowClick(e) {
           <button class="primary alt" :disabled="submitting || !canSubmit" @click="submitFan(5)" :title="t('form.fan.tip')">
             {{ t('form.fan') }}
           </button>
-          <button class="ghost" :disabled="planBusy || !canSubmit" @click="makePlan"
+          <button class="ghost" :disabled="planBusy || !canSubmit" @click="notesOpen"
                   :title="t('form.notes.tip')">
             {{ planBusy ? t('form.planning') : t('form.notes') }}
           </button>
@@ -1139,6 +1165,7 @@ function onWindowClick(e) {
                   :title="t('form.draft.tip')">
             {{ t('form.draft') }}
           </button>
+          <span v-if="submitErr" class="error submit-err" :title="submitErr">{{ submitErr }}</span>
         </div>
       </div>
     </section>
@@ -1159,8 +1186,8 @@ function onWindowClick(e) {
   <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
 
   <PlanModal v-model:abc="planAbc" :open="planOpen" :busy="planBusy" :err="planErr"
-             :submitting="submitting" :info="planInfo"
-             @close="planOpen = false" @render="renderFromAbc" @new-plan="makePlan" @from-track="transcribeFromTrack" />
+             :info="planInfo"
+             @close="planOpen = false" @use="usePlanAbc" @new-plan="makePlan" @from-track="transcribeFromTrack" />
   <CopilotModal :open="copOpen" :style="compiledStyle" :example="lyrics" :lang="slots.language" :slots="slots"
                 @close="copOpen = false" @insert="onCopInsert" />
   <MetricsModal ref="metricsModal" :jobs="jobs" />
@@ -1528,6 +1555,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .modal-head h2 { margin: 0; }
 .plan-meta { font-size: 12px; }
 .abc { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; }
+.abc-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.submit-err { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
 .modal-actions { display: flex; gap: 8px; }
 
 .metrics-modal { width: min(640px, 92vw); }

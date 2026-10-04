@@ -453,6 +453,12 @@ def _run_job(job_id: int):
                 abc_path = job_dir / row["req_abc"]
                 if abc_path.is_file():
                     request["abc"] = abc_path.read_text()
+                    if row["arc"]:
+                        # драматургия поверх прикреплённого плана: темп по секциям,
+                        # burst — ещё и октава вокала в финале; файл пользователя не трогаем
+                        request["style"] = arc.style_with_arc(request["style"], row["arc"])
+                        request["abc"] = arc.apply_arc(request["abc"], row["arc"])
+                        log.info("job %s: arc=%s applied to custom abc", job_id, row["arc"])
             elif row["arc"]:
                 # драматургия: строим план сами, правим темп/вокал по дуге —
                 # и рендерим по своему ABC (механизм req_abc)
@@ -882,8 +888,6 @@ def translate(req: TranslateIn):
 def submit(req: JobIn):
     if req.abc is not None and req.cot == "off":
         raise HTTPException(422, "abc requires cot=full or cot=melody")
-    if req.arc and req.abc is not None and req.abc.strip():
-        raise HTTPException(422, "arc is applied to the generated plan; explicit abc wins")
     if req.arc and req.cot == "off":
         raise HTTPException(422, "arc requires cot=full or cot=melody (needs the plan)")
     with db_lock, db() as conn:
