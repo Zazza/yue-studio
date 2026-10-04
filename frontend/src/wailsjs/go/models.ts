@@ -389,6 +389,8 @@ export namespace yue {
 	    vocal_leak?: string;
 	    mixes?: number;
 	    voice_src?: number;
+	    temperature?: number;
+	    cfg?: number;
 	    stage?: string;
 	    tokens?: number;
 	    tok_per_s?: number;
@@ -426,6 +428,8 @@ export namespace yue {
 	        this.vocal_leak = source["vocal_leak"];
 	        this.mixes = source["mixes"];
 	        this.voice_src = source["voice_src"];
+	        this.temperature = source["temperature"];
+	        this.cfg = source["cfg"];
 	        this.stage = source["stage"];
 	        this.tokens = source["tokens"];
 	        this.tok_per_s = source["tok_per_s"];
@@ -589,6 +593,8 @@ export namespace yue {
 	    max_tokens?: number;
 	    parent_id?: number;
 	    role?: string;
+	    temperature?: number;
+	    cfg?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SubmitParams(source);
@@ -607,6 +613,8 @@ export namespace yue {
 	        this.max_tokens = source["max_tokens"];
 	        this.parent_id = source["parent_id"];
 	        this.role = source["role"];
+	        this.temperature = source["temperature"];
+	        this.cfg = source["cfg"];
 	    }
 	}
 	export class Tone {
