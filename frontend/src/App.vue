@@ -1013,8 +1013,8 @@ function onWindowClick(e) {
       </span>
       <span class="sb-text">{{ (stats.vram_used / 1024).toFixed(1) }}/{{ Math.round(stats.vram_total / 1024) }} {{ t('footer.vram.gb') }}</span>
     </span>
-    <span v-if="stats.queue && stats.queue.queued" class="sb-text">· {{ t('footer.queue', stats.queue.queued) }}</span>
-    <span v-if="stats.gpu_waiting" class="sb-text">· {{ t('footer.gpu_queue', stats.gpu_waiting) }}</span>
+    <span v-if="stats.queue && stats.queue.queued" class="sb-text">· {{ t('footer.queue', { n: stats.queue.queued }) }}</span>
+    <span v-if="stats.gpu_waiting" class="sb-text">· {{ t('footer.gpu_queue', { n: stats.gpu_waiting }) }}</span>
     <span v-if="stats.running" class="sb-text sb-job" :title="stats.running.title">
       · #{{ stats.running.job_id }}
       <template v-if="stats.running.progress_pct != null">{{ stats.running.progress_pct }}%</template>
