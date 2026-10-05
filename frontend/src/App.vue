@@ -307,7 +307,6 @@ const qPage = ref(1)
 // производные треки (куски для вклеек, пересборки, варианты) — под родителем
 const grouped = computed(() => groupJobs(jobs.value))
 const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
-const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
 const openJobs = ref(new Set())      // id треков с развёрнутыми строками (сколько угодно)
 const folderPick = ref(null)         // id трека, у которого сейчас открыт селект смены папки
 function toggleOpenJob(id) {
@@ -319,12 +318,6 @@ function toggleOpenJob(id) {
 // открытые треки на текущей странице: «свернуть все» и приглушение закрытых строк
 const openOnPage = computed(() => queuePage.value.filter((j) => openJobs.value.has(j.id)).length)
 function collapseAllJobs() { openJobs.value = new Set() }
-function toggleStyle(id) {
-  const s = new Set(openStyle.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  openStyle.value = s
-}
 // выпадающее меню на <details>: выбор пункта его закрывает
 function closeMenu(e) {
   const d = e.target.closest('details')
@@ -970,10 +963,9 @@ function onWindowClick(e) {
               </ul>
             </details>
           </div>
-            <!-- стиль пишется текстом сразу, без кнопки-заголовка; клик по строке — таблица тегов -->
+            <!-- стиль — всегда таблица тегов «что где», без сворачивания -->
             <div v-if="j.style" class="job-style">
-              <span v-if="!openStyle.has(j.id)" class="style-sum" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
-              <div v-else class="style-tags" :title="j.style" @click="toggleStyle(j.id)">
+              <div class="style-tags" :title="j.style">
                 <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
                   <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
                   <span class="style-tag-val">{{ parts.join(', ') }}</span>
@@ -1032,12 +1024,18 @@ function onWindowClick(e) {
                       <AppIcon :name="isPlaying('m' + k.id) ? 'stop' : 'play'" /></button>
                     <span v-else class="status-mini" :class="k.status" :title="statusLabelC[k.status] || k.status"></span>
                   </span>
+                  <!-- материал — те же действия: сделать основной, студия -->
+                  <button v-if="k.status === 'done'" class="kid-star" :class="{ head: headOf(j).id === k.id }"
+                          :title="headOf(j).id === k.id ? t('queue.head.main') : t('queue.head.make.tip')"
+                          :disabled="headOf(j).id === k.id" @click="makeHead(j, k)">
+                    <AppIcon :name="headOf(j).id === k.id ? 'star-fill' : 'star'" /></button>
                   <span class="muted tl-num" style="width:auto">{{ k.id }}</span>
                   <span>{{ k.title }}</span>
                   <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
                   <span v-if="k.status !== 'done'" class="status" :class="k.status">{{ statusLabelC[k.status] || k.status }}</span>
                   <span class="spacer"></span>
                   <span v-if="k.duration_sec" class="tl-meta">{{ fmtDur(k.duration_sec) }}</span>
+                  <button v-if="k.status === 'done'" class="ghost small-btn" @click="studioJob = k">студия →</button>
                   <button v-if="canRetry(k)" class="ghost small-btn" :title="k.error || t('queue.retry.tip')" @click="retry(k)">{{ t('queue.retry') }}</button>
                   <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)"><AppIcon name="x" /></button>
                 </div>
@@ -1625,9 +1623,10 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
    30px колонки ▶), своя рамка и фон — видно, к какой строке относится, и
    несколько открытых треков не сливаются с соседями */
 .job-detail { display: flex; flex-direction: column;
-  margin: 0 12px 10px 42px; border: 1px solid var(--border); border-radius: 6px;
-  /* без overflow: hidden — всплывающее меню «Скачать» должно выходить за края карточки */
-  background: var(--panel); }
+  margin: 0 12px 10px 42px; padding: 2px 0 6px;
+  border-left: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+  /* без фона и рамки-карточки: разворот — продолжение строки, а не отдельный блок */
+  background: transparent; }
 /* открытый трек отодвинут от соседних строк — читается отдельным блоком */
 .job-table .job.open { margin: 6px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .job-table .job.open:first-child { margin-top: 0; border-top: none; }

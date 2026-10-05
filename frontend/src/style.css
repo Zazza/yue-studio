@@ -32,10 +32,10 @@
   --badge-fg: #9aa5ff;
 }
 [data-theme="light"] {
-  --bg: #d7dbe3;
+  --bg: #eceef2;
   --panel: #ffffff;
-  --panel2: #f2f3f7;
-  --panel3: #e4e7ee;
+  --panel2: #f5f6f9;
+  --panel3: #e8ebf1;
   --border: #8f96a5;
   --btn-border: #bcc0ca;
   --btn-bevel-hi: #ffffff;
