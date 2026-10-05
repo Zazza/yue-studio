@@ -161,6 +161,18 @@ func (c *Client) ImportTrack(ctx context.Context, name string, data []byte, tran
 	return out, nil
 }
 
+// TranscribeJob — партитура для готового трека без неё (импорт без транскрипции
+// или с упавшей): SheetSage2 по треку джобы → score.abc. Готовый план не
+// перезаписывается (воркер отвечает 409).
+func (c *Client) TranscribeJob(ctx context.Context, id int64) (map[string]any, error) {
+	var out map[string]any
+	// транскрипция может идти минутами (и ждать рендер в очереди к GPU)
+	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/transcribe", id), gpuTimeout, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EnsureMp3 — ленивая конвертация джобы в mp3 320 (для импортированных треков).
 func (c *Client) EnsureMp3(ctx context.Context, id int64) (map[string]any, error) {
 	var out map[string]any

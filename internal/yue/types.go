@@ -38,6 +38,7 @@ type Service interface {
 	MakeStems(ctx context.Context, id int64) (map[string]any, error)
 	MakeMinus(ctx context.Context, id int64, exclude []string) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
+	TranscribeJob(ctx context.Context, id int64) (map[string]any, error)
 	EnsureMp3(ctx context.Context, id int64) (map[string]any, error)
 	JobStems(ctx context.Context, id int64) ([]map[string]any, error)
 	CorpusCreate(ctx context.Context, name string) (int64, error)
@@ -147,12 +148,12 @@ type StatsRunning struct {
 
 // StatsInfo — сводка для статус-бара приложения (лёгкий опрос раз в пару секунд).
 type StatsInfo struct {
-	ModelLoaded bool          `json:"model_loaded"`
-	VramTotal   *int          `json:"vram_total"` // МБ; nil — CPU-воркер/CUDA недоступна
-	VramUsed    *int          `json:"vram_used"`
+	ModelLoaded bool           `json:"model_loaded"`
+	VramTotal   *int           `json:"vram_total"` // МБ; nil — CPU-воркер/CUDA недоступна
+	VramUsed    *int           `json:"vram_used"`
 	Queue       map[string]int `json:"queue"`
-	Running     *StatsRunning `json:"running"`
-	GpuWaiting  int           `json:"gpu_waiting"`
+	Running     *StatsRunning  `json:"running"`
+	GpuWaiting  int            `json:"gpu_waiting"`
 }
 
 type SubmitParams struct {

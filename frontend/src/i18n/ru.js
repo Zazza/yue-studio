@@ -222,6 +222,8 @@ export default {
   'studio.title': 'Студия трека',
   'studio.parsing': 'Разбираю партитуру…',
   'studio.noScore': 'У трека нет партитуры (импорт без транскрипции или она не удалась) — пиано-ролл и приёмы по тактам недоступны; волна, стемы и эффекты работают.',
+  'studio.noScore.retry': 'Создать партитуру',
+  'studio.noScore.busy': 'Транскрибирую… (до нескольких минут)',
   'studio.roll.voice.Vocal': 'голос',
   'studio.roll.voice.Ins': 'инструменты',
   'studio.wave.color': 'цвет',

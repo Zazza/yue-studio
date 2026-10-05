@@ -571,6 +571,23 @@ func RegisterStudioTools(s *Server) {
 		},
 	})
 
+	s.Register(Tool{
+		Name: "transcribe_job",
+		Description: "Партитура для готового трека без неё (импорт без транскрипции или с упавшей, " +
+			"DSP-вариант): SheetSage2 по треку → score.abc, дальше работают ролл/job_score/овердаб. " +
+			"Готовый план не перезаписывается (409). Медленно, ждёт очередь к GPU.",
+		InputSchema: props(map[string]any{
+			"job_id": prop("ID джобы", "integer"),
+		}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			out, err := s.client.TranscribeJob(context.Background(), argInt(args, "job_id"))
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
 	// ---------- корпуса (профили исполнителей) ----------
 
 	s.Register(Tool{

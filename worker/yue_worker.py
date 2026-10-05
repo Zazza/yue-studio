@@ -1986,6 +1986,34 @@ async def tracks_import(request: Request, transcribe: bool = True, title: str = 
             "transcribe_error": transcribe_error}
 
 
+@app.post("/jobs/{job_id}/transcribe")
+async def job_transcribe(job_id: int):
+    """Партитура для готового трека без неё (импорт без транскрипции или с упавшей,
+    DSP-вариант): SheetSage2 по audio_file → score.abc, abc_file джобы.
+    Готовый план не перезаписывается — 409."""
+    row = _job_row(job_id)
+    if row is None:
+        raise HTTPException(404, "job not found")
+    if row["status"] != "done" or not row["audio_file"]:
+        raise HTTPException(409, "job not done (no audio)")
+    if row["abc_file"]:
+        raise HTTPException(409, "job already has a score")
+    jdir = JOBS_DIR / str(job_id)
+    try:
+        result = await run_in_threadpool(_ss_transcribe_queued, jdir / row["audio_file"], jdir)
+    except Exception as e:  # noqa: BLE001
+        log.exception("job transcribe failed")
+        raise HTTPException(500, f"transcribe failed: {e}") from e
+    abc = result.get("abc", "")
+    if not abc.strip():
+        raise HTTPException(500, "transcribe returned an empty score")
+    (jdir / "score.abc").write_text(abc, encoding="utf-8")
+    (jdir / "score.json").unlink(missing_ok=True)   # кэш ролла от прошлой попытки
+    with db_lock, db() as conn:
+        conn.execute("UPDATE jobs SET abc_file=? WHERE id=?", ("score.abc", job_id))
+    return {"id": job_id, "abc_file": "score.abc"}
+
+
 @app.post("/jobs/{job_id}/overdub")
 def submit_overdub(job_id: int, req: OverdubIn):
     """Рендер партии по score.abc джобы (механизм req_abc) с её стилем;

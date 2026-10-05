@@ -4,7 +4,7 @@ import {
   YueWorkerConfig, YueSetWorkerConfig, YueOllamaModels,
   YueAnalyzeJob, YueReferences, YueAddReference, YueDspChains, YueApplyDsp, YueFxPreview, YuePlayPreview, YueApplySteps, YueDspPresets, YueDspVariants,
   YueCopilot,
-  YueTranscribeFile, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
+  YueTranscribeFile, YueTranscribeJob, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
   YueMakeStems, YueJobStems, YueMakeMinus,
@@ -48,6 +48,7 @@ export const api = {
   // v2/v3
   transcribeFile: () => YueTranscribeFile(),
   importTrack: () => YueImportTrack(),
+  transcribeJob: (id) => YueTranscribeJob(id),
   ensureMp3: (id) => YueEnsureMp3(id),
   jobScore: (id) => YueJobScore(id),
   // волна громкости: file '' — основной трек, bins 0 — каноническое разрешение

@@ -2261,3 +2261,138 @@ class TestJobMixes(_WorkerApiCase):
         jid = self._job(semantic=False)
         self.assertFalse((self.jobs_dir / str(jid)).exists())
         self.assertEqual(self._mixes(jid), (0, 0))
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, "нужны fastapi/httpx/numpy (окружение воркера)")
+class TestTranscribeEndpoint(_WorkerApiCase):
+    """POST /jobs/{id}/transcribe — повторить создание партитуры для готового
+    трека без неё (импорт без транскрипции или с упавшей транскрипцией):
+    нет джобы → 404; статус не done или пустой audio_file → 409; abc_file уже
+    есть → 409, score.abc не перезаписывается, транскрипция не вызывается;
+    успех → 200 {"id", "abc_file": "score.abc"}, score.abc записан, abc_file в
+    БД = "score.abc", устаревший score.json удалён, /score больше не 404;
+    транскрипция бросила или вернула пустой ABC → 500, abc_file пуст.
+    SheetSage подменяется на границе: имя модуля воркера ss_transcribe."""
+
+    ABC = "X:1\nM:4/4\nL:1/16\nK:C\nV: Vocal\nC16|\n"
+
+    def _track(self, status="done", audio="audio.flac", abc_file=""):
+        jid = self._job(semantic=False, status=status)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        if audio:
+            (d / audio).write_bytes(b"x")
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file=?, abc_file=? WHERE id=?",
+                      (audio, abc_file, jid))
+        return jid
+
+    def _patch(self, fake):
+        from unittest import mock
+        calls = []
+
+        def wrapper(src, dst):
+            calls.append((Path(src), Path(dst)))
+            return fake(src, dst)
+
+        p = mock.patch.object(self.w, "ss_transcribe", side_effect=wrapper)
+        p.start()
+        self.addCleanup(p.stop)
+        return calls
+
+    def _ok(self):
+        return self._patch(lambda src, dst: {"abc": self.ABC})
+
+    def _abc_col(self, jid):
+        return self._row(jid)["abc_file"] or ""
+
+    # --- 1. нет джобы ---
+    def test_missing_job_404(self):
+        calls = self._ok()
+        r = self.client.post("/jobs/9999/transcribe")
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertEqual(calls, [])
+
+    # --- 2. не done / нет аудио ---
+    def test_not_done_409(self):
+        for status in ("queued", "running", "error"):
+            with self.subTest(status=status):
+                jid = self._track(status=status)
+                calls = self._ok()
+                r = self.client.post(f"/jobs/{jid}/transcribe")
+                self.assertEqual(r.status_code, 409, r.text)
+                self.assertEqual(calls, [])
+                self.assertEqual(self._abc_col(jid), "")
+                self.assertFalse((self.jobs_dir / str(jid) / "score.abc").exists())
+
+    def test_empty_audio_file_409(self):
+        jid = self._track(audio="")
+        calls = self._ok()
+        r = self.client.post(f"/jobs/{jid}/transcribe")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(calls, [])
+        self.assertEqual(self._abc_col(jid), "")
+
+    # --- 3. партитура уже есть ---
+    def test_existing_score_409_not_overwritten(self):
+        jid = self._track(abc_file="score.abc")
+        score = self.jobs_dir / str(jid) / "score.abc"
+        score.write_text("X:1\nK:C\nold\n")
+        calls = self._ok()
+        r = self.client.post(f"/jobs/{jid}/transcribe")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(calls, [], "транскрипция не должна вызываться")
+        self.assertEqual(score.read_text(), "X:1\nK:C\nold\n")
+        self.assertEqual(self._abc_col(jid), "score.abc")
+
+    # --- 4. успех ---
+    def test_success(self):
+        jid = self._track()
+        d = self.jobs_dir / str(jid)
+        stale = d / "score.json"
+        stale.write_text('{"stale": true}')
+        calls = self._ok()
+        r = self.client.post(f"/jobs/{jid}/transcribe")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body.get("id"), jid)
+        self.assertEqual(body.get("abc_file"), "score.abc")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0].resolve(), (d / "audio.flac").resolve(),
+                         "транскрибируется аудиофайл джобы")
+        self.assertEqual((d / "score.abc").read_text(), self.ABC)
+        self.assertEqual(self._abc_col(jid), "score.abc")
+        self.assertFalse(stale.exists(), "устаревший кэш score.json должен быть удалён")
+        s = self.client.get(f"/jobs/{jid}/score")
+        self.assertFalse(s.status_code == 404 and "no score.abc" in s.text, s.text)
+
+    def test_success_uses_audio_file_name_from_db(self):
+        jid = self._track(audio="import.mp3")
+        calls = self._ok()
+        r = self.client.post(f"/jobs/{jid}/transcribe")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(calls[0][0].resolve(),
+                         (self.jobs_dir / str(jid) / "import.mp3").resolve())
+
+    # --- 5. транскрипция упала ---
+    def test_transcribe_raises_500(self):
+        jid = self._track()
+
+        def boom(src, dst):
+            raise RuntimeError("sheetsage crashed")
+
+        self._patch(boom)
+        r = self.client.post(f"/jobs/{jid}/transcribe")
+        self.assertEqual(r.status_code, 500, r.text)
+        self.assertEqual(self._abc_col(jid), "")
+        self.assertFalse((self.jobs_dir / str(jid) / "score.abc").exists())
+
+    # --- 6. пустой ABC ---
+    def test_empty_abc_500(self):
+        for abc in ("", "   \n\t "):
+            with self.subTest(abc=repr(abc)):
+                jid = self._track()
+                self._patch(lambda src, dst, abc=abc: {"abc": abc})
+                r = self.client.post(f"/jobs/{jid}/transcribe")
+                self.assertEqual(r.status_code, 500, r.text)
+                self.assertEqual(self._abc_col(jid), "")

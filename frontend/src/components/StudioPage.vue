@@ -232,10 +232,16 @@ function saveStudioState() {
   } catch {}
 }
 
+// партитура трека: своя копия, чтобы «создать партитуру» включала ролл сразу,
+// не дожидаясь обновления списка треков
+const abcFile = ref(props.job.abc_file || '')
+watch(() => props.job.abc_file, (v) => { if (v) abcFile.value = v })
+const transcribeBusy = ref(false)
+
 async function openRoll() {
   // импорт без транскрипции / DSP-вариант: плана нет, /score ответит 404 —
-  // это не ошибка, а другой тип трека (подсказка в шаблоне)
-  if (!props.job.abc_file) { rollData.value = null; return }
+  // это не ошибка, а другой тип трека (подсказка и кнопка в шаблоне)
+  if (!abcFile.value) { rollData.value = null; return }
   rollBusy.value = true
   rollErr.value = ''
   try {
@@ -245,6 +251,19 @@ async function openRoll() {
   } catch (e) {
     rollErr.value = String(e)
   } finally { rollBusy.value = false }
+}
+
+// повторить создание партитуры (SheetSage2 на воркере, ждёт очередь к GPU)
+async function retryTranscribe() {
+  transcribeBusy.value = true
+  rollErr.value = ''
+  try {
+    const r = await api.transcribeJob(props.job.id)
+    abcFile.value = r?.abc_file || 'score.abc'
+    await openRoll()
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally { transcribeBusy.value = false }
 }
 
 // ---------- волна громкости ----------
@@ -527,7 +546,7 @@ const baseAbc = ref(null)     // исходный план джобы (подк�
 // Wails не долетает до воркера (нет его origin)
 async function ensureBaseAbc() {
   if (!baseAbc.value) {
-    baseAbc.value = await api.jobAbcText(props.job.id, props.job.abc_file || 'score.abc')
+    baseAbc.value = await api.jobAbcText(props.job.id, abcFile.value || 'score.abc')
   }
 }
 const pendingSpecs = ref([])  // неподтверждённые: [{kind, label, from, to, dir, targets}]
@@ -1445,7 +1464,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
       </nav>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
-        <p v-if="!job.abc_file" class="muted">{{ t('studio.noScore') }}</p>
+        <p v-if="!abcFile" class="muted">
+          {{ t('studio.noScore') }}
+          <button class="ghost small-btn" :disabled="transcribeBusy" @click="retryTranscribe">
+            {{ transcribeBusy ? t('studio.noScore.busy') : t('studio.noScore.retry') }}</button>
+        </p>
         <p v-if="rollErr" class="error">{{ rollErr }}</p>
         <template v-if="rollData">
           <p class="muted roll-meta">

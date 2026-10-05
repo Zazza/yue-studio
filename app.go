@@ -414,6 +414,11 @@ func (a *App) YueImportTrack() (map[string]any, error) {
 	return a.yue.ImportTrack(a.ctx, title, data, true)
 }
 
+// YueTranscribeJob — повторить создание партитуры для трека без неё.
+func (a *App) YueTranscribeJob(id int64) (map[string]any, error) {
+	return a.yue.TranscribeJob(a.ctx, id)
+}
+
 // YueTranscribeFile — диалог выбора трека → SheetSage2 → ABC (для каверов).
 func (a *App) YueTranscribeFile() (*yue.TranscribeResult, error) {
 	data, name, err := a.readAudioFile("Трек для транскрипции (кавер)")

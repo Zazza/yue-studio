@@ -137,6 +137,8 @@ export function YueToggleAudio():Promise<void>;
 
 export function YueTranscribeFile():Promise<yue.TranscribeResult>;
 
+export function YueTranscribeJob(arg1:number):Promise<Record<string, any>>;
+
 export function YueTranslate(arg1:string):Promise<yue.TranslateResult>;
 
 export function YueVariantToTrack(arg1:number,arg2:string,arg3:string,arg4:number):Promise<number>;

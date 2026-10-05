@@ -266,6 +266,10 @@ export function YueTranscribeFile() {
   return window['go']['main']['App']['YueTranscribeFile']();
 }
 
+export function YueTranscribeJob(arg1) {
+  return window['go']['main']['App']['YueTranscribeJob'](arg1);
+}
+
 export function YueTranslate(arg1) {
   return window['go']['main']['App']['YueTranslate'](arg1);
 }

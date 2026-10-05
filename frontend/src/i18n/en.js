@@ -222,6 +222,8 @@ export default {
   'studio.title': 'Track studio',
   'studio.parsing': 'Parsing the score…',
   'studio.noScore': 'This track has no score (imported without transcription, or it failed) — piano roll and bar tricks are unavailable; waveform, stems and effects work.',
+  'studio.noScore.retry': 'Create score',
+  'studio.noScore.busy': 'Transcribing… (up to a few minutes)',
   'studio.roll.voice.Vocal': 'vocal',
   'studio.roll.voice.Ins': 'instruments',
   'studio.wave.color': 'color',

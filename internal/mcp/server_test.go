@@ -437,7 +437,7 @@ func TestProtocolHandshakeAndToolsList(t *testing.T) {
 		"status", "jobs", "submit", "plan", "render_abc", "cancel", "delete_job", "artifacts",
 		"transcribe", "job_score", "job_preview",
 		"config_get", "config_set", "dsp_chains", "dsp_apply", "dsp_preview", "dsp_variants",
-		"analyze_job", "make_stems", "make_minus", "overdub", "import_track",
+		"analyze_job", "make_stems", "make_minus", "overdub", "import_track", "transcribe_job",
 		"job_peaks", "job_spectrum",
 		"variant_track", "dsp_variant_delete",
 		"corpus_list", "corpus_create", "corpus_add_tracks", "corpus_build", "corpus_get",
