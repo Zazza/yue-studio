@@ -63,7 +63,7 @@ window.addEventListener('resize', () => {
   }, 700)
 })
 
-const { playerState, playBusy, isPlaying, playBtn, toggleArtifact, onVolume, onRefresh } = usePlayer()
+const { playerState, playBusy, isPlaying, toggleArtifact, onVolume, onRefresh } = usePlayer()
 const { locale, t, setLocale } = useI18n()
 const healthTitle = computed(() => health.value
   ? t('app.health.up') + (health.value.model_loaded ? t('app.health.model') : '')
@@ -307,14 +307,13 @@ const qPage = ref(1)
 // производные треки (куски для вклеек, пересборки, варианты) — под родителем
 const grouped = computed(() => groupJobs(jobs.value))
 const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date.now(), grouped.value.children))
-const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
 const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
 const openJobs = ref(new Set())      // id треков с развёрнутыми строками (сколько угодно)
 const folderPick = ref(null)         // id трека, у которого сейчас открыт селект смены папки
 function toggleOpenJob(id) {
   const s = new Set(openJobs.value)
   if (s.has(id)) s.delete(id)
-  else s.add(id)
+  else { s.add(id); loadKidMixes(id) }   // миксы-вклейки — сразу в общий список вложений
   openJobs.value = s
 }
 // открытые треки на текущей странице: «свернуть все» и приглушение закрытых строк
@@ -340,20 +339,15 @@ onUnmounted(() => document.removeEventListener('click', closeMenusOutside))
 // готовые миксы с вклейками (файлы эффектов родителя overdub-inst-*) — по раскрытию
 const kidMixes = ref({})
 const insertsSvc = useInserts()
-async function toggleKids(id) {
-  const s = new Set(openKids.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  openKids.value = s
-  if (s.has(id)) {
-    try {
-      const vs = (await api.dspVariants(id)) || []
-      // свежий первым: текущий результат — последний микс (в нём все вклейки)
-      const mixes = vs.filter((v) => mixChildId(v.file) != null)
-        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-      kidMixes.value = { ...kidMixes.value, [id]: mixes }
-    } catch { /* варианты недоступны — покажем только треки-вложения */ }
-  }
+// подгрузка миксов-вклеек (DSP-варианты с вложениями) для списка вложений
+async function loadKidMixes(id) {
+  try {
+    const vs = (await api.dspVariants(id)) || []
+    // свежий первым: текущий результат — последний микс (в нём все вклейки)
+    const mixes = vs.filter((v) => mixChildId(v.file) != null)
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    kidMixes.value = { ...kidMixes.value, [id]: mixes }
+  } catch { /* варианты недоступны — покажем только треки-вложения */ }
 }
 // что под «версии»: дочерние треки и готовые миксы (у трека может быть только микс —
 // эффект на дорожку без дочерних треков)
@@ -427,6 +421,8 @@ function fmtWhen(s) {
   return `${m[3]}.${m[2]}${year} ${m[4]}:${m[5]}`
 }
 const kidMaterial = (id) => (grouped.value.children[id] || []).filter((k) => !isResultJob(k))
+// ключ плеера для микса-вклейки
+function mixKey(parentId, v) { return `mix${parentId}:${v.file}` }
 // подпись микса: по реестру вклеек, иначе сохранённая воркером (микс из MCP)
 function mixName(parentId, v) {
   const label = mixLabel(v.file, { applied: insertsSvc.appliedFor(parentId), jobs: jobs.value,
@@ -435,7 +431,7 @@ function mixName(parentId, v) {
   return v.label || t('studio.trick.inst.variant', { id: mixChildId(v.file) })
 }
 function playMix(parent, v) {
-  toggleArtifact('mix' + parent.id + ':' + v.file, mixName(parent.id, v),
+  toggleArtifact(mixKey(parent.id, v), mixName(parent.id, v),
     () => api.playFile(parent.id, v.file, parent.duration_sec))
 }
 const qPageMax = computed(() => pageCount(filteredJobs.value.length))
@@ -918,7 +914,7 @@ function onWindowClick(e) {
           </span>
           <button class="ghost icon job-rename" :title="t('queue.rename.tip')" @click.stop="startRename(j)"><AppIcon name="pencil" /></button>
           <span v-if="kidCount(j)" class="tl-pill kids-badge" :title="t('queue.kids.tip')"
-                @click.stop="if (!openJobs.has(j.id)) toggleOpenJob(j.id); if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
+                @click.stop="toggleOpenJob(j.id)">{{ kidCount(j) }}</span>
           <span v-if="j.duration_sec" class="tl-meta col-dur">{{ fmtDur(j.duration_sec) }}</span>
           <span v-if="fmtWhen(j.created_at)" class="tl-meta job-when" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
           <span v-if="(j.folder || '').trim()" class="tl-pill job-folder">{{ j.folder.trim() }}</span>
@@ -984,13 +980,9 @@ function onWindowClick(e) {
                 </template>
               </div>
             </div>
-            <!-- версии/миксы/материал: подпись = переключатель, стрелка = состояние -->
-            <div v-if="kidCount(j)" class="job-sec">
-              <button class="ghost job-sec-h job-sec-toggle" :class="{ on: openKids.has(j.id) }"
-                      :title="t('queue.kids.tip')" @click="toggleKids(j.id)">
-                {{ openKids.has(j.id) ? '▾' : '▸' }} {{ t('queue.sec.versions') }} · {{ kidCount(j) }}</button>
-              <div class="job-sec-body">
-                <div v-if="openKids.has(j.id)" class="job-kids">
+            <!-- один плоский список всех вложений: версии, миксы-вклейки, материал (овердабы).
+                 Кнопки-заголовка нет — счётчик уже в строке трека, ширина вся списку -->
+            <div v-if="kidCount(j) || (kidMixes[j.id] || []).length || kidMaterial(j.id).length" class="job-kids">
                 <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
                   <!-- как в строке трека: круглая play-кнопка или точка-статус -->
                   <span class="tl-play-cell">
@@ -1017,34 +1009,39 @@ function onWindowClick(e) {
                   <button v-if="v.id !== j.id && canRetry(v)" class="ghost small-btn" :title="v.error || t('queue.retry.tip')" @click="retry(v)">{{ t('queue.retry') }}</button>
                   <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)"><AppIcon name="x" /></button>
                 </div>
-                <details v-if="(kidMixes[j.id] || []).length" class="job-material">
-                  <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
-                  <div v-for="(v, n) in kidMixes[j.id]" :key="v.file" class="job-kid">
-                    <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
-                    <span>{{ mixName(j.id, v) }}</span>
-                    <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
-                    <span class="spacer"></span>
-                    <button class="ghost small-btn" @click="playMix(j, v)">{{ playBtn('mix' + j.id + ':' + v.file) }}</button>
-                  </div>
-                </details>
-                <details v-if="kidMaterial(j.id).length" class="job-material material">
-                  <summary>{{ t('queue.kids.material', { n: kidMaterial(j.id).length }) }}</summary>
-                  <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid" :class="{ playing: isPlaying('m' + k.id) }">
-                    <span>#{{ k.id }}</span>
-                    <span>{{ k.title }}</span>
-                    <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
-                    <span>{{ statusLabelC[k.status] || k.status }}</span>
-                    <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
-                    <span class="spacer"></span>
-                    <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + k.id) }" @click="togglePlay(k)">
-                      <AppIcon :name="isPlaying('m' + k.id) ? 'stop' : 'play'" /> {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
-                    </button>
-                    <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)"><AppIcon name="x" /></button>
-                  </div>
-                </details>
+                <!-- миксы-вклейки: те же строки, плей в начале; свежий помечен -->
+                <div v-for="(v, n) in kidMixes[j.id] || []" :key="'mx' + v.file" class="job-kid" :class="{ playing: isPlaying(mixKey(j.id, v.file)) }">
+                  <span class="tl-play-cell">
+                    <button class="tl-play" :class="{ 'is-playing': isPlaying(mixKey(j.id, v.file)) }"
+                            :disabled="playBusy[mixKey(j.id, v.file)]" :title="mixName(j.id, v)"
+                            @click="playMix(j, v)">
+                      <AppIcon :name="isPlaying(mixKey(j.id, v.file)) ? 'stop' : 'play'" /></button>
+                  </span>
+                  <span class="kid-star head" :title="t('queue.kids.mix')"><AppIcon name="disc" /></span>
+                  <span>{{ mixName(j.id, v) }}</span>
+                  <span v-if="n === 0" class="badge">{{ t('queue.kids.latest') }}</span>
+                  <span class="spacer"></span>
+                  <span v-if="fmtWhen(v.created_at)" class="tl-meta" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
+                </div>
+                <!-- материал: овердабы и прочие вложения -->
+                <div v-for="k in kidMaterial(j.id)" :key="k.id" class="job-kid" :class="{ playing: isPlaying('m' + k.id) }">
+                  <span class="tl-play-cell">
+                    <button v-if="k.status === 'done' && k.audio_file" class="tl-play"
+                            :class="{ 'is-playing': isPlaying('m' + k.id) }" :disabled="playBusy['m' + k.id]"
+                            :title="t('queue.play')" @click="togglePlay(k)">
+                      <AppIcon :name="isPlaying('m' + k.id) ? 'stop' : 'play'" /></button>
+                    <span v-else class="status-mini" :class="k.status" :title="statusLabelC[k.status] || k.status"></span>
+                  </span>
+                  <span class="muted tl-num" style="width:auto">{{ k.id }}</span>
+                  <span>{{ k.title }}</span>
+                  <span class="badge">{{ t('queue.role.' + (k.role || (k.overdub_of ? 'overdub' : 'other'))) }}</span>
+                  <span v-if="k.status !== 'done'" class="status" :class="k.status">{{ statusLabelC[k.status] || k.status }}</span>
+                  <span class="spacer"></span>
+                  <span v-if="k.duration_sec" class="tl-meta">{{ fmtDur(k.duration_sec) }}</span>
+                  <button v-if="canRetry(k)" class="ghost small-btn" :title="k.error || t('queue.retry.tip')" @click="retry(k)">{{ t('queue.retry') }}</button>
+                  <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)"><AppIcon name="x" /></button>
+                </div>
               </div>
-              </div>
-            </div>
           <p v-if="j.error" class="error">{{ j.error }}</p>
           <button v-if="canRetry(j)" class="ghost small-btn" :title="t('queue.retry.tip')" @click="retry(j)">{{ t('queue.retry') }}</button>
           </div>

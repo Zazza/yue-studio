@@ -570,6 +570,8 @@ export default {
   'queue.collapseAll': 'Свернуть все',
   'queue.kids.original': 'оригинал',
   'queue.kids.mixes': 'Миксы с вклейками — эксперимент ({n})',
+  'queue.kids.mix': 'микс с вклейками',
+
   'queue.kids.latest': 'последний',
   'queue.draft': 'черновик',
   // группы строки стиля на карточке трека: что где

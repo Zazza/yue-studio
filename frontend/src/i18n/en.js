@@ -570,6 +570,8 @@ export default {
   'queue.collapseAll': 'Collapse all',
   'queue.kids.original': 'original',
   'queue.kids.mixes': 'Mixes with inserts — experimental ({n})',
+  'queue.kids.mix': 'mix with inserts',
+
   'queue.kids.latest': 'latest',
   'queue.draft': 'draft',
   // группы строки стиля на карточке трека: что где
