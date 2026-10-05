@@ -885,41 +885,39 @@ function onWindowClick(e) {
         <div v-if="queuePage.length" class="job-table" :class="{ 'has-open': openOnPage }">
         <article v-for="j in queuePage" :key="j.id" class="job"
                  :class="[j.status, { playing: songPlaying(j), open: openJobs.has(j.id) }]">
-        <!-- строка-таблица: всегда видно минимум, остальное — разворот по клику -->
+        <!-- строка трека: плоский список как в альбомном буклете — номер моно, круглая
+             play-кнопка, крупное название, справа лёгкая моно-мета; клик — разворот -->
         <div class="job-row" :class="{ open: openJobs.has(j.id) }" @click="toggleOpenJob(j.id)">
-          <span class="col-play">
-            <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
+          <span class="tl-num" :title="'#' + j.id">{{ j.id }}</span>
+          <span class="tl-play-cell">
+            <button v-if="j.status === 'done' && j.audio_file" class="tl-play"
                     :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
                     :title="t('queue.play')" @click.stop="togglePlay(headOf(j))">
               <AppIcon :name="isPlaying('m' + headOf(j).id) ? 'pause' : 'play'" /></button>
             <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
           </span>
-          <span class="job-name" :title="j.title">#{{ j.id }} {{ j.title }}
-            <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span></span>
-          <!-- идущая джоба: прогресс прямо в строке -->
-          <span v-if="j.status === 'running'" class="job-progress" :title="progressTip(j)">
-            <span class="progress-track slim" :class="{ indet: j.progress_pct == null }">
-              <span v-if="j.progress_pct != null" class="progress-fill" :style="{ width: j.progress_pct + '%' }"></span>
-            </span>
-            <span class="muted progress-label">
-              <template v-if="j.progress_pct != null">{{ j.progress_pct }}%</template>
-              <template v-else>{{ t('queue.progress.' + (j.stage || 'plan')) }}</template>
-              <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+          <span class="job-name" :title="j.title">{{ j.title }}
+            <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
+            <span v-else-if="j.status === 'error'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
+            <span v-else-if="j.status === 'queued'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
+            <span v-else-if="j.status === 'done' && headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))"><AppIcon name="alert" /></span>
+            <!-- идущая джоба: прогресс прямо в строке -->
+            <span v-if="j.status === 'running'" class="job-progress" :title="progressTip(j)">
+              <span class="progress-track slim" :class="{ indet: j.progress_pct == null }">
+                <span v-if="j.progress_pct != null" class="progress-fill" :style="{ width: j.progress_pct + '%' }"></span>
+              </span>
+              <span class="muted progress-label">
+                <template v-if="j.progress_pct != null">{{ j.progress_pct }}%</template>
+                <template v-else>{{ t('queue.progress.' + (j.stage || 'plan')) }}</template>
+                <template v-if="j.tok_per_s"> · {{ j.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+              </span>
             </span>
           </span>
-          <span v-else-if="j.status !== 'done'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
-          <span v-else-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))"><AppIcon name="alert" /></span>
-          <span v-else class="muted">{{ statusLabelC.done }}</span>
-          <span class="col-kids">
-            <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
-                  @click.stop="if (!openJobs.has(j.id)) toggleOpenJob(j.id); if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
-          </span>
-          <span v-if="j.duration_sec" class="muted col-dur">{{ fmtDur(j.duration_sec) }}</span>
-          <span v-else class="muted col-dur"></span>
-          <span v-if="fmtWhen(j.created_at)" class="muted job-when" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
-          <span v-else class="job-when"></span>
-          <span v-if="(j.folder || '').trim()" class="muted job-folder">{{ j.folder.trim() }}</span>
-          <span v-else class="job-folder"></span>
+          <span v-if="kidCount(j)" class="tl-pill kids-badge" :title="t('queue.kids.tip')"
+                @click.stop="if (!openJobs.has(j.id)) toggleOpenJob(j.id); if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
+          <span v-if="j.duration_sec" class="tl-meta col-dur">{{ fmtDur(j.duration_sec) }}</span>
+          <span v-if="fmtWhen(j.created_at)" class="tl-meta job-when" :title="j.created_at">{{ fmtWhen(j.created_at) }}</span>
+          <span v-if="(j.folder || '').trim()" class="tl-pill job-folder">{{ j.folder.trim() }}</span>
           <button class="ghost icon job-caret" :title="t('queue.details.tip')">{{ openJobs.has(j.id) ? '▾' : '▸' }}</button>
         </div>
         <!-- разворот: служебное, стиль, версии, действия — всё, что было в карточке -->
@@ -1574,42 +1572,53 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 @keyframes progress-slide { to { left: 100%; } }
 .progress-label { font-size: 11px; white-space: nowrap; }
 
-/* таблица треков: одна общая рамка, строки — линии внутри (не карточки) */
-.job-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+/* треклист — плоский список буклетного типа: без общей рамки и зебры,
+   строки разделены тонкой линией снизу; мета — моноширинным приглушённым */
+.job-table { margin-bottom: 10px; }
 .job {
   border: none; border-radius: 0; padding: 0; margin-bottom: 0;
-  background: var(--panel2); display: flex; flex-direction: column; overflow: hidden;
+  background: transparent; display: flex; flex-direction: column; overflow: hidden;
 }
-.job + .job { border-top: 1px solid var(--border); }
-/* зебра: нечётные строки чуть темнее — глаз держит строку по ширине таблицы */
-.job-table .job:nth-child(even) { background: color-mix(in srgb, var(--panel2) 88%, var(--bg)); }
-/* строка трека: минимум информации в одну линию, клик — разворот деталей */
+.job > .job-row { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+/* строка трека: номер, круглая play-кнопка, название, справа лёгкая мета */
 .job-row {
-  display: grid; align-items: center; gap: 8px;
-  grid-template-columns: 30px minmax(0, 1fr) 150px 56px 46px 100px minmax(60px, max-content) 24px;
-  padding: 5px 12px; cursor: pointer; min-height: 30px; user-select: none;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 8px; cursor: pointer; user-select: none;
 }
-.job-row:hover { background: color-mix(in srgb, var(--panel3) 70%, transparent); }
+.job-row:hover { background: color-mix(in srgb, var(--panel2) 70%, transparent); }
 /* открытый трек: полоса-акцент вдоль строки + название цветом — видно издалека */
 .job.open { box-shadow: inset 3px 0 0 var(--accent); }
-.job.open > .job-row { background: var(--panel3); }
+.job.open > .job-row { background: var(--panel2); }
 .job.open > .job-row .job-name { color: var(--accent); }
-.job-row.open { background: var(--panel3); margin-bottom: 8px; }
-.job-caret { font-size: 13px; color: var(--muted); }
+.job-row.open { margin-bottom: 8px; }
+.job-caret { font-size: 13px; color: var(--muted); flex: none; }
 .job-row:hover .job-caret { color: var(--text); }
 .job.open .job-caret { color: var(--accent); }
-.col-play { display: flex; align-items: center; justify-content: center; }
-.job-row .job-play { color: var(--text); font-size: 14px; padding: 2px 4px; }
-.job-row .job-play.is-playing { color: var(--run); }
-.job-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.job-name .badge { margin-left: 6px; }
-.job-progress { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tl-num {
+  font: 500 12.5px 'IBM Plex Mono', 'DejaVu Sans Mono', 'Consolas', monospace;
+  color: var(--muted); flex: none; width: 34px; text-align: right;
+}
+.tl-play-cell { flex: none; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
+/* круглая play-кнопка: контур, заливается акцентом при наведении/воспроизведении */
+.tl-play {
+  width: 30px; height: 30px; border-radius: 50%; padding: 0;
+  border: 1px solid var(--border); background: transparent; color: var(--accent);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.tl-play:hover, .tl-play.is-playing { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tl-play:disabled { opacity: .5; cursor: default; }
+.job-name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.job-name .badge, .job-name .status { margin-left: 8px; }
+.job-progress { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-left: 8px; }
 .progress-track.slim { width: 76px; height: 5px; flex: none; }
-.col-kids { text-align: center; }
-.col-dur, .job-when { white-space: nowrap; font-size: 12px; text-align: right; }
-.job-folder { white-space: nowrap; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; text-align: center; }
-.kids-badge { cursor: pointer; flex: none; }
-.kids-badge:hover { color: var(--text); }
+/* мета справа — моноширинная, приглушённая, не спорит с названием */
+.tl-meta { font: 12.5px 'IBM Plex Mono', 'DejaVu Sans Mono', 'Consolas', monospace; color: var(--muted); white-space: nowrap; flex: none; }
+.tl-pill {
+  font: 12px 'IBM Plex Mono', 'DejaVu Sans Mono', 'Consolas', monospace; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; flex: none; white-space: nowrap;
+}
+.tl-pill:hover { color: var(--accent); border-color: var(--accent); }
+.kids-badge { cursor: pointer; }
 /* точка-статус вместо чипа, когда играть нельзя */
 .status-mini { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
 .status-mini.running { background: var(--run); animation: trickpulse 1.2s ease-in-out infinite; }
