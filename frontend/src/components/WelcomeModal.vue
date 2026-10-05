@@ -21,7 +21,7 @@ const close = () => emit('close', dontShow.value)
   <div class="modal-backdrop" @click.self="close" @keydown.esc="close">
     <div class="modal welcome-modal" role="dialog" aria-modal="true">
       <div class="modal-head welcome-head">
-        <img class="welcome-logo" src="../assets/logo.png" alt="" width="40" height="40">
+        <img class="welcome-logo" src="../assets/logo.png" alt="" width="32" height="32">
         <div class="welcome-tabs">
           <button class="ghost small-btn" :class="{ on: cur === 'about' }" @click="cur = 'about'">{{ t('welcome.tab.about') }}</button>
           <span class="spacer"></span>
@@ -61,8 +61,10 @@ const close = () => emit('close', dontShow.value)
 
 <style>
 .welcome-modal { width: min(620px, 92vw); gap: 14px; }
-.welcome-head { align-items: center; }
-.welcome-logo { width: 40px; height: 40px; flex: none; filter: drop-shadow(0 0 6px var(--lcd-glow)); }
+/* .modal-head из App.vue подключается позже и ставит baseline — картинка вставала
+   нижним краем на линию текста и торчала вверх; двойной класс сильнее */
+.modal-head.welcome-head { align-items: center; }
+.welcome-logo { width: 32px; height: 32px; flex: none; filter: drop-shadow(0 0 6px var(--lcd-glow)); }
 .welcome-tabs { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .welcome-tabs .on { color: var(--text); border-color: var(--accent); }
 .welcome-body { overflow-y: auto; min-height: 0; }
