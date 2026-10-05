@@ -221,6 +221,7 @@ export default {
   'studio.trick.hint.build': 'Tricks are queued — “rebuild track” makes a new version (or “draft” for a quick listen)',
   'studio.title': 'Track studio',
   'studio.parsing': 'Parsing the score…',
+  'studio.noScore': 'This track has no score (imported without transcription, or it failed) — piano roll and bar tricks are unavailable; waveform, stems and effects work.',
   'studio.roll.voice.Vocal': 'vocal',
   'studio.roll.voice.Ins': 'instruments',
   'studio.wave.color': 'color',

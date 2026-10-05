@@ -233,6 +233,9 @@ function saveStudioState() {
 }
 
 async function openRoll() {
+  // импорт без транскрипции / DSP-вариант: плана нет, /score ответит 404 —
+  // это не ошибка, а другой тип трека (подсказка в шаблоне)
+  if (!props.job.abc_file) { rollData.value = null; return }
   rollBusy.value = true
   rollErr.value = ''
   try {
@@ -1442,6 +1445,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
       </nav>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>
+        <p v-if="!job.abc_file" class="muted">{{ t('studio.noScore') }}</p>
         <p v-if="rollErr" class="error">{{ rollErr }}</p>
         <template v-if="rollData">
           <p class="muted roll-meta">
