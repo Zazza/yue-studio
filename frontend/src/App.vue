@@ -974,17 +974,14 @@ function onWindowClick(e) {
               </ul>
             </details>
           </div>
-            <!-- стиль по смыслу: язык, жанр, ритм… — таблица «что где»; подпись = переключатель -->
-            <div v-if="j.style" class="job-sec">
-              <button class="ghost job-sec-h job-sec-toggle" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ openStyle.has(j.id) ? '▾' : '▸' }} {{ t('queue.sec.style') }}</button>
-              <div class="job-sec-body">
-                <span v-if="!openStyle.has(j.id)" class="style-sum" :title="j.style">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
-                <div v-else class="style-tags" :title="j.style">
-                  <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
-                    <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
-                    <span class="style-tag-val">{{ parts.join(', ') }}</span>
-                  </template>
-                </div>
+            <!-- стиль пишется текстом сразу, без кнопки-заголовка; клик по строке — таблица тегов -->
+            <div v-if="j.style" class="job-style">
+              <span v-if="!openStyle.has(j.id)" class="style-sum" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ styleRows(j.style).map(([, parts]) => parts.join(', ')).join(' · ') }}</span>
+              <div v-else class="style-tags" :title="j.style" @click="toggleStyle(j.id)">
+                <template v-for="[slot, parts] in styleRows(j.style)" :key="slot">
+                  <span class="style-tag-key">{{ styleTagLabel(slot) }}</span>
+                  <span class="style-tag-val">{{ parts.join(', ') }}</span>
+                </template>
               </div>
             </div>
             <!-- версии/миксы/материал: подпись = переключатель, стрелка = состояние -->
@@ -995,20 +992,26 @@ function onWindowClick(e) {
               <div class="job-sec-body">
                 <div v-if="openKids.has(j.id)" class="job-kids">
                 <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
-                  <span v-if="headOf(j).id === v.id" class="badge current"><AppIcon name="star-fill" /> {{ t('queue.head.main') }}</span>
-                  <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
-                          @click="makeHead(j, v)"><AppIcon name="star" /> {{ t('queue.head.make') }}</button>
-                  <span class="muted">#{{ v.id }}</span>
+                  <!-- как в строке трека: круглая play-кнопка или точка-статус -->
+                  <span class="tl-play-cell">
+                    <button v-if="v.status === 'done' && v.audio_file" class="tl-play"
+                            :class="{ 'is-playing': isPlaying('m' + v.id) }" :disabled="playBusy['m' + v.id]"
+                            :title="t('queue.play')" @click="togglePlay(v)">
+                      <AppIcon :name="isPlaying('m' + v.id) ? 'stop' : 'play'" /></button>
+                    <span v-else class="status-mini" :class="v.status" :title="statusLabelC[v.status] || v.status"></span>
+                  </span>
+                  <!-- основная версия — залитая звезда, остальные — серый контур; клик = сделать основной -->
+                  <button v-if="v.status === 'done'" class="kid-star" :class="{ head: headOf(j).id === v.id }"
+                          :title="headOf(j).id === v.id ? t('queue.head.main') : t('queue.head.make.tip')"
+                          :disabled="headOf(j).id === v.id" @click="makeHead(j, v)">
+                    <AppIcon :name="headOf(j).id === v.id ? 'star-fill' : 'star'" /></button>
+                  <span class="muted tl-num" style="width:auto">{{ v.id }}</span>
                   <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
                   <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
                   <span v-if="v.vocal_leak" class="badge warn" :title="leakTip(v)"><AppIcon name="alert" /></span>
-                  <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
-                  <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
-                  <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
+                  <span v-if="v.id !== j.id && v.status !== 'done'" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
                   <span class="spacer"></span>
-                  <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + v.id) }" @click="togglePlay(v)">
-                    <AppIcon :name="isPlaying('m' + v.id) ? 'stop' : 'play'" /> {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
-                  </button>
+                  <span v-if="v.duration_sec" class="tl-meta">{{ fmtDur(v.duration_sec) }}</span>
                   <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
                   <!-- подсказка — причина падения версии, если она есть -->
                   <button v-if="v.id !== j.id && canRetry(v)" class="ghost small-btn" :title="v.error || t('queue.retry.tip')" @click="retry(v)">{{ t('queue.retry') }}</button>
@@ -1640,6 +1643,18 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .job-row .job-rename { flex: none; color: var(--muted); opacity: 0; }
 .job-row:hover .job-rename, .job.open .job-rename { opacity: 1; }
 .title-edit.job-name { font-weight: 600; font-size: 15px; }
+/* стиль в развороте — просто текст; клик разворачивает таблицу тегов */
+.job-style { padding: 6px 12px 2px; }
+.job-style .style-sum { cursor: pointer; }
+.job-style .style-tags { cursor: pointer; }
+/* звезда основной версии в списке версий: залитая с фоном у head, серый контур у остальных */
+.kid-star {
+  width: 26px; height: 26px; border-radius: 50%; padding: 0; flex: none;
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.kid-star:hover { color: var(--accent2, var(--run)); border-color: var(--accent2, var(--run)); }
+.kid-star.head { background: var(--accent); border-color: var(--accent); color: #fff; cursor: default; }
 /* название — шапка карточки во всю ширину */
 .job-title-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px;
