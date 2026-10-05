@@ -6,6 +6,7 @@
 // скролл — «открыл селект, а прокручивать надо панель».
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { matchOptions } from './optionFilter.js'
+import { dropLeft } from './dropPlace.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -38,12 +39,18 @@ function place() {
     left: r.left + 'px',
     minWidth: r.width + 'px',
     width: 'max-content',
-    maxWidth: Math.max(r.width, window.innerWidth - r.left - 12) + 'px',
+    maxWidth: (window.innerWidth - 24) + 'px',
     ...(up
       ? { bottom: (window.innerHeight - r.top + 2) + 'px', boxShadow: '0 -8px 24px rgba(0,0,0,.4)' }
       : { top: (r.bottom + 2) + 'px', boxShadow: '0 8px 24px rgba(0,0,0,.4)' }),
     maxHeight: maxH + 'px',
   }
+  // ширина известна только после отрисовки: не влез вправо — сдвиг влево
+  nextTick(() => {
+    if (!drop.value) return
+    const left = dropLeft(r.left, drop.value.getBoundingClientRect().width, window.innerWidth)
+    if (left !== r.left) dropStyle.value = { ...dropStyle.value, left: left + 'px' }
+  })
 }
 
 const toggle = async () => {
