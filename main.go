@@ -20,6 +20,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// иконка окна под Linux (Windows/macOS берут её из build/ при сборке)
+//
+//go:embed build/appicon.png
+var appIcon []byte
+
 func main() {
 	cfg := config.Load()
 	client := yue.New(cfg.YueURL)
@@ -43,6 +48,7 @@ func main() {
 		},
 		Linux: &linux.Options{
 			WebviewGpuPolicy: linux.WebviewGpuPolicyAlways,
+			Icon:             appIcon,
 		},
 	}); err != nil {
 		log.Fatalf("Error: %v", err)
