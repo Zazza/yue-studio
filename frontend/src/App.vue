@@ -310,6 +310,7 @@ const filteredJobs = computed(() => filterJobs(grouped.value.top, qf.value, Date
 const openKids = ref(new Set())   // id родителей с раскрытыми вложениями
 const openStyle = ref(new Set())  // id карточек с раскрытой таблицей стиля
 const openJobs = ref(new Set())      // id треков с развёрнутыми строками (сколько угодно)
+const folderPick = ref(null)         // id трека, у которого сейчас открыт селект смены папки
 function toggleOpenJob(id) {
   const s = new Set(openJobs.value)
   if (s.has(id)) s.delete(id)
@@ -896,7 +897,9 @@ function onWindowClick(e) {
               <AppIcon :name="isPlaying('m' + headOf(j).id) ? 'pause' : 'play'" /></button>
             <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
           </span>
-          <span class="job-name" :title="j.title">{{ j.title }}
+          <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit job-name"
+                 @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" @click.stop />
+          <span v-else class="job-name" :title="j.title">{{ j.title }}
             <span v-if="j.draft" class="badge draft">{{ t('queue.draft') }}</span>
             <span v-else-if="j.status === 'error'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
             <span v-else-if="j.status === 'queued'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
@@ -913,6 +916,7 @@ function onWindowClick(e) {
               </span>
             </span>
           </span>
+          <button class="ghost icon job-rename" :title="t('queue.rename.tip')" @click.stop="startRename(j)"><AppIcon name="pencil" /></button>
           <span v-if="kidCount(j)" class="tl-pill kids-badge" :title="t('queue.kids.tip')"
                 @click.stop="if (!openJobs.has(j.id)) toggleOpenJob(j.id); if (!openKids.has(j.id)) toggleKids(j.id)">{{ kidCount(j) }}</span>
           <span v-if="j.duration_sec" class="tl-meta col-dur">{{ fmtDur(j.duration_sec) }}</span>
@@ -922,11 +926,9 @@ function onWindowClick(e) {
         </div>
         <!-- разворот: служебное, стиль, версии, действия — всё, что было в карточке -->
         <div v-if="openJobs.has(j.id)" class="job-detail">
-          <div class="job-title-row">
-            <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
-                   @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
-            <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)"><AppIcon name="pencil" /></button>
-            <!-- название уже в строке таблицы — здесь только ✎ и мета: сид, характер, свой ABC, head -->
+          <!-- мета трека: сид, характер, свой ABC, head — одной приглушённой строкой;
+               название и переименование живут в строке списка, здесь их нет -->
+          <div class="job-meta-line">
             <span class="job-meta-extra">
               <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
               <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
@@ -936,26 +938,21 @@ function onWindowClick(e) {
               <span v-if="j.status === 'error'" class="status error">{{ statusLabelC.error }}</span>
             </span>
             <span class="spacer"></span>
+            <!-- папка: обычно просто иконка, клик — сменить; селект появляется только тогда -->
             <input v-if="folderNew && folderNew.id === j.id" v-model="folderNew.value" class="title-edit"
                    :placeholder="t('queue.folder.new.ph')" @keydown.enter="saveNewFolder(j)"
                    @keydown.esc="folderNew = null" @blur="saveNewFolder(j)" />
-            <VSelect v-else :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 200px"
-                     :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
+            <VSelect v-else-if="folderPick === j.id" :model-value="(j.folder || '').trim() || FOLDER_NONE" :options="jobFolderOptions" style="max-width: 200px"
+                     :title="t('queue.folder.move.tip')" @update:model-value="(v) => { pickFolder(j, v); folderPick = null }" />
+            <button v-else class="ghost icon" :title="t('queue.folder.move.tip')" @click="folderPick = j.id"><AppIcon name="folder" /></button>
             <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
                     :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
             <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)"><AppIcon name="x" /></button>
             <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)"><AppIcon name="repeat" /></button>
           </div>
           <div class="job-body">
-            <!-- разворот секциями: подпись слева, содержимое справа; действия — первыми -->
-            <div v-if="j.status === 'done' && j.audio_file" class="job-sec">
-              <span class="job-sec-h">{{ t('queue.sec.actions') }}</span>
-          <div v-if="j.status === 'done' && j.audio_file" class="job-actions job-sec-body">
-            <button class="play-main" :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
-              <template v-if="playBtn('m' + headOf(j).id) === '…'">{{ t('queue.loading') }}</template>
-            <template v-else><AppIcon :name="isPlaying('m' + headOf(j).id) ? 'stop' : 'play'" /> {{ isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play') }}</template>
-            </button>
-            <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()"><AppIcon name="pause" /></button>
+            <!-- действия без подписи: играть — в строке, здесь студия/скачать/меню -->
+            <div v-if="j.status === 'done' && j.audio_file" class="job-actions">
             <!-- всё на карточке — про основную версию песни: играть, скачать, ноты -->
             <button v-if="j.status === 'done'" class="ghost" @click="studioJob = headOf(j)">{{ t('queue.studio') }}</button>
             <details class="menu-pop">
@@ -977,7 +974,6 @@ function onWindowClick(e) {
               </ul>
             </details>
           </div>
-            </div>
             <!-- стиль по смыслу: язык, жанр, ритм… — таблица «что где»; подпись = переключатель -->
             <div v-if="j.style" class="job-sec">
               <button class="ghost job-sec-h job-sec-toggle" :title="t('queue.style.tip')" @click="toggleStyle(j.id)">{{ openStyle.has(j.id) ? '▾' : '▸' }} {{ t('queue.sec.style') }}</button>
@@ -1577,7 +1573,8 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
 .job-table { margin-bottom: 10px; }
 .job {
   border: none; border-radius: 0; padding: 0; margin-bottom: 0;
-  background: transparent; display: flex; flex-direction: column; overflow: hidden;
+  background: transparent; display: flex; flex-direction: column;
+  /* без overflow: hidden — меню «Скачать» выходит вверх за пределы карточки */
 }
 .job > .job-row { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 /* строка трека: номер, круглая play-кнопка, название, справа лёгкая мета */
@@ -1629,13 +1626,20 @@ button.toggle.on { border-color: var(--accent); color: var(--accent); font-weigh
    несколько открытых треков не сливаются с соседями */
 .job-detail { display: flex; flex-direction: column;
   margin: 0 12px 10px 42px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--panel); overflow: hidden; }
+  /* без overflow: hidden — всплывающее меню «Скачать» должно выходить за края карточки */
+  background: var(--panel); }
 /* открытый трек отодвинут от соседних строк — читается отдельным блоком */
 .job-table .job.open { margin: 6px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .job-table .job.open:first-child { margin-top: 0; border-top: none; }
 .job-table .job.open:last-child { margin-bottom: 0; border-bottom: none; }
 .job-detail .job-meta-extra { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap;
   font-size: 12px; color: var(--muted); margin-left: 10px; min-width: 0; }
+/* мета-строка разворота: слева сид/характер, справа папка и обслуживание */
+.job-meta-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px 0; font-size: 12px; }
+.job-row .job-rename { flex: none; color: var(--muted); opacity: 0; }
+.job-row:hover .job-rename, .job.open .job-rename { opacity: 1; }
+.title-edit.job-name { font-weight: 600; font-size: 15px; }
 /* название — шапка карточки во всю ширину */
 .job-title-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px;
