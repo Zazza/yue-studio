@@ -230,7 +230,7 @@ async function findGrid() {
             {{ p.off ? '○' : '●' }}</button>
           <button class="ghost small-btn" :disabled="i === 0" @click="move(i, -1)">←</button>
           <button class="ghost small-btn" :disabled="i === board.length - 1" @click="move(i, 1)">→</button>
-          <button class="ghost small-btn" :title="t('pedals.remove')" @click="remove(i)">✕</button>
+          <button class="ghost small-btn" :title="t('pedals.remove')" @click="remove(i)"><AppIcon name="x" /></button>
         </div>
       </div>
     </template>
@@ -239,7 +239,7 @@ async function findGrid() {
   <div v-if="selChain" class="dsp-params">
     <p class="muted dsp-note">{{ selChain.note }}</p>
     <div v-if="selChain.params.some((p) => p.id === 'bpm')" class="dsp-row">
-      <button class="ghost small-btn" :title="t('studio.dsp.grid.tip')" @click="findGrid">{{ t('studio.dsp.grid') }}</button>
+      <button class="ghost small-btn" :title="t('studio.dsp.grid.tip')" @click="findGrid"><AppIcon name="target" /> {{ t('studio.dsp.grid') }}</button>
     </div>
     <label v-for="prm in selChain.params" :key="prm.id">
       <span class="dsp-plabel">{{ prm.label }}</span>
@@ -254,7 +254,7 @@ async function findGrid() {
     <button class="ghost small-btn" :disabled="busy || !hasOn" :title="t('studio.dsp.preview.tip')" @click="preview">
       {{ busy ? '…' : t('studio.dsp.preview') }}</button>
     <button v-if="prev" class="ghost small-btn" :title="t('studio.dsp.ab.tip')" @click="toggleAB">
-      {{ prev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}</button>
+      <AppIcon name="play" /> {{ prev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}</button>
     <label v-if="prev && prev.hasSolo" class="muted" :title="t('studio.dsp.solo.tip')">
       <input v-model="solo" type="checkbox" @change="play(prev.slot, prev.which, curPos())" /> {{ t('studio.dsp.solo') }}
     </label>
@@ -278,7 +278,7 @@ async function findGrid() {
               :class="{ stop: prev && prev.slot === c.slot && prev.which === 'wet' }" @click="playSlot(c.slot)">
         {{ c.slot }} · {{ c.label }}</button>
       <button v-if="cmp.length" class="ghost small-btn" @click="play(prev.slot, 'dry', curPos())">
-        {{ t('pedals.cmp.dry') }}</button>
+        <AppIcon name="play" /> {{ t('pedals.cmp.dry') }}</button>
     </div>
   </details>
   <p v-if="msg" class="muted">{{ msg }}</p>

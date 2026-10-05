@@ -436,7 +436,7 @@ function cellTitle(v, pos) {
   const b = barAt(v, pos)
   if (!b) return `${voiceLabel(v)}: в этом такте у голоса нет своей партии`
   const tail = b.start_sec >= props.job.duration_sec ? ' · за пределами звука' : ''
-  const mark = isTrickCell(v, pos) ? ' · ✋ ' + trickTitle(v, pos) : ''
+  const mark = isTrickCell(v, pos) ? ' · приём: ' + trickTitle(v, pos) : ''
   return `${sectionLabel(b.section, locale.value)} · такт ${pos + 1} · ${b.start_sec.toFixed(1)}–${b.end_sec.toFixed(1)}с${tail}${mark}`
 }
 
@@ -1493,7 +1493,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 <input type="checkbox" v-model="waveSnap">{{ t('studio.wave.snap') }}
               </label>
               <button class="ghost small-btn" :class="{ on: envOn }" :title="t('studio.wave.env.tip')"
-                      @click="envOn = !envOn">{{ t('studio.wave.env') }}</button>
+                      @click="envOn = !envOn"><AppIcon name="pencil" /> {{ t('studio.wave.env') }}</button>
               <template v-if="envOn">
                 <VSelect v-model="envTarget" :options="dspTargetOptions" style="max-width: 150px" />
                 <button class="ghost small-btn" :disabled="envBusy || !envPts.length" @click="envPts = []">{{ t('studio.wave.env.reset') }}</button>
@@ -1560,7 +1560,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <span class="trick-cap">{{ t('studio.group.listen') }}</span>
               <div class="trick-btns">
                 <button class="primary small" :disabled="!selRange || previewBusy" @click="makePreview">
-                  {{ previewBusy ? t('studio.preview.busy') : t('studio.preview') }}
+                  <template v-if="previewBusy">{{ t('studio.preview.busy') }}</template><template v-else><AppIcon name="play" /> {{ t('studio.preview') }}</template>
                 </button>
               </div>
             </div>
@@ -1632,7 +1632,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <div class="trick-btns">
                 <button class="ghost small-btn" :disabled="trickBusy || !(selTimeRange() || pendingSpecs.length)"
                         :title="t('studio.trick.fragment.tip')" @click="renderFragment">
-                  {{ trickBusy ? '…' : t('studio.trick.fragment') }}</button>
+                  <template v-if="trickBusy">…</template><template v-else><AppIcon name="play" /> {{ t('studio.trick.fragment') }}</template></button>
                 <button class="primary small" :disabled="trickBusy"
                         :title="t('studio.trick.rebuild.tip')" @click="rebuild(false)">{{ t('studio.trick.rebuild') }}</button>
                 <button class="ghost small-btn" :disabled="trickBusy"
@@ -1641,21 +1641,21 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                         :title="t('studio.novocal.tip')" @click="renderInstrumental">{{ t('studio.novocal') }}</button>
                 <span class="spacer"></span>
                 <button class="ghost small-btn" :disabled="!pickableCount || trickBusy"
-                        :title="t('studio.trick.unpick.tip')" @click="unpickSelection">{{ t('studio.trick.unpick') }}</button>
+                        :title="t('studio.trick.unpick.tip')" @click="unpickSelection"><AppIcon name="x" /> {{ t('studio.trick.unpick') }}</button>
                 <button class="ghost small-btn" :disabled="!planDraft || trickBusy"
-                        :title="t('studio.trick.reset.tip')" @click="resetDraft">{{ t('studio.trick.reset') }}</button>
+                        :title="t('studio.trick.reset.tip')" @click="resetDraft"><AppIcon name="x" /> {{ t('studio.trick.reset') }}</button>
               </div>
             </div>
           </div>
           <p class="muted trick-hint" :title="t('studio.trick.hint')">{{ trickHint }}</p>
           <p v-if="trickMsg" class="ok trick-hint">{{ trickMsg }}</p>
           <p v-if="fragJob" class="trick-hint" :class="fragJob.status === 'error' ? 'error' : 'muted'">
-            <template v-if="fragJob.status === 'starting'"><span class="pulse">♪</span> {{ t('studio.trick.fragment.starting') }}</template>
+            <template v-if="fragJob.status === 'starting'"><AppIcon class="pulse" name="music" /> {{ t('studio.trick.fragment.starting') }}</template>
             <template v-else-if="['queued', 'running'].includes(fragJob.status)">
-              <span class="pulse">♪</span> {{ t('queue.status.' + fragJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="fragJob.elapsed_s"> {{ Math.round(fragJob.elapsed_s) }} с</template>
+              <AppIcon class="pulse" name="music" /> {{ t('queue.status.' + fragJob.status) }} · {{ t('studio.trick.fragment.wait') }}<template v-if="fragJob.elapsed_s"> {{ Math.round(fragJob.elapsed_s) }} с</template>
             </template>
             <template v-else-if="fragJob.status === 'done'">
-              ♪ {{ t('studio.trick.fragment.play') }}
+              <AppIcon name="music" /> {{ t('studio.trick.fragment.play') }}
               <button class="ghost small-btn" :title="t('studio.trick.fragment.replay')"
                       @click="toggleArtifact('f' + fragJob.id, 'кусок · #' + fragJob.id, () => api.playAudio(fragJob.id))">
                 {{ playBtn('f' + fragJob.id) }}
@@ -1678,11 +1678,11 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <template v-else-if="buildJob.status === 'error'">{{ buildJob.error }}</template>
           </p>
           <p v-if="instJob" class="trick-hint" :class="instJob.status === 'error' ? 'error' : 'muted'">
-            <template v-if="instJob.status === 'starting'"><span class="pulse">♪</span> {{ t('studio.trick.inst.starting') }}</template>
+            <template v-if="instJob.status === 'starting'"><AppIcon class="pulse" name="music" /> {{ t('studio.trick.inst.starting') }}</template>
             <template v-else-if="['queued', 'running'].includes(instJob.status)">
-              <span class="pulse">♪</span> {{ t('studio.trick.inst.wait') }}<template v-if="instJob.elapsed_s"> {{ Math.round(instJob.elapsed_s) }} с</template>
+              <AppIcon class="pulse" name="music" /> {{ t('studio.trick.inst.wait') }}<template v-if="instJob.elapsed_s"> {{ Math.round(instJob.elapsed_s) }} с</template>
             </template>
-            <template v-else-if="instJob.mixing"><span class="pulse">♪</span> {{ t('studio.trick.inst.mixing') }}</template>
+            <template v-else-if="instJob.mixing"><AppIcon class="pulse" name="music" /> {{ t('studio.trick.inst.mixing') }}</template>
             <template v-else-if="instJob.status === 'done'">
               ✓ {{ t('studio.trick.inst.play') }}
               <button class="ghost small-btn" :title="t('studio.trick.fragment.replay')"
@@ -1706,7 +1706,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
               </label>
               <span v-if="it.aligned === true" class="muted" :title="t('studio.inserts.aligned.tip')">✓ {{ t('studio.inserts.aligned') }}</span>
-              <span v-else-if="it.aligned === false" class="error" :title="t('studio.inserts.plan.tip')">⚠ {{ t('studio.inserts.plan') }}</span>
+              <span v-else-if="it.aligned === false" class="error" :title="t('studio.inserts.plan.tip')"><AppIcon name="alert" /> {{ t('studio.inserts.plan') }}</span>
               <template v-if="(it.alts || []).length > 1">
                 <button v-for="(alt, n) in it.alts" :key="alt" class="ghost small-btn" :class="{ on: alt === it.childId }"
                         :disabled="dbBusy" :title="t('studio.inserts.alt.tip')" @click="pickAlt(it, alt)">{{ n + 1 }}</button>
@@ -1736,7 +1736,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="od-row">
               <button class="ghost small-btn" :disabled="!!odLyrBusy || !whisperOk"
                       :title="!whisperOk ? t('lyrics.job.noWhisper') : t('lyrics.job.tip')" @click="odRecognizeLyrics">
-                {{ odLyrBusy === 'rec' ? '…' : t('lyrics.job') }}</button>
+                <template v-if="odLyrBusy === 'rec'">…</template><template v-else><AppIcon name="music" /> {{ t('lyrics.job') }}</template></button>
               <button class="ghost small-btn" :disabled="!!odLyrBusy || !odLyrics.trim()" :title="t('lyrics.adapt.tip')" @click="odAdaptLyrics">
                 {{ odLyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>
               <span v-if="odLyrErr" class="error">{{ odLyrErr }}</span>
@@ -1750,7 +1750,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </details>
 
           <details class="studio-box">
-            <summary class="studio-box-head"><span>{{ t('studio.vc') }}</span> <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted studio-box-hint">{{ t('studio.vc.sub') }}</span></summary>
+            <summary class="studio-box-head"><span><AppIcon name="flask" /> {{ t('studio.vc') }}</span> <span class="badge exp">{{ t('studio.vc.exp') }}</span> <span class="muted studio-box-hint">{{ t('studio.vc.sub') }}</span></summary>
             <div class="studio-box-body">
             <p class="muted">{{ t('studio.vc.desc') }}</p>
             <p v-if="!seedvcOk" class="muted">{{ t('studio.vc.unavailable') }}</p>
@@ -1780,7 +1780,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                 {{ dspBusy ? '…' : t('studio.dsp.preview') }}
               </button>
               <button v-if="fxPrev" class="ghost small-btn" :title="t('studio.dsp.ab.tip')" @click="toggleFxPrev">
-                {{ fxPrev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}
+                <AppIcon name="play" /> {{ fxPrev.which === 'wet' ? t('studio.dsp.ab.wet') : t('studio.dsp.ab.dry') }}
               </button>
               <label v-if="fxPrev && fxPrev.wet_solo" class="muted" :title="t('studio.dsp.solo.tip')">
                 <input v-model="fxSolo" type="checkbox" @change="playFxPrev(fxPrev.which, fxPrevPos())" /> {{ t('studio.dsp.solo') }}
@@ -1791,12 +1791,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <p v-if="curChain" class="muted dsp-note">{{ curChain.note }}</p>
             <div v-if="dspSel === 'dewhistle'" class="dsp-row">
               <button class="ghost small-btn" :disabled="toneBusy || dspBusy" :title="t('studio.dsp.tones.tip')"
-                      @click="findWhistle">{{ toneBusy ? '…' : t('studio.dsp.tones') }}</button>
+                      @click="findWhistle"><template v-if="toneBusy">…</template><template v-else><AppIcon name="search" /> {{ t('studio.dsp.tones') }}</template></button>
               <span v-if="toneMsg" class="muted">{{ toneMsg }}</span>
             </div>
             <div v-if="hasGrid(curChain)" class="dsp-row">
               <button class="ghost small-btn" :disabled="gridBusy || dspBusy" :title="t('studio.dsp.grid.tip')"
-                      @click="findGrid">{{ gridBusy ? '…' : t('studio.dsp.grid') }}</button>
+                      @click="findGrid"><template v-if="gridBusy">…</template><template v-else><AppIcon name="target" /> {{ t('studio.dsp.grid') }}</template></button>
               <span v-if="gridMsg" class="muted">{{ gridMsg }}</span>
             </div>
             <div v-if="curChain" class="dsp-params">
@@ -1811,7 +1811,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </details>
 
           <details class="studio-box">
-            <summary class="studio-box-head"><span>{{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
+            <summary class="studio-box-head"><span><AppIcon name="pedal" /> {{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
             <div class="studio-box-body">
               <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
             </div>
@@ -1852,10 +1852,10 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="studio-box-body">
             <div class="dsp-row">
               <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.master.tip')" @click="applyOneClick('master')">
-                {{ dspBusy ? '…' : t('studio.dsp.master') }}
+                <template v-if="dspBusy">…</template><template v-else><AppIcon name="disc" /> {{ t('studio.dsp.master') }}</template>
               </button>
               <button class="primary" :disabled="dspBusy" :title="t('studio.dsp.breathe.tip')" @click="applyOneClick('breathe')">
-                {{ dspBusy ? '…' : t('studio.dsp.breathe') }}
+                <template v-if="dspBusy">…</template><template v-else><AppIcon name="wind" /> {{ t('studio.dsp.breathe') }}</template>
               </button>
               <VSelect v-model="oneClickLevel" :title="t('studio.dsp.level.tip')" style="max-width: 130px"
                        :options="ONE_CLICK_LEVELS.map((l) => ({ value: l, label: t('studio.dsp.level.' + l) }))" />
@@ -1879,7 +1879,7 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <button class="primary small" :disabled="dspBusy" :title="t('studio.dsp.totrack.tip')"
                       @click="variantToTrack(v)">→ в треки</button>
               <button class="ghost small-btn" :title="t('studio.dsp.del.tip')" :disabled="dspBusy"
-                      @click="delVariant(v)">✕</button>
+                      @click="delVariant(v)"><AppIcon name="x" /></button>
             </div>
             </div>
           </div>

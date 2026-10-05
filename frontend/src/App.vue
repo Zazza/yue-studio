@@ -395,16 +395,16 @@ const songPlaying = (j) => [j, ...(grouped.value.children[j.id] || [])].some((v)
 const folderList = computed(() => folderNames(grouped.value.top))
 const qFolderOptions = computed(() => [
   { value: 'all', label: t('queue.folder.all') },
-  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })), // после 📁 неразрывный пробел: обычный даёт перенос сразу за иконкой
+  ...folderList.value.map((f) => ({ value: f, label: f, icon: 'folder' })),
   { value: FOLDER_NONE, label: t('queue.folder.none') },
 ])
 const FOLDER_NEW = '\u0000new'
 const jobFolderOptions = computed(() => [
   { value: FOLDER_NONE, label: t('queue.folder.none') },
-  ...folderList.value.map((f) => ({ value: f, label: '📁 ' + f })), // после 📁 неразрывный пробел: обычный даёт перенос сразу за иконкой
-  { value: FOLDER_NEW, label: t('queue.folder.new') },
+  ...folderList.value.map((f) => ({ value: f, label: f, icon: 'folder' })),
+  { value: FOLDER_NEW, label: t('queue.folder.new'), icon: 'plus' },
 ])
-// своя папка: выбор «＋ новая папка…» открывает поле имени у этой песни
+// своя папка: выбор «новая папка…» открывает поле имени у этой песни
 const folderNew = ref(null) // { id, value }
 function pickFolder(j, v) {
   if (v === FOLDER_NEW) { folderNew.value = { id: j.id, value: '' }; return }
@@ -822,19 +822,19 @@ function onWindowClick(e) {
   <header>
     <h1 class="home-link" :title="t('nav.home.tip')" @click="goHome"><img class="app-logo" :src="logoUrl" alt="" width="26" height="26">{{ t('app.title') }}</h1>
     <span class="health-dot" :class="health ? 'up' : 'down'" :title="healthTitle"></span>
-    <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? t('app.theme.light') : t('app.theme.dark')">{{ theme === 'dark' ? '☀' : '☾' }}</button>
+    <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? t('app.theme.light') : t('app.theme.dark')"><AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" /></button>
     <button class="icon-btn" @click="setLocale(locale === 'ru' ? 'en' : 'ru')"
             :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
     <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
     <!-- справа, у меню; плеер между ними забирает всю свободную ширину -->
     <button class="primary new-track-btn" :class="{ on: newTrackPage }"
-            :title="t('nav.new.tip')" @click="openNewTrack">＋<span class="new-track-txt"> {{ t('nav.new.short') }}</span></button>
+            :title="t('nav.new.tip')" @click="openNewTrack"><AppIcon name="plus" /><span class="new-track-txt"> {{ t('nav.new.short') }}</span></button>
     <div class="nav-wrap">
-      <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen">⋮</button>
+      <button class="icon-btn" :title="t('nav.menu.tip')" @click.stop="navOpen = !navOpen"><AppIcon name="more-v" /></button>
       <ul v-if="navOpen" class="nav-menu">
-        <li :title="t('nav.tracks.tip')" @click="navGo('tracks')"><span class="nav-ico">🎵</span>{{ t('nav.tracks') }}</li>
-        <li :title="t('nav.voices.tip')" @click="navGo('voices')"><span class="nav-ico">🎤</span>{{ t('nav.voices') }}</li>
-        <li :title="t('nav.settings.tip')" @click="navGo('settings')"><span class="nav-ico">⚙</span>{{ t('nav.settings') }}</li>
+        <li :title="t('nav.tracks.tip')" @click="navGo('tracks')"><AppIcon class="nav-ico" name="music" />{{ t('nav.tracks') }}</li>
+        <li :title="t('nav.voices.tip')" @click="navGo('voices')"><AppIcon class="nav-ico" name="mic" />{{ t('nav.voices') }}</li>
+        <li :title="t('nav.settings.tip')" @click="navGo('settings')"><AppIcon class="nav-ico" name="sliders" />{{ t('nav.settings') }}</li>
       </ul>
     </div>
   </header>
@@ -850,7 +850,7 @@ function onWindowClick(e) {
          страница и есть список; рамка у таблицы своя, двойная рамка не нужна -->
     <section class="track-list">
       <p v-if="!jobs.length" class="muted">{{ t('common.empty') }}
-        <button class="primary" @click="openNewTrack">{{ t('nav.new') }}</button></p>
+        <button class="primary" @click="openNewTrack"><AppIcon name="plus" /> {{ t('nav.new') }}</button></p>
       <template v-else>
         <div class="queue-tools">
           <VSelect v-model="qf.status" :options="qStatusOptions" />
@@ -875,7 +875,7 @@ function onWindowClick(e) {
             <button v-if="j.status === 'done' && j.audio_file" class="ghost icon job-play"
                     :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]"
                     :title="t('queue.play')" @click.stop="togglePlay(headOf(j))">
-              {{ isPlaying('m' + headOf(j).id) ? '⏸' : '▶' }}</button>
+              <AppIcon :name="isPlaying('m' + headOf(j).id) ? 'pause' : 'play'" /></button>
             <span v-else class="status-mini" :class="j.status" :title="statusLabelC[j.status] || j.status"></span>
           </span>
           <span class="job-name" :title="j.title">#{{ j.id }} {{ j.title }}
@@ -892,7 +892,7 @@ function onWindowClick(e) {
             </span>
           </span>
           <span v-else-if="j.status !== 'done'" class="status" :class="j.status">{{ statusLabelC[j.status] || j.status }}</span>
-          <span v-else-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))">⚠</span>
+          <span v-else-if="headOf(j).vocal_leak" class="badge warn" :title="leakTip(headOf(j))"><AppIcon name="alert" /></span>
           <span v-else class="muted">{{ statusLabelC.done }}</span>
           <span class="col-kids">
             <span v-if="kidCount(j)" class="badge kids-badge" :title="t('queue.kids.tip')"
@@ -911,14 +911,14 @@ function onWindowClick(e) {
           <div class="job-title-row">
             <input v-if="titleEdit && titleEdit.id === j.id" v-model="titleEdit.value" class="title-edit"
                    @keydown.enter="saveRename(j)" @keydown.esc="titleEdit = null" @blur="saveRename(j)" />
-            <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)">✎</button>
+            <button v-if="!(titleEdit && titleEdit.id === j.id)" class="ghost icon" :title="t('queue.rename.tip')" @click="startRename(j)"><AppIcon name="pencil" /></button>
             <!-- название уже в строке таблицы — здесь только ✎ и мета: сид, характер, свой ABC, head -->
             <span class="job-meta-extra">
               <span v-if="j.seed" class="muted">seed {{ j.seed }}</span>
               <span v-if="j.cot && j.cot !== 'full'" class="muted" :title="t('queue.cot.tip')">{{ t('queue.cot.' + j.cot) }}</span>
               <span v-if="characterLabel(j)" class="muted" :title="t('character.title')">{{ characterLabel(j) }}</span>
               <span v-if="j.req_abc" class="badge" :title="t('form.abc.tip')">свой ABC</span>
-              <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title">★ {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
+              <span v-if="headOf(j) !== j" class="badge current" :title="headOf(j).title"><AppIcon name="star-fill" /> {{ t('queue.head.badge', { id: headOf(j).id }) }}</span>
               <span v-if="j.status === 'error'" class="status error">{{ statusLabelC.error }}</span>
             </span>
             <span class="spacer"></span>
@@ -929,8 +929,8 @@ function onWindowClick(e) {
                      :title="t('queue.folder.move.tip')" @update:model-value="(v) => pickFolder(j, v)" />
             <button v-if="j.status === 'queued' || j.status === 'running'" class="ghost small-btn"
                     :title="t('queue.cancel.tip')" @click="cancel(j.id)">{{ t('queue.cancel') }}</button>
-            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)">✕</button>
-            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)">↺</button>
+            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(j)"><AppIcon name="x" /></button>
+            <button v-if="!(j.status === 'done' && j.audio_file)" class="ghost icon" :title="t('queue.repeat.tip')" @click="reuseJob(j)"><AppIcon name="repeat" /></button>
           </div>
           <div class="job-body">
             <!-- разворот секциями: подпись слева, содержимое справа; действия — первыми -->
@@ -938,9 +938,10 @@ function onWindowClick(e) {
               <span class="job-sec-h">{{ t('queue.sec.actions') }}</span>
           <div v-if="j.status === 'done' && j.audio_file" class="job-actions job-sec-body">
             <button class="play-main" :class="{ 'is-playing': isPlaying('m' + headOf(j).id) }" :disabled="playBusy['m' + headOf(j).id]" @click="togglePlay(headOf(j))">
-              {{ playBtn('m' + headOf(j).id) === '…' ? t('queue.loading') : (isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play')) }}
+              <template v-if="playBtn('m' + headOf(j).id) === '…'">{{ t('queue.loading') }}</template>
+            <template v-else><AppIcon :name="isPlaying('m' + headOf(j).id) ? 'stop' : 'play'" /> {{ isPlaying('m' + headOf(j).id) ? t('queue.stop') : t('queue.play') }}</template>
             </button>
-            <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()">⏸</button>
+            <button v-if="isPlaying('m' + headOf(j).id) && playerState.playing" class="ghost" @click="api.toggleAudio()"><AppIcon name="pause" /></button>
             <!-- всё на карточке — про основную версию песни: играть, скачать, ноты -->
             <button v-if="j.status === 'done'" class="ghost" @click="studioJob = headOf(j)">{{ t('queue.studio') }}</button>
             <details class="menu-pop">
@@ -953,12 +954,12 @@ function onWindowClick(e) {
             </details>
             <span class="spacer"></span>
             <details class="menu-pop">
-              <summary class="ghost-btn" :title="t('queue.more.tip')">⋯</summary>
+              <summary class="ghost-btn" :title="t('queue.more.tip')"><AppIcon name="more-h" /></summary>
               <ul class="nav-menu" @click="closeMenu">
-                <li :title="t('queue.browser.tip')" @click="openListen(headOf(j))"><span class="nav-ico">🌐</span>{{ t('queue.browser') }}</li>
-                <li v-if="headOf(j).abc_file" :title="t('queue.notes.tip')" @click="loadJobAbc(headOf(j))"><span class="nav-ico">♪</span>{{ t('queue.notes') }}</li>
-                <li :title="t('queue.repeat.tip')" @click="reuseJob(j)"><span class="nav-ico">↺</span>{{ t('queue.repeat') }}</li>
-                <li class="danger" :title="t('queue.delete.tip')" @click="deleteJob(j)"><span class="nav-ico">✕</span>{{ t('queue.delete') }}</li>
+                <li :title="t('queue.browser.tip')" @click="openListen(headOf(j))"><AppIcon class="nav-ico" name="globe" />{{ t('queue.browser') }}</li>
+                <li v-if="headOf(j).abc_file" :title="t('queue.notes.tip')" @click="loadJobAbc(headOf(j))"><AppIcon class="nav-ico" name="music" />{{ t('queue.notes') }}</li>
+                <li :title="t('queue.repeat.tip')" @click="reuseJob(j)"><AppIcon class="nav-ico" name="repeat" />{{ t('queue.repeat') }}</li>
+                <li class="danger" :title="t('queue.delete.tip')" @click="deleteJob(j)"><AppIcon class="nav-ico" name="x" />{{ t('queue.delete') }}</li>
               </ul>
             </details>
           </div>
@@ -984,24 +985,24 @@ function onWindowClick(e) {
               <div class="job-sec-body">
                 <div v-if="openKids.has(j.id)" class="job-kids">
                 <div v-for="v in [j, ...kidResults(j.id)]" :key="v.id" class="job-kid" :class="{ current: headOf(j).id === v.id, playing: isPlaying('m' + v.id) }">
-                  <span v-if="headOf(j).id === v.id" class="badge current">★ {{ t('queue.head.main') }}</span>
+                  <span v-if="headOf(j).id === v.id" class="badge current"><AppIcon name="star-fill" /> {{ t('queue.head.main') }}</span>
                   <button v-else-if="v.status === 'done'" class="ghost small-btn" :title="t('queue.head.make.tip')"
-                          @click="makeHead(j, v)">☆ {{ t('queue.head.make') }}</button>
+                          @click="makeHead(j, v)"><AppIcon name="star" /> {{ t('queue.head.make') }}</button>
                   <span class="muted">#{{ v.id }}</span>
                   <span>{{ v.id === j.id ? t('queue.kids.original') : v.title }}</span>
                   <span v-if="v.id !== j.id" class="badge">{{ t('queue.role.' + v.role) }}</span>
-                  <span v-if="v.vocal_leak" class="badge warn" :title="leakTip(v)">⚠</span>
+                  <span v-if="v.vocal_leak" class="badge warn" :title="leakTip(v)"><AppIcon name="alert" /></span>
                   <span v-if="v.id !== j.id" class="status" :class="v.status">{{ statusLabelC[v.status] || v.status }}</span>
                   <span v-if="v.duration_sec" class="muted">{{ fmtDur(v.duration_sec) }}</span>
                   <span v-if="fmtWhen(v.created_at)" class="muted" :title="v.created_at">{{ fmtWhen(v.created_at) }}</span>
                   <span class="spacer"></span>
                   <button v-if="v.status === 'done' && v.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + v.id) }" @click="togglePlay(v)">
-                    {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
+                    <AppIcon :name="isPlaying('m' + v.id) ? 'stop' : 'play'" /> {{ isPlaying('m' + v.id) ? t('queue.stop') : t('queue.play') }}
                   </button>
                   <button v-if="v.status === 'done'" class="ghost small-btn" @click="studioJob = v">студия →</button>
                   <!-- подсказка — причина падения версии, если она есть -->
                   <button v-if="v.id !== j.id && canRetry(v)" class="ghost small-btn" :title="v.error || t('queue.retry.tip')" @click="retry(v)">{{ t('queue.retry') }}</button>
-                  <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)">✕</button>
+                  <button v-if="v.id !== j.id && v.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(v)"><AppIcon name="x" /></button>
                 </div>
                 <details v-if="(kidMixes[j.id] || []).length" class="job-material">
                   <summary>{{ t('queue.kids.mixes', { n: kidMixes[j.id].length }) }}</summary>
@@ -1023,9 +1024,9 @@ function onWindowClick(e) {
                     <span v-if="fmtWhen(k.created_at)" class="muted" :title="k.created_at">{{ fmtWhen(k.created_at) }}</span>
                     <span class="spacer"></span>
                     <button v-if="k.status === 'done' && k.audio_file" class="ghost small-btn" :class="{ 'is-playing': isPlaying('m' + k.id) }" @click="togglePlay(k)">
-                      {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
+                      <AppIcon :name="isPlaying('m' + k.id) ? 'stop' : 'play'" /> {{ isPlaying('m' + k.id) ? t('queue.stop') : t('queue.play') }}
                     </button>
-                    <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)">✕</button>
+                    <button v-if="k.status !== 'running'" class="ghost icon del" :title="t('queue.delete.tip')" @click="deleteJob(k)"><AppIcon name="x" /></button>
                   </div>
                 </details>
               </div>
@@ -1075,7 +1076,7 @@ function onWindowClick(e) {
     <section class="panel page-modal form newtrack-modal">
       <div class="page-modal-head">
         <h2>{{ t('form.title') }}</h2>
-        <button class="ghost icon" :title="t('common.close')" @click="newTrackPage = false">✕</button>
+        <button class="ghost icon" :title="t('common.close')" @click="newTrackPage = false"><AppIcon name="x" /></button>
       </div>
       <div class="page-modal-body">
         <div class="lib-row" :title="t('form.lib.tip')">
@@ -1083,7 +1084,7 @@ function onWindowClick(e) {
           <VSelect v-model="libStyle" :options="libStyleOptions" :disabled="!libGroup" :placeholder="t('form.lib.style')" @update:model-value="onLibStyleChange()" />
           <button v-if="currentItem" class="ghost small-btn" :title="t('form.lib.exact.tip')" @click="onLibExact">{{ t('form.lib.exact') }}</button>
           <button class="ghost small-btn" :title="t('form.lib.save.tip')" @click="saveStyleToLibrary">{{ t('form.lib.save') }}</button>
-          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="libraryPage = true">{{ t('form.lib.manage') }}</button>
+          <button class="ghost small-btn" :title="t('form.lib.manage.tip')" @click="libraryPage = true"><AppIcon name="sliders" /></button>
         </div>
         <input v-model="title" :placeholder="t('form.name')" style="margin-top:8px" />
 
@@ -1160,10 +1161,10 @@ function onWindowClick(e) {
             <select v-if="noLyrics" v-model="durMode" class="dur-select" title="Длина инструментала задаётся числом секций [Instrumental]">
               <option v-for="o in durOptions" :key="o.id" :value="o.id">{{ t('dur.' + o.id) }}</option>
             </select>
-            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true">{{ t('form.copilot') }}</button>
+            <button v-if="!noLyrics" class="ghost small-btn" @click="copOpen = true"><AppIcon name="pencil" /> {{ t('form.copilot') }}</button>
             <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy"
                     :title="t('lyrics.rec.tip')" @click="recognizeLyrics">
-              {{ lyrBusy === 'rec' ? '…' : t('lyrics.rec') }}</button>
+              <template v-if="lyrBusy === 'rec'">…</template><template v-else><AppIcon name="music" /> {{ t('lyrics.rec') }}</template></button>
             <button v-if="!noLyrics" class="ghost small-btn" :disabled="!!lyrBusy || !lyrics.trim()"
                     :title="t('lyrics.adapt.tip')" @click="adaptLyrics">
               {{ lyrBusy === 'adapt' ? '…' : t('lyrics.adapt') }}</button>

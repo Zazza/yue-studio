@@ -9,7 +9,7 @@ import { matchOptions } from './optionFilter.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  options: { type: Array, default: () => [] },        // [{value, label, disabled}]
+  options: { type: Array, default: () => [] },        // [{value, label, disabled, icon?}] — icon: имя из icons.js
   placeholder: { type: String, default: '— выберите —' },
   disabled: { type: Boolean, default: false },
   // длинные списки (песни): поле поиска сверху, пункты фильтруются по словам
@@ -59,8 +59,9 @@ const toggle = async () => {
   }
 }
 
+const currentOpt = () => props.options.find((x) => String(x.value) === String(props.modelValue))
 const current = () => {
-  const o = props.options.find((x) => String(x.value) === String(props.modelValue))
+  const o = currentOpt()
   return o ? o.label : (props.modelValue || props.placeholder)
 }
 const pick = (o) => {
@@ -105,17 +106,18 @@ onUnmounted(() => {
 <template>
   <div ref="root" class="vselect" :class="{ disabled }">
     <button type="button" class="vselect-btn" :disabled="disabled" @click.stop="toggle">
-      <span class="vselect-label">{{ current() }}</span>
+      <span class="vselect-label"><template v-if="currentOpt()?.icon"><AppIcon :name="currentOpt().icon" /> </template>{{ current() }}</span>
       <span class="vselect-arrow" :class="{ open }">▾</span>
     </button>
     <Teleport to="body">
       <ul v-if="open && options.length" ref="drop" class="vselect-drop" :style="dropStyle">
         <li v-if="searchable" class="vselect-search">
-          <input ref="search" v-model="query" placeholder="🔍" @keydown="onSearchKey" />
+          <AppIcon name="search" class="vselect-search-ico" />
+          <input ref="search" v-model="query" @keydown="onSearchKey" />
         </li>
         <li v-if="searchable && !shown.length" class="off">—</li>
         <li v-for="o in shown" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
-            @mousedown.prevent="pick(o)">{{ o.label }}</li>
+            @mousedown.prevent="pick(o)"><template v-if="o.icon"><AppIcon :name="o.icon" /> </template>{{ o.label }}</li>
       </ul>
     </Teleport>
   </div>
@@ -142,7 +144,9 @@ onUnmounted(() => {
 .vselect-drop li:hover { background: var(--panel2); }
 .vselect-drop li.sel { color: var(--accent); font-weight: 600; }
 .vselect-drop li.off { opacity: .5; cursor: default; }
-.vselect-drop li.vselect-search { position: sticky; top: -4px; padding: 4px 6px; background: var(--panel); cursor: default; }
+.vselect-drop li.vselect-search { position: sticky; top: -4px; padding: 4px 6px; background: var(--panel); cursor: default;
+  display: flex; align-items: center; gap: 6px; }
+.vselect-search-ico { color: var(--muted); }
 .vselect-drop li.vselect-search:hover { background: var(--panel); }
 .vselect-search input { width: 100%; box-sizing: border-box; font-size: 13px; padding: 4px 8px; }
 </style>

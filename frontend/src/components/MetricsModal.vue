@@ -140,7 +140,7 @@ defineExpose({ openFor })
       <div class="modal-head">
         <h2>Метрики эффектов — {{ title || ('#' + (job && job.id) + ' ' + (job && job.title)) }}</h2>
         <span class="spacer"></span>
-        <button class="ghost" @click="open = false">✕</button>
+        <button class="ghost" @click="open = false"><AppIcon name="x" /></button>
       </div>
       <p v-if="busy" class="muted">{{ t('metrics.librosa') }}</p>
       <p v-if="err" class="error">{{ err }}</p>
@@ -152,7 +152,7 @@ defineExpose({ openFor })
                               ...refs.map((r) => ({ value: 'ref:' + r.id, label: 'реф: ' + refName(r.id) })),
                               ...doneJobs.map((jj) => ({ value: 'job:' + jj.id, label: '#' + jj.id + ' ' + jj.title }))]"
                    @update:model-value="onCmpChange()" />
-          <button class="ghost" :disabled="addingRef" @click="addReference">＋ файл-референс…</button>
+          <button class="ghost" :disabled="addingRef" @click="addReference"><AppIcon name="plus" /> файл-референс…</button>
         </div>
         <p v-if="cmpBusy" class="muted">{{ t('metrics.busy') }}</p>
         <div class="metrics-table">

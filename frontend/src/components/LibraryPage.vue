@@ -89,7 +89,7 @@ function delCustomStyle(gid, sid) {
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('library.title') }}</h2>
-        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <div class="page-modal-body">
 
@@ -111,7 +111,7 @@ function delCustomStyle(gid, sid) {
           <VSelect v-if="customGroups.length > 1" :model-value="g.id" :options="customGroups.map((tg) => ({ value: tg.id, label: '→ ' + tg.name, disabled: tg.id === g.id }))"
                    style="max-width: 200px" :title="t('library.move')"
                    @update:model-value="(v) => moveCustomStyle(g.id, i.id, v)" />
-          <button class="ghost" @click="delCustomStyle(g.id, i.id)">✕</button>
+          <button class="ghost" @click="delCustomStyle(g.id, i.id)"><AppIcon name="x" /></button>
         </div>
         <p v-if="!(g.items || []).length" class="muted">{{ t('library.group.empty') }}</p>
       </div>

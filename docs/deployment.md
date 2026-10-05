@@ -154,7 +154,12 @@ export YUE_OLLAMA_URL=http://$(ip route show default | awk '{print $3}'):11434/a
 sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev
 make build          # или: wails build
 # бинарник: build/bin/yue-studio
+make install-desktop   # ярлык в меню приложений (~/.local/share/applications)
 ```
+Ярлык нужен и ради иконки: GNOME на Wayland берёт её только из `.desktop`-файла
+(сопоставляет по имени `yue-studio`), иконку самого окна там не показывает.
+Запуск с ярлыка не видит переменных окружения шелла — адрес воркера задаётся
+в настройках приложения, а не через `YUE_URL`. Убрать — `make uninstall-desktop`.
 Звук — через встроенный pw-play плеер (PipeWire): в webkit2gtk у webview нет
 аудиовыхода, это ограничение именно Linux-сборки.
 

@@ -95,7 +95,7 @@ function applyAbc(p) {
     <section class="panel lib page-modal">
       <div class="page-modal-head">
         <h2>{{ t('corpus.title') }}</h2>
-        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <div class="page-modal-body">
       <p class="muted">
@@ -103,7 +103,7 @@ function applyAbc(p) {
       </p>
       <div class="corpus-actions">
         <button class="primary" :disabled="importBusy" @click="importTrack">
-          {{ importBusy ? t('corpus.import.busy') : t('corpus.import.btn') }}
+          <template v-if="importBusy">{{ t('corpus.import.busy') }}</template><template v-else><AppIcon name="plus" /> {{ t('corpus.import.btn') }}</template>
         </button>
       </div>
 
@@ -117,7 +117,7 @@ function applyAbc(p) {
         <strong>{{ c.name }}</strong>
         <span class="muted">{{ c.tracks }} трек(ов)</span>
         <span class="spacer"></span>
-        <button class="ghost small-btn" :disabled="corpusBusy" @click="addTracks(c)">{{ t('corpus.tracks.add') }}</button>
+        <button class="ghost small-btn" :disabled="corpusBusy" @click="addTracks(c)"><AppIcon name="plus" /> {{ t('corpus.tracks.add') }}</button>
         <button class="ghost small-btn" :disabled="corpusBusy || !c.tracks" @click="build(c)">
           {{ corpusBusy ? '…' : t('corpus.profile.build') }}
         </button>

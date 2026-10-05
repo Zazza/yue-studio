@@ -290,3 +290,6 @@ input[type="range"]::-webkit-slider-thumb {
 .job.playing { box-shadow: inset 3px 0 0 var(--ok); }
 .job-kid.playing { padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--ok) 16%, transparent); }
 button.is-playing { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+/* значки интерфейса (components/AppIcon.vue): размер от шрифта, цвет от текста */
+.ico { width: 1.1em; height: 1.1em; vertical-align: -0.2em; flex: none; display: inline-block; }

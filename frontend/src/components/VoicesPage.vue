@@ -165,7 +165,7 @@ function cleanProbes() {
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('voicelab.title') }}</h2>
-        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <div class="page-modal-body">
       <p class="muted">{{ t('voicelab.desc') }}</p>
@@ -174,7 +174,7 @@ function cleanProbes() {
         <span class="muted">{{ t('voicelab.preset.label') }}</span>
         <button v-for="p in VOICE_PRESETS" :key="p.id" class="ghost small-btn"
                 :title="voiceDescriptor(p.params)" @click="applyPreset(p)">
-          {{ t('voicelab.preset.' + p.id) }}
+          <AppIcon v-if="p.id === 'reset'" name="x" /> {{ t('voicelab.preset.' + p.id) }}
         </button>
       </div>
       <div class="voice-presets">
@@ -212,7 +212,7 @@ function cleanProbes() {
 
       <div class="corpus-actions">
         <button class="primary" :disabled="busy" :title="t('voicelab.audition.tip')" @click="runAudition">
-          {{ busy ? t('voicelab.audition.busy') : t('voicelab.audition') }}
+          <template v-if="busy">{{ t('voicelab.audition.busy') }}</template><template v-else><AppIcon name="play" /> {{ t('voicelab.audition') }}</template>
         </button>
         <template v-if="audition">
           <span v-if="['queued', 'running'].includes(audition.status)" class="muted">
@@ -231,13 +231,13 @@ function cleanProbes() {
 
       <div v-if="audition && audition.status === 'done'" class="corpus-new">
         <input v-model="name" :placeholder="t('voicelab.save.name')" @keyup.enter="save" />
-        <button class="ghost" :disabled="busy || !canSave" @click="save">{{ t('voicelab.save') }}</button>
+        <button class="ghost" :disabled="busy || !canSave" @click="save"><AppIcon name="save" /> {{ t('voicelab.save') }}</button>
       </div>
       <p v-if="err" class="error">{{ err }}</p>
 
       <h2 style="margin-top:18px">{{ t('voicelab.cards') }}
         <button class="ghost small-btn" style="margin-left:10px" :disabled="cleaning"
-                :title="t('voicelab.clean.tip')" @click="cleanProbes">{{ t('voicelab.clean') }}</button>
+                :title="t('voicelab.clean.tip')" @click="cleanProbes"><AppIcon name="eraser" /> {{ t('voicelab.clean') }}</button>
       </h2>
       <div v-for="v in voices" :key="v.id" class="corpus-item voice-card">
         <strong>{{ v.name }}</strong>
@@ -246,9 +246,9 @@ function cleanProbes() {
         <span class="spacer"></span>
         <button v-if="v.job_alive" class="ghost small-btn" @click="cardPlay(v)">{{ playBtn('v' + v.id) }}</button>
         <span v-else class="muted">{{ t('voicelab.card.sourceGone') }}</span>
-        <button class="ghost small-btn" @click="reaudition(v)">{{ t('voicelab.card.reaudition') }}</button>
+        <button class="ghost small-btn" @click="reaudition(v)"><AppIcon name="repeat" /> {{ t('voicelab.card.reaudition') }}</button>
         <button class="primary small" @click="toForm(v)">{{ t('voicelab.card.toForm') }}</button>
-        <button class="ghost small-btn" @click="del(v)">✕</button>
+        <button class="ghost small-btn" @click="del(v)"><AppIcon name="x" /></button>
       </div>
       <p v-if="!voices.length" class="muted">{{ t('voicelab.empty') }}</p>
       </div>

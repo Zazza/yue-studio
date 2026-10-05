@@ -23,7 +23,7 @@ const abc = defineModel('abc', { type: String, default: '' })
           seed {{ info.seed }}<template v-if="info.seconds"> · {{ info.seconds }}s</template><template v-if="info.fromJob"> · из джобы #{{ info.fromJob }}</template><template v-if="info.truncated"> · обрезан лимитом токенов</template>
         </span>
         <span class="spacer"></span>
-        <button class="ghost" @click="emit('close')">✕</button>
+        <button class="ghost" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <p v-if="busy" class="muted">{{ t('plan.busy') }}</p>
       <p v-if="err" class="error">{{ err }}</p>

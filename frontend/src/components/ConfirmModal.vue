@@ -11,7 +11,7 @@ const { open, title, body, doConfirm, cancelConfirm } = useConfirm()
       <div class="modal-head">
         <h2>{{ title }}</h2>
         <span class="spacer"></span>
-        <button class="ghost" @click="cancelConfirm">✕</button>
+        <button class="ghost" @click="cancelConfirm"><AppIcon name="x" /></button>
       </div>
       <p class="muted">{{ body }}</p>
       <div class="modal-actions">

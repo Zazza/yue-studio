@@ -72,7 +72,7 @@ function insert() {
         <h2>{{ t('copilot.title') }}</h2>
         <span class="muted plan-meta">qwen2.5</span>
         <span class="spacer"></span>
-        <button class="ghost" @click="emit('close')">✕</button>
+        <button class="ghost" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <div class="cop-form">
         <textarea v-model="theme" rows="3" :placeholder="t('copilot.theme.ph')"

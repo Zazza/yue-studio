@@ -97,7 +97,7 @@ async function save() {
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('settings.title') }}</h2>
-        <button class="ghost icon" :title="t('common.close')" @click="emit('close')">✕</button>
+        <button class="ghost icon" :title="t('common.close')" @click="emit('close')"><AppIcon name="x" /></button>
       </div>
       <div class="page-modal-body">
 
@@ -138,7 +138,7 @@ async function save() {
       <div v-if="err" class="error">{{ err }}</div>
       <div v-if="saved" class="ok">сохранено</div>
       <div class="set-actions">
-        <button @click="save">{{ t('common.save') }}</button>
+        <button @click="save"><AppIcon name="save" /> {{ t('common.save') }}</button>
       </div>
       </div>
     </section>
