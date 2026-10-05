@@ -830,8 +830,26 @@ function onWindowClick(e) {
     <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? t('app.theme.light') : t('app.theme.dark')"><AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" /></button>
     <button class="icon-btn" @click="setLocale(locale === 'ru' ? 'en' : 'ru')"
             :title="locale === 'ru' ? 'Switch to English' : 'Переключить на русский'">{{ locale === 'ru' ? 'EN' : 'RU' }}</button>
-    <div class="player-center"><PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" /></div>
-    <!-- справа, у меню; плеер между ними забирает всю свободную ширину -->
+    <!-- статус воркера компактно в шапке: VRAM, очередь рендеров, очередь к GPU, текущая джоба -->
+    <div v-if="stats" class="head-stats">
+      <span v-if="stats.vram_total" class="sb-vram" :title="t('footer.vram.tip')">
+        <span class="sb-vram-bar">
+          <span class="sb-vram-fill" :class="{ hot: stats.vram_used / stats.vram_total > 0.9 }"
+                :style="{ width: Math.min(100, 100 * stats.vram_used / stats.vram_total) + '%' }"></span>
+        </span>
+        <span class="sb-text">{{ (stats.vram_used / 1024).toFixed(1) }}/{{ Math.round(stats.vram_total / 1024) }} {{ t('footer.vram.gb') }}</span>
+      </span>
+      <span v-if="stats.queue && stats.queue.queued" class="sb-text">· {{ t('footer.queue', { n: stats.queue.queued }) }}</span>
+      <span v-if="stats.gpu_waiting" class="sb-text">· {{ t('footer.gpu_queue', { n: stats.gpu_waiting }) }}</span>
+      <span v-if="stats.running" class="sb-text sb-job" :title="stats.running.title">
+        · #{{ stats.running.job_id }}
+        <template v-if="stats.running.progress_pct != null">{{ stats.running.progress_pct }}%</template>
+        <template v-else>{{ t('queue.progress.' + (stats.running.stage || 'plan')) }}</template>
+        <template v-if="stats.running.tok_per_s"> · {{ stats.running.tok_per_s }} {{ t('queue.progress.tps') }}</template>
+      </span>
+    </div>
+    <span class="spacer"></span>
+    <!-- справа, у меню -->
     <button class="primary new-track-btn" :class="{ on: newTrackPage }"
             :title="t('nav.new.tip')" @click="openNewTrack"><AppIcon name="plus" /><span class="new-track-txt"> {{ t('nav.new.short') }}</span></button>
     <div class="nav-wrap">
@@ -1056,25 +1074,10 @@ function onWindowClick(e) {
   </main>
   </div>
 
-  <!-- статус-бар: зеркало шапки снизу — модель, VRAM, очередь рендеров, очередь к GPU, текущая джоба -->
-  <footer v-if="stats" class="statusbar">
-    <span class="health-dot" :class="stats.model_loaded ? 'up' : 'down'"
-          :title="stats.model_loaded ? t('footer.model.loaded') : t('footer.model.cold')"></span>
-    <span v-if="stats.vram_total" class="sb-vram" :title="t('footer.vram.tip')">
-      <span class="sb-vram-bar">
-        <span class="sb-vram-fill" :class="{ hot: stats.vram_used / stats.vram_total > 0.9 }"
-              :style="{ width: Math.min(100, 100 * stats.vram_used / stats.vram_total) + '%' }"></span>
-      </span>
-      <span class="sb-text">{{ (stats.vram_used / 1024).toFixed(1) }}/{{ Math.round(stats.vram_total / 1024) }} {{ t('footer.vram.gb') }}</span>
-    </span>
-    <span v-if="stats.queue && stats.queue.queued" class="sb-text">· {{ t('footer.queue', { n: stats.queue.queued }) }}</span>
-    <span v-if="stats.gpu_waiting" class="sb-text">· {{ t('footer.gpu_queue', { n: stats.gpu_waiting }) }}</span>
-    <span v-if="stats.running" class="sb-text sb-job" :title="stats.running.title">
-      · #{{ stats.running.job_id }}
-      <template v-if="stats.running.progress_pct != null">{{ stats.running.progress_pct }}%</template>
-      <template v-else>{{ t('queue.progress.' + (stats.running.stage || 'plan')) }}</template>
-      <template v-if="stats.running.tok_per_s"> · {{ stats.running.tok_per_s }} {{ t('queue.progress.tps') }}</template>
-    </span>
+  <!-- плеер — единственный внизу: транспорт стабилен, что бы ни было открыто;
+       статус воркера переехал в шапку -->
+  <footer class="playerbar-footer">
+    <PlayerBar :jobs="jobs" @play-job="togglePlay" @refresh="refresh" />
   </footer>
 
   <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
@@ -1318,23 +1321,27 @@ h2 {
 }
 .health-dot.up { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .health-dot.down { background: var(--err); box-shadow: 0 0 8px var(--err); }
-/* статус-бар — зеркало шапки снизу: модель, VRAM, очереди, текущая джоба */
-.statusbar {
+/* футер-плеер: транспорт снизу на всю ширину — стабилен при любом экране */
+.playerbar-footer {
   position: relative; z-index: 5; flex: 0 0 auto;
-  display: flex; align-items: center; gap: 10px; padding: 4px 16px;
+  display: flex; align-items: center; padding: 8px 16px;
   background: color-mix(in srgb, var(--panel2) 78%, transparent);
   backdrop-filter: blur(14px) saturate(1.15);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   border-top: 1px solid var(--bevel-lo);
   box-shadow: 0 -1px 4px rgba(0,0,0,.35);
+}
+.playerbar-footer .playerbar { flex: 1 1 auto; min-width: 0; }
+/* статус воркера в шапке — компактная строка после точки здоровья */
+.head-stats {
+  display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto;
   font-size: 11.5px; color: var(--muted);
 }
-.statusbar .health-dot { width: 8px; height: 8px; }
 .sb-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-job { max-width: 46ch; }
 .sb-vram { display: flex; align-items: center; gap: 6px; }
 .sb-vram-bar {
-  width: 80px; height: 5px; border-radius: 3px; overflow: hidden; flex: none;
+  width: 70px; height: 5px; border-radius: 3px; overflow: hidden; flex: none;
   background: var(--bevel-lo);
 }
 .sb-vram-fill { display: block; height: 100%; background: var(--ok); border-radius: 3px; }
@@ -1415,14 +1422,12 @@ h2 {
 .ok { color: var(--ok); font-size: 12px; }
 /* плеер — гибкая часть шапки: всё место между левыми кнопками и «＋ Новый трек»
    (раньше — абсолютный центр фиксированной ширины: полоса короткая, по краям пусто) */
-.player-center { flex: 1 1 auto; min-width: 0; }
 /* узкое окно: меньше промежутки, короче громкость и название, у «＋ Новый трек» — только «＋» */
 @media (max-width: 1150px) {
   header { gap: 8px; padding: 8px 12px; }
-  /* header-префикс: базовые правила плеера стоят ниже и иначе перебили бы эти */
-  header .playerbar { gap: 5px; }
-  header .playerbar .vol input { width: 50px; }
-  header .playerbar .now { max-width: 120px; }
+  .head-stats .sb-job { max-width: 24ch; }
+  .playerbar-footer .playerbar { gap: 5px; }
+  .playerbar-footer .playerbar .vol input { width: 50px; }
   h1 { letter-spacing: 1px; }
 }
 @media (max-width: 1000px) {
