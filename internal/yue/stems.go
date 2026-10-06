@@ -55,10 +55,21 @@ func (c *Client) Transcribe(ctx context.Context, name string, data []byte) (*Tra
 	return &out, nil
 }
 
-// MakeStems — demucs: drums/bass/other/vocals + подробные guitar/piano (грузит модель при первом вызове).
+// MakeStems — дорожки: drums/bass/other/vocals + подробные guitar/piano и части барабанов
+// kick/snare/toms/hh/ride/crash; model — какая модель сработала (bs-roformer-sw | htdemucs).
 func (c *Client) MakeStems(ctx context.Context, id int64) (map[string]any, error) {
+	return c.MakeStemsWith(ctx, id, "")
+}
+
+// MakeStemsWith — то же разово заданной моделью: "roformer" (чище, ~4,5× дольше) |
+// "htdemucs" (быстро); "" — по настройке воркера stems_model.
+func (c *Client) MakeStemsWith(ctx context.Context, id int64, model string) (map[string]any, error) {
+	path := fmt.Sprintf("/jobs/%d/stems", id)
+	if model != "" {
+		path += "?model=" + url.QueryEscape(model)
+	}
 	var out map[string]any
-	if err := c.post(ctx, fmt.Sprintf("/jobs/%d/stems", id), gpuTimeout, &out); err != nil {
+	if err := c.post(ctx, path, gpuTimeout, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

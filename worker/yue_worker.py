@@ -45,7 +45,8 @@ from abcparse import parse_abc
 from plancheck import plan_diff
 from dsp import analyze_file, beat_grid, vocal_activity
 from sheetsage import transcribe as ss_transcribe
-from stems import DETAIL_STEMS, MAIN_STEMS, separate as demucs_separate
+from stems import (DETAIL_STEMS, MAIN_STEMS, MODEL_DEMUCS, MODEL_ROFORMER, roformer_available, roformer_enabled,
+                   separate as demucs_separate)
 import voice as voicevc
 
 log = logging.getLogger("yue-worker")
@@ -571,10 +572,13 @@ def _mark_failed(job_id: int, e: BaseException) -> None:
                      (friendly_error(e), time.strftime("%Y-%m-%dT%H:%M:%S"), job_id))
 
 
-def _separate(job_id: int, audio: Path, jdir: Path) -> dict:
-    """Дорожки demucs + проверка голоса в треке «без голоса» (vocal_leak)."""
+def _separate(job_id: int, audio: Path, jdir: Path, model: str | None = None) -> dict:
+    """Дорожки (модель — model или настройка stems_model) + проверка голоса в
+    треке «без голоса» (vocal_leak)."""
+    pref = model or stems_pref()
     with gpu_queue(f"stems {job_id}"):
-        result = demucs_separate(audio, jdir)
+        # по умолчанию — прежний вызов separate(audio, dir): контракт не меняется
+        result = demucs_separate(audio, jdir) if pref == MODEL_DEMUCS else demucs_separate(audio, jdir, prefer=pref)
     check_vocal_leak(job_id)
     return result
 
@@ -762,6 +766,7 @@ class ConfigIn(BaseModel):
     ollama_url: str | None = None
     ollama_model: str | None = None
     auto_stems_instrumental: bool | None = None
+    stems_model: str | None = None   # разделение: «htdemucs» (быстро) | «roformer» (чище)
 
 
 # настройки воркера, переживающие перезапуск (в отличие от Ollama — те из env)
@@ -778,6 +783,15 @@ def _load_settings() -> dict:
 def _save_settings(st: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+STEMS_CHOICES = (MODEL_DEMUCS, "roformer")
+
+
+def stems_pref() -> str:
+    """Чем делать дорожки по умолчанию: htdemucs (быстро) или roformer (чище, ~4,5× дольше)."""
+    v = _load_settings().get("stems_model", MODEL_DEMUCS)
+    return v if v in STEMS_CHOICES else MODEL_DEMUCS
 
 
 def auto_stems_instrumental() -> bool:
@@ -822,6 +836,10 @@ def get_config():
         "seedvc_dir": str(voicevc.SEEDVC_DIR),
         "seedvc_available": voicevc.available(),
         "auto_stems_instrumental": auto_stems_instrumental(),
+        # выбор пользователя и чем дорожки будут делаться на деле (RoFormer — если выбран и установлен)
+        "stems_pref": stems_pref(),
+        "stems_model": MODEL_ROFORMER if roformer_enabled(stems_pref()) else MODEL_DEMUCS,
+        "roformer_available": roformer_available(),
     }
 
 
@@ -841,6 +859,12 @@ def set_config(req: ConfigIn):
     if req.auto_stems_instrumental is not None:
         st = _load_settings()
         st["auto_stems_instrumental"] = bool(req.auto_stems_instrumental)
+        _save_settings(st)
+    if req.stems_model is not None:
+        if req.stems_model not in STEMS_CHOICES:
+            raise HTTPException(422, f"stems_model must be one of {', '.join(STEMS_CHOICES)}")
+        st = _load_settings()
+        st["stems_model"] = req.stems_model
         _save_settings(st)
     log.info("config updated: ollama=%s model=%s", OLLAMA_URL, OLLAMA_MODEL)
     return get_config()
@@ -2045,16 +2069,20 @@ def submit_overdub(job_id: int, req: OverdubIn):
 # ---------- Стемы (demucs) ----------
 
 @app.post("/jobs/{job_id}/stems")
-def job_stems(job_id: int):
+def job_stems(job_id: int, model: str | None = None):
+    """Разделить трек на дорожки. ?model=roformer|htdemucs — разово этой моделью,
+    без параметра — по настройке stems_model."""
+    if model is not None and model not in STEMS_CHOICES:
+        raise HTTPException(422, f"model must be one of {', '.join(STEMS_CHOICES)}")
     row = _job_row(job_id)
     if row is None or not row["audio_file"]:
         raise HTTPException(404, "job or audio not found")
     job_dir = JOBS_DIR / str(job_id)
     try:
-        result = _separate(job_id, job_dir / row["audio_file"], job_dir)
+        result = _separate(job_id, job_dir / row["audio_file"], job_dir, model)
     except Exception as e:  # noqa: BLE001
         log.exception("stems failed")
-        raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
+        raise HTTPException(500, f"separation failed: {friendly_error(e)}") from e
     for f in result["stems"]:
         try:
             m = analyze_file(job_dir / f)
@@ -2103,10 +2131,10 @@ def job_minus(job_id: int, req: MinusIn):
         try:
             _separate(job_id, job_dir / row["audio_file"], job_dir)
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(500, f"demucs failed: {friendly_error(e)}") from e
+            raise HTTPException(500, f"separation failed: {friendly_error(e)}") from e
         stems = main_stems()
         if not stems:
-            raise HTTPException(500, "no stems after demucs")
+            raise HTTPException(500, "no stems after separation")
     keep = [p for p in stems if p.stem.replace("stem-", "") not in req.exclude]
     if not keep:
         raise HTTPException(422, "cannot exclude every stem")

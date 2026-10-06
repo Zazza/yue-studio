@@ -27,8 +27,8 @@ func RegisterInstallTools(s *Server) {
 			// воркер и компоненты — по его адресу (отсюда); железо и токен — на машине с GPU
 			out, _ := runSteps("", []step{
 				{name: "воркер Yue (health)", cmd: fmt.Sprintf("curl -sf --max-time 5 %s/health", s.client.GetURL())},
-				{name: "компоненты воркера (whisper, Seed-VC)", cmd: fmt.Sprintf(
-					"curl -sf --max-time 5 %s/config | grep -o '\"\\(whisper\\|seedvc\\)_available\": *[a-z]*'", s.client.GetURL())},
+				{name: "компоненты воркера (whisper, Seed-VC, модель разделения)", cmd: fmt.Sprintf(
+					"curl -sf --max-time 5 %s/config | grep -o '\"\\(whisper_available\\|seedvc_available\\|stems_model\\)\": *\"*[a-z-]*'", s.client.GetURL())},
 				{name: "ffmpeg (нужен для DSP на ПК)", cmd: "ffmpeg -version | head -1"},
 				{name: "Go (сборка приложения)", cmd: "go version"},
 				{name: "Node (сборка фронта)", cmd: "node --version"},
@@ -49,8 +49,9 @@ func RegisterInstallTools(s *Server) {
 			"Компоненты: воркер (обязательно, ~" + gbStr(sizeWorkerGB) + " ГБ: окружение + веса YuE2 и разбора нот), " +
 			"whisper — распознавание текстов треков (~" + gbStr(sizeWhisperGB) + " ГБ), " +
 			"Seed-VC — «голос альбома», ЭКСПЕРИМЕНТ (~" + gbStr(sizeSeedvcGB) + " ГБ после установки, больше во время). " +
-			"Сначала сухой прогон (по умолчанию) — покажи пользователю план и СПРОСИ, нужны ли whisper и Seed-VC; " +
-			"установка — dry_run=false, confirm=true и явные whisper/seedvc (true или false). " +
+			"RoFormer — более чистое разделение дорожек (~" + gbStr(sizeSepGB) + " ГБ, веса некоммерческие). " +
+			"Сначала сухой прогон (по умолчанию) — покажи пользователю план и СПРОСИ, нужны ли whisper, Seed-VC и RoFormer; " +
+			"установка — dry_run=false, confirm=true и явные whisper/seedvc/roformer (true или false). " +
 			"Перед установкой проверяются GPU и место на диске — при нехватке установка не начинается.",
 		InputSchema: props(map[string]any{
 			"host":       prop("user@gpu-host (пусто = локально на этой машине)", "string"),
@@ -58,6 +59,8 @@ func RegisterInstallTools(s *Server) {
 			"confirm":    prop("выполнить установку (спроси пользователя)", "boolean"),
 			"whisper":    prop("ставить whisper — тексты треков, ~"+gbStr(sizeWhisperGB)+" ГБ (спроси пользователя)", "boolean"),
 			"seedvc":     prop("ставить Seed-VC — «голос альбома», эксперимент, ~"+gbStr(sizeSeedvcGB)+" ГБ (спроси пользователя)", "boolean"),
+			"roformer":   prop("ставить RoFormer — заметно более чистые дорожки (~4,5× дольше demucs), ~"+gbStr(sizeSepGB)+" ГБ, веса некоммерческие (спроси пользователя)", "boolean"),
+			"sep_dir":    prop("каталог RoFormer: окружение <dir>/venv и веса <dir>/models, можно на другом диске (пусто — ~/sep-venv и ~/sep-models)", "string"),
 			"seedvc_dir": prop("каталог Seed-VC (по умолчанию ~/yue-studio/seedvc; можно на другом диске)", "string"),
 			"hf_home":    prop("каталог кеша весов HF (по умолчанию ~/yue/hf-cache)", "string"),
 		}),
@@ -71,9 +74,10 @@ func RegisterInstallTools(s *Server) {
 			}
 			whisper, wOK := args["whisper"].(bool)
 			seedvc, sOK := args["seedvc"].(bool)
-			if !dryRun && (!wOK || !sOK) {
+			roformer, rOK := args["roformer"].(bool)
+			if !dryRun && (!wOK || !sOK || !rOK) {
 				return "", fmt.Errorf("перед установкой спроси пользователя, нужны ли необязательные компоненты, " +
-					"и передай явно whisper=true|false и seedvc=true|false")
+					"и передай явно whisper=true|false, seedvc=true|false и roformer=true|false")
 			}
 			hfHome := argString(args, "hf_home")
 			if hfHome == "" {
@@ -83,11 +87,19 @@ func RegisterInstallTools(s *Server) {
 			if seedvcDir == "" {
 				seedvcDir = "~/yue-studio/seedvc"
 			}
-			plan, steps := workerInstallPlan(argString(args, "host") == "", whisper, seedvc, hfHome, seedvcDir)
+			sepDir := argString(args, "sep_dir")
+			// пути уходят в shell-команды экранированными (shellQuote) и в worker.env строкой:
+			// перевод строки и нулевой байт туда не записать — такие значения отклоняются
+			for name, v := range map[string]string{"hf_home": hfHome, "seedvc_dir": seedvcDir, "sep_dir": sepDir} {
+				if strings.ContainsAny(v, "\n\r\x00") {
+					return "", fmt.Errorf("%s: путь не может содержать перевод строки или нулевой байт (получено %q)", name, v)
+				}
+			}
+			plan, steps := workerInstallPlanSep(argString(args, "host") == "", whisper, seedvc, roformer, hfHome, seedvcDir, sepDir)
 			out, err := runSteps(argString(args, "host"), steps, !dryRun)
 			out = plan + "\n" + out + workerAddress(s)
 			if dryRun {
-				out = "СУХОЙ ПРОГОН — ничего не выполнено, только план (установка: dry_run=false, confirm=true, whisper, seedvc).\n\n" + out
+				out = "СУХОЙ ПРОГОН — ничего не выполнено, только план (установка: dry_run=false, confirm=true, whisper, seedvc, roformer).\n\n" + out
 			}
 			if err != nil {
 				return "", fmt.Errorf("%w\n\n%s", err, out)
@@ -135,23 +147,25 @@ const (
 	sizeWhisperGB    = 3.2
 	sizeSeedvcGB     = 11
 	sizeSeedvcPeakGB = 14
-	sizeReserveGB    = 2 // запас под данные треков на первое время
+	sizeSepGB        = 7.3 // разделение дорожек: окружение audio-separator 6,1 + веса RoFormer/DrumSep 1,1
+	sizeReserveGB    = 2   // запас под данные треков на первое время
 )
 
 // gbStr — «17.5», «11»: без лишних нулей.
 func gbStr(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
-// shellPath — путь для двойных кавычек в shell: «~/…» → «$HOME/…». В worker.env
-// (его читает systemd) тильда не раскрывается: HF_HOME=~/… уводил веса в
-// каталог с именем «~».
-func shellPath(p string) string {
+// shellQuote — путь как одно слово shell без подстановок: «'…'» (одинарная кавычка внутри
+// — «'\”»), «~/…» → «"$HOME"/'…'». Пробелы, кириллица, $, `, кавычки проходят буквально.
+// $HOME раскрывается сразу — в worker.env пишется абсолютный путь (systemd тильду не раскрывает).
+func shellQuote(p string) string {
+	q := func(x string) string { return "'" + strings.ReplaceAll(x, "'", `'\''`) + "'" }
 	if p == "~" {
-		return "$HOME"
+		return `"$HOME"`
 	}
 	if strings.HasPrefix(p, "~/") {
-		return "$HOME/" + p[2:]
+		return `"$HOME"/` + q(p[2:])
 	}
-	return p
+	return q(p)
 }
 
 // workerAddress — строка в конец отчёта: по какому адресу MCP ходит к воркеру.
@@ -160,8 +174,11 @@ func workerAddress(s *Server) string {
 }
 
 // diskNeedGB — сколько места нужно под выбранные компоненты (Seed-VC — по пику установки).
-func diskNeedGB(whisper, seedvc bool) float64 {
+func diskNeedGB(whisper, seedvc, roformer bool) float64 {
 	need := sizeWorkerGB + sizeReserveGB
+	if roformer {
+		need += sizeSepGB
+	}
 	if whisper {
 		need += sizeWhisperGB
 	}
@@ -173,22 +190,37 @@ func diskNeedGB(whisper, seedvc bool) float64 {
 
 // workerInstallPlan — текст для пользователя (компоненты, место) и шаги установки.
 func workerInstallPlan(local, whisper, seedvc bool, hfHome, seedvcDir string) (string, []step) {
-	need := diskNeedGB(whisper, seedvc)
-	return planText(whisper, seedvc, need, hfHome, seedvcDir), installSteps(local, whisper, seedvc, need, hfHome, seedvcDir)
+	return workerInstallPlanRF(local, whisper, seedvc, false, hfHome, seedvcDir)
 }
 
-func planText(whisper, seedvc bool, need float64, hfHome, seedvcDir string) string {
+// workerInstallPlanRF — то же с выбором RoFormer (чистое разделение дорожек, необязательно).
+func workerInstallPlanRF(local, whisper, seedvc, roformer bool, hfHome, seedvcDir string) (string, []step) {
+	return workerInstallPlanSep(local, whisper, seedvc, roformer, hfHome, seedvcDir, "")
+}
+
+// workerInstallPlanSep — с каталогом RoFormer sepDir: "" — ~/sep-venv и веса ~/sep-models
+// (пути по умолчанию воркера); иначе <sepDir>/venv и <sepDir>/models, пути — в worker.env,
+// а место RoFormer на домашнем диске не считается (он на другом).
+func workerInstallPlanSep(local, whisper, seedvc, roformer bool, hfHome, seedvcDir, sepDir string) (string, []step) {
+	need := diskNeedGB(whisper, seedvc, roformer && sepDir == "")
+	return planText(whisper, seedvc, roformer, need, hfHome, seedvcDir),
+		installSteps(local, whisper, seedvc, roformer, need, hfHome, seedvcDir, sepDir)
+}
+
+func planText(whisper, seedvc, roformer bool, need float64, hfHome, seedvcDir string) string {
 	mark := map[bool]string{true: "[x]", false: "[ ]"}
 	var b strings.Builder
 	b.WriteString("Компоненты:\n")
 	fmt.Fprintf(&b, "  [x] воркер — генерация (YuE2), разбор нот, дорожки (demucs): ~%s ГБ (веса качаются при первом запуске)\n",
 		gbStr(sizeWorkerGB))
+	fmt.Fprintf(&b, "  %s RoFormer — чистое разделение дорожек (+ барабаны по частям), включается в настройках: ~%s ГБ, "+
+		"веса некоммерческие (CC BY-NC-SA); без него дорожки делает demucs\n", mark[roformer], gbStr(sizeSepGB))
 	fmt.Fprintf(&b, "  %s whisper — распознавание текстов треков: ~%s ГБ\n", mark[whisper], gbStr(sizeWhisperGB))
 	fmt.Fprintf(&b, "  %s Seed-VC — «голос альбома», ЭКСПЕРИМЕНТ (голос узнаётся, но дрожит): ~%s ГБ после установки, ~%s ГБ во время, каталог %s\n",
 		mark[seedvc], gbStr(sizeSeedvcGB), gbStr(sizeSeedvcPeakGB), seedvcDir)
 	fmt.Fprintf(&b, "Нужно места: ~%s ГБ (веса HF — в %s; если он на другом диске, места на домашнем нужно меньше).\n",
 		gbStr(need), hfHome)
-	b.WriteString("Без whisper и Seed-VC приложение работает; соответствующие кнопки будут неактивны с подписью «не установлен».\n")
+	b.WriteString("Без whisper, Seed-VC и RoFormer приложение работает; соответствующие функции будут неактивны с подписью «не установлен».\n")
 	return b.String()
 }
 
@@ -201,7 +233,7 @@ const (
 		`[ "$free" -ge %[1]d ] || { echo 'мало места: освободите диск или поставьте веса/Seed-VC на другой (hf_home, seedvc_dir)'; exit 1; }`
 )
 
-func installSteps(local, whisper, seedvc bool, need float64, hfHome, seedvcDir string) []step {
+func installSteps(local, whisper, seedvc, roformer bool, need float64, hfHome, seedvcDir, sepDir string) []step {
 	steps := []step{
 		{name: "проверка: видеокарта NVIDIA и драйвер", cmd: checkGPUCmd, must: true},
 		{name: "проверка: место на диске", cmd: fmt.Sprintf(checkDiskCmd, int(math.Ceil(need))), must: true},
@@ -218,22 +250,36 @@ func installSteps(local, whisper, seedvc bool, need float64, hfHome, seedvcDir s
 			"--index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple || " +
 			"~/yue/.venv/bin/pip install -r ~/yue-studio/requirements.txt"},
 	)
+	if roformer { // не must: без него разделение идёт прежним demucs
+		venv, py := "~/sep-venv", "~/sep-venv/bin/python"
+		if sepDir != "" {
+			venv, py = shellQuote(sepDir+"/venv"), shellQuote(sepDir+"/venv/bin/python")
+		}
+		steps = append(steps, step{name: "RoFormer (чистое разделение дорожек, отдельное окружение)", cmd: fmt.Sprintf(
+			`uv venv %s --python 3.12 && uv pip install --python %s "audio-separator[gpu]" audioread`, venv, py)})
+	}
 	if whisper {
 		steps = append(steps, step{name: "whisper (тексты треков)", cmd: "uv venv ~/whisper-venv && " +
 			"uv pip install --python ~/whisper-venv/bin/python faster-whisper"})
 	}
 	steps = append(steps, step{name: "worker.env", cmd: fmt.Sprintf(
-		`test -f ~/yue-studio/worker.env || printf 'HF_HOME=%%s\n' "%s" > ~/yue-studio/worker.env`, shellPath(hfHome))})
+		`test -f ~/yue-studio/worker.env || printf 'HF_HOME=%%s\n' %s > ~/yue-studio/worker.env`, shellQuote(hfHome))})
+	if roformer && sepDir != "" { // нестандартный каталог — воркер узнаёт его из worker.env
+		steps = append(steps, step{name: "worker.env: пути RoFormer", cmd: fmt.Sprintf(
+			`(grep -q '^YUE_SEP_PY=' ~/yue-studio/worker.env || printf 'YUE_SEP_PY=%%s\n' %s >> ~/yue-studio/worker.env) && `+
+				`(grep -q '^YUE_SEP_MODELS=' ~/yue-studio/worker.env || printf 'YUE_SEP_MODELS=%%s\n' %s >> ~/yue-studio/worker.env)`,
+			shellQuote(sepDir+"/venv/bin/python"), shellQuote(sepDir+"/models"))})
+	}
 	if seedvc {
-		dir := shellPath(seedvcDir)
+		dir := shellQuote(seedvcDir)
 		steps = append(steps, step{name: "Seed-VC («голос альбома», эксперимент)", cmd: fmt.Sprintf(
-			`~/yue-studio/seedvc_install.sh "%[1]s" && (grep -q '^YUE_SEEDVC_DIR=' ~/yue-studio/worker.env || `+
-				`echo "YUE_SEEDVC_DIR=%[1]s" >> ~/yue-studio/worker.env)`, dir)})
+			`~/yue-studio/seedvc_install.sh %[1]s && (grep -q '^YUE_SEEDVC_DIR=' ~/yue-studio/worker.env || `+
+				`printf 'YUE_SEEDVC_DIR=%%s\n' %[1]s >> ~/yue-studio/worker.env)`, dir)})
 	}
 	return append(steps,
 		step{name: "systemd-юнит", cmd: "cp ~/yue-studio/units/yue-worker.service ~/.config/systemd/user/ 2>/dev/null && " +
 			"systemctl --user daemon-reload && systemctl --user enable --now yue-worker || " +
-			"echo юнит пропущен (запуск вручную: ~/yue/.venv/bin/python ~/yue-studio/yue_worker.py)"},
+			"echo 'юнит пропущен (запуск вручную: ~/yue/.venv/bin/python ~/yue-studio/yue_worker.py)'"},
 		step{name: "health", cmd: "sleep 3 && curl -sf --max-time 10 http://localhost:8091/health"},
 	)
 }

@@ -24,7 +24,13 @@ const workerProbe = ref('') // статус проверки воркера
 const ollamaProbe = ref('') // статус проверки Ollama
 // у треков «без голоса» сразу делать дорожки — метка, если в инструментал пролез голос
 const autoStems = ref(true)
+const stemsModel = ref('htdemucs')      // разделение на дорожки: htdemucs | roformer
+const roformerOk = ref(false)           // окружение RoFormer установлено на воркере
 
+const stemsOptions = computed(() => [
+  { value: 'htdemucs', label: t('settings.stemsModel.fast') },
+  { value: 'roformer', label: t('settings.stemsModel.clean'), disabled: !roformerOk.value },
+])
 const modelOptions = computed(() => {
   const opts = models.value.map((m) => ({ value: m, label: m }))
   if (ollamaModel.value && !models.value.includes(ollamaModel.value)) {
@@ -45,6 +51,8 @@ onMounted(async () => {
     ollamaURL.value = c.ollama_url || ''
     ollamaModel.value = c.ollama_model || ''
     autoStems.value = c.auto_stems_instrumental !== false
+    stemsModel.value = c.stems_pref || 'htdemucs'
+    roformerOk.value = !!c.roformer_available
     info.value = c
     await checkOllama()
   } catch {
@@ -76,10 +84,14 @@ async function save() {
         ollama_url: ollamaURL.value.trim(),
         ollama_model: ollamaModel.value.trim(),
         auto_stems_instrumental: autoStems.value,
+        stems_model: stemsModel.value,
       })
       const c = await api.workerConfig()
       ollamaURL.value = c.ollama_url || ''
       ollamaModel.value = c.ollama_model || ''
+      // сервер мог смениться — доступность RoFormer и выбор берём из его ответа
+      stemsModel.value = c.stems_pref || 'htdemucs'
+      roformerOk.value = !!c.roformer_available
       info.value = c
     } catch (e) {
       err.value = 'Ollama-настройки не применены (воркер старой версии или недоступен): ' + e
@@ -128,10 +140,17 @@ async function save() {
       </label>
       <div class="set-hint muted">{{ t('settings.autoStems.hint') }}</div>
 
+      <div class="set-row">
+        <span>{{ t('settings.stemsModel') }}</span>
+        <VSelect v-model="stemsModel" :options="stemsOptions" />
+      </div>
+      <div class="set-hint muted">{{ roformerOk ? t('settings.stemsModel.hint') : t('settings.stemsModel.missing') }}</div>
+
       <h3 class="set-h">{{ t('settings.info') }} <span class="muted">{{ t('settings.info.readonly') }}</span></h3>
       <div v-if="info" class="set-info muted">
         папка данных: {{ info.data_dir }}<br />
-        whisper: {{ info.whisper_available ? info.whisper_py : 'не найден (тексты треков недоступны)' }}
+        whisper: {{ info.whisper_available ? info.whisper_py : 'не найден (тексты треков недоступны)' }}<br />
+        <template v-if="info.stems_model">{{ t('settings.stemsModel') }}: {{ info.stems_model === 'bs-roformer-sw' ? 'BS-Roformer-SW' : t('settings.stemsModel.demucs') }}</template>
       </div>
       <div v-else class="set-info muted">воркер недоступен — Ollama и пути не показать</div>
 

@@ -12,7 +12,7 @@
    • вся логика на Go (app.go)                     │ :8091              │
    • звук = pw-play (PipeWire),                    │ резидентная YuE2   │
      т.к. в webview (webkit2gtk)                   │ + SheetSage2       │
-     аудиовыхода нет                               │ + demucs           │
+     аудиовыхода нет                               │ + RoFormer/demucs  │
    • ffmpeg-цепочки DSP — локально                 │ + Ollama           │
                                                    │ + faster-whisper   │
                                                    └────────────────────┘
@@ -44,7 +44,8 @@
 | `yue_worker.py` | FastAPI :8091, очередь SQLite, все эндпоинты, микс овердаба |
 | `dsp.py` | librosa-анализатор (метрики) |
 | `sheetsage.py` | SheetSage2 (транскрипция трека → ABC, m-a-p/SheetSage2, 57M) |
-| `stems.py` | demucs htdemucs (разделение на стемы, грузится на вызов) |
+| `stems.py` | разделение на дорожки: demucs htdemucs (по умолчанию, грузится на вызов) или по выбору BS-Roformer-SW подпроцессом в отдельном окружении (`sep_run.py`); при сбое RoFormer — demucs |
+| `sep_run.py` | RoFormer-SW + DrumSep (барабаны по частям); запускается `~/sep-venv`-интерпретатором (`YUE_SEP_PY`) |
 | `abcparse.py` | парсер score.abc → таймлайн для пиано-ролла |
 | `waveform.py` | волна громкости (пики soundfile+numpy) и спектрограмма (ffmpeg showspectrumpic — опционален) |
 | `whisper_run.py` | скрипт текста песни; запускается `~/whisper-venv`-интерпретатором |
@@ -77,6 +78,25 @@ metrics.json, dsp-*/overdub-*/preview-*/stem-*.flac. Профили корпус
 
 - YuE2 резидентна (~7.7 ГБ) — держится загруженной между запросами.
 - SheetSage2 мала (сотни МБ) — тоже резидентна, отдельный лок.
-- demucs ~0.7 ГБ — грузится на вызов и выгружается.
+- Разделение на дорожки: RoFormer — отдельный процесс, память освобождается с его завершением; demucs ~0.7 ГБ — грузится на вызов и выгружается. Всё тяжёлое идёт через общую очередь к GPU.
 - Ollama (копайтер/перевод/профиль) вызывается с `keep_alive: 0` — выгружается
   сразу. Если Ollama держит модель — генерация падает OOM.
+
+## Дорожки трека (контракт)
+
+Файлы `stem-*.flac` в каталоге джобы:
+
+- **основные** — `drums`, `bass`, `other`, `vocals`: в сумме дают трек. По ним считаются минус,
+  вклейки, пересборка, проверка голоса (`vocal_leak`);
+- **подробные внутри «прочего»** — `guitar`, `piano`: уточнение `other`, в сумму не входят;
+- **подробные внутри «барабанов»** — `kick`, `snare`, `toms`, `hh`, `ride`, `crash` (DrumSep, только
+  при RoFormer): уточнение `drums`, в сумму не входят.
+
+Модель — по настройке воркера `stems_model`: `htdemucs` (по умолчанию, быстро) или `roformer`
+(BS-Roformer-SW, чище, ~4,5× дольше; разово — `POST /jobs/{id}/stems?model=roformer`). У RoFormer
+«прочее» не включает гитару и клавиши, поэтому `other` приложения = other + guitar + piano модели,
+а остаток «трек − сумма основных» раздаётся дорожкам по их вкладу на частоте — сумма точная.
+Нет окружения RoFormer, его сбой или `YUE_STEMS_MODEL=demucs` — demucs (htdemucs + htdemucs_6s),
+частей барабанов нет. Какая модель сработала — поле `model` ответа; в `/config` — `stems_pref`
+(выбор), `stems_model` (на деле), `roformer_available`.
+

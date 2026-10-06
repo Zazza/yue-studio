@@ -35,9 +35,10 @@ func RegisterStudioTools(s *Server) {
 	s.Register(Tool{
 		Name: "config_set",
 		Description: "Настройки: server_url — адрес воркера (сохраняется и в settings приложения); " +
-			"ollama_url / ollama_model — применяются на лету.",
+			"ollama_url / ollama_model — применяются на лету; stems_model — модель дорожек по умолчанию (htdemucs | roformer).",
 		InputSchema: props(map[string]any{
 			"server_url":   prop("адрес воркера, напр. http://gpu-host:8091", "string"),
+			"stems_model":  prop("чем делать дорожки по умолчанию: htdemucs (быстро) | roformer (чище, ~4,5× дольше, веса некоммерческие)", "string"),
 			"ollama_url":   prop("URL Ollama (api/chat)", "string"),
 			"ollama_model": prop("модель Ollama", "string"),
 		}),
@@ -52,6 +53,9 @@ func RegisterStudioTools(s *Server) {
 			}
 			if v := argString(args, "ollama_model"); v != "" {
 				cfg["ollama_model"] = v
+			}
+			if v := argString(args, "stems_model"); v != "" {
+				cfg["stems_model"] = v
 			}
 			if len(cfg) > 0 {
 				if err := s.client.SetWorkerConfig(context.Background(), cfg); err != nil {
@@ -280,14 +284,19 @@ func RegisterStudioTools(s *Server) {
 	// ---------- стемы / минус / овердаб / импорт ----------
 
 	s.Register(Tool{
-		Name:        "make_stems",
-		Description: "Разделить трек джобы на стемы demucs (drums/bass/other/vocals) и подробные дорожки guitar/piano (внутри other, в сумму трека не входят). Медленно при первом вызове.",
+		Name: "make_stems",
+		Description: "Разделить трек джобы на стемы (drums/bass/other/vocals) и подробные дорожки guitar/piano (внутри other) " +
+			"и части барабанов kick/snare/toms/hh/ride/crash (внутри drums) — подробные в сумму трека не входят. " +
+			"Модель: htdemucs (быстро, ~20 с на трек) или roformer — BS-Roformer-SW, заметно чище, ~4,5× дольше, " +
+			"части барабанов только с ней. По умолчанию — настройка stems_model (config_set); какая сработала — поле model. " +
+			"Медленно при первом вызове (качаются веса).",
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID джобы", "integer"),
+			"model":  prop("разово: roformer | htdemucs (пусто — по настройке stems_model)", "string"),
 		}, "job_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			defer s.fxCache().Invalidate(argInt(args, "job_id")) // стемы переписаны — кэш превью устарел
-			out, err := s.client.MakeStems(context.Background(), argInt(args, "job_id"))
+			out, err := s.client.MakeStemsWith(context.Background(), argInt(args, "job_id"), argString(args, "model"))
 			if err != nil {
 				return "", err
 			}

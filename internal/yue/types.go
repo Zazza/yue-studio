@@ -36,6 +36,8 @@ type Service interface {
 	JobPreview(ctx context.Context, id int64, fromSec, toSec float64) (map[string]any, error)
 	SubmitOverdub(ctx context.Context, id int64, style, lyrics string, gain float64, abc string, seed int64) (int64, error)
 	MakeStems(ctx context.Context, id int64) (map[string]any, error)
+	// MakeStemsWith — разделение разово заданной моделью (roformer | htdemucs; "" — по настройке)
+	MakeStemsWith(ctx context.Context, id int64, model string) (map[string]any, error)
 	MakeMinus(ctx context.Context, id int64, exclude []string) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
 	TranscribeJob(ctx context.Context, id int64) (map[string]any, error)
