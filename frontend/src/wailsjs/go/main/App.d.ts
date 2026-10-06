@@ -13,6 +13,8 @@ export function YueAnalyzeJob(arg1:number):Promise<Record<string, any>>;
 
 export function YueApplyDsp(arg1:number,arg2:string,arg3:Record<string, number>):Promise<yue.DspVariant>;
 
+export function YueApplyFx(arg1:number,arg2:yue.FxRequest):Promise<yue.DspVariant>;
+
 export function YueApplySteps(arg1:number,arg2:Array<dsp.Step>,arg3:string):Promise<yue.DspVariant>;
 
 export function YueAudioState():Promise<main.YuePlayerState>;
@@ -48,6 +50,8 @@ export function YueDspVariantDelete(arg1:number,arg2:string):Promise<boolean>;
 export function YueDspVariants(arg1:number):Promise<Array<yue.DspVariant>>;
 
 export function YueEnsureMp3(arg1:number):Promise<Record<string, any>>;
+
+export function YueFxAssets():Promise<Record<string, any>>;
 
 export function YueFxPreview(arg1:number,arg2:string,arg3:Array<dsp.Step>,arg4:number,arg5:number,arg6:string):Promise<studio.PreviewResult>;
 
@@ -140,6 +144,8 @@ export function YueTranscribeFile():Promise<yue.TranscribeResult>;
 export function YueTranscribeJob(arg1:number):Promise<Record<string, any>>;
 
 export function YueTranslate(arg1:string):Promise<yue.TranslateResult>;
+
+export function YueUploadFxAsset(arg1:string):Promise<Record<string, any>>;
 
 export function YueVariantToTrack(arg1:number,arg2:string,arg3:string,arg4:number):Promise<number>;
 

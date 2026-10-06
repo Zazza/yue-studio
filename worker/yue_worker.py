@@ -16,6 +16,7 @@
   GET  /listen/{id}      — страница прослушивания
   GET  /audio/{id}/{f}   — артефакты задачи (audio.flac, score.abc, request.abc, ...)
 """
+import contextlib
 import json
 import shutil
 from collections.abc import Iterator
@@ -25,6 +26,7 @@ import os
 import random
 import re
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -45,8 +47,8 @@ from abcparse import parse_abc
 from plancheck import plan_diff
 from dsp import analyze_file, beat_grid, vocal_activity
 from sheetsage import transcribe as ss_transcribe
-from stems import (DETAIL_STEMS, MAIN_STEMS, MODEL_DEMUCS, MODEL_ROFORMER, roformer_available, roformer_enabled,
-                   separate as demucs_separate)
+from stems import (DETAIL_STEMS, DRUM_PARTS, MAIN_STEMS, MODEL_DEMUCS, MODEL_ROFORMER, roformer_available,
+                   roformer_enabled, separate as demucs_separate)
 import voice as voicevc
 
 log = logging.getLogger("yue-worker")
@@ -767,6 +769,7 @@ class ConfigIn(BaseModel):
     ollama_model: str | None = None
     auto_stems_instrumental: bool | None = None
     stems_model: str | None = None   # разделение: «htdemucs» (быстро) | «roformer» (чище)
+    fx_engine: bool | None = None    # звуковой движок (POST /jobs/{id}/fx); YUE_FX_ENGINE=0 — выкл всегда
 
 
 # настройки воркера, переживающие перезапуск (в отличие от Ollama — те из env)
@@ -840,6 +843,7 @@ def get_config():
         "stems_pref": stems_pref(),
         "stems_model": MODEL_ROFORMER if roformer_enabled(stems_pref()) else MODEL_DEMUCS,
         "roformer_available": roformer_available(),
+        "fx_engine": fx_engine_enabled(),
     }
 
 
@@ -865,6 +869,10 @@ def set_config(req: ConfigIn):
             raise HTTPException(422, f"stems_model must be one of {', '.join(STEMS_CHOICES)}")
         st = _load_settings()
         st["stems_model"] = req.stems_model
+        _save_settings(st)
+    if req.fx_engine is not None:
+        st = _load_settings()
+        st["fx_engine"] = bool(req.fx_engine)
         _save_settings(st)
     log.info("config updated: ollama=%s model=%s", OLLAMA_URL, OLLAMA_MODEL)
     return get_config()
@@ -2521,6 +2529,293 @@ def dsp_variants(job_id: int):
                 pass
         out.append(item)
     return out
+
+
+# ---------- Звуковой движок: цепочка обработки дорожки (fx_engine) ----------
+
+FX_KINDS = {"amp": ("amps", ".nam"), "ir": ("irs", ".wav")}
+FX_UPLOAD_MAX = 50 * 1024 * 1024
+FX_XFADE_S = 0.01        # кроссфейд на границах окна
+FX_SOURCES = ("mix",) + MAIN_STEMS + DETAIL_STEMS + DRUM_PARTS
+# имя захвата/IR: буквы (в т.ч. кириллица), цифры, пробел и « .,()+-_»; без путей
+FX_NAME_RE = re.compile(r"^[\w][\w .,()+\-]{0,150}$")
+# сторонние пакеты NAM (neural-amp-modeler 0.12.2 + зависимости) — отдельной папкой
+NAM_DEPS = os.environ.get("YUE_NAM_DEPS", "")
+
+
+def _fx_dir() -> Path:
+    """Захваты и IR: <data>/fx/{amps,irs} (от DATA_DIR в момент вызова)."""
+    return DATA_DIR / "fx"
+
+
+def fx_engine_enabled() -> bool:
+    """Движок включён: YUE_FX_ENGINE=0 выключает принудительно (откат), иначе — настройка."""
+    if os.environ.get("YUE_FX_ENGINE", "").strip() == "0":
+        return False
+    return bool(_load_settings().get("fx_engine", True))
+
+
+def _fx_asset_path(kind: str, name: str) -> Path:
+    """Файл захвата/IR по имени (расширение можно не писать). Неверное имя — KeyError."""
+    sub, ext = FX_KINDS[kind]
+    if name.lower().endswith(ext):
+        name = name[:-len(ext)] + ext  # Room.WAV → Room.wav: список ищет по строчному расширению
+    else:
+        name += ext
+    if "/" in name or "\\" in name or ".." in name or not FX_NAME_RE.match(name):
+        raise KeyError(name)
+    return _fx_dir() / sub / name
+
+
+def _nam_latency_path(p: Path) -> Path:
+    return p.with_name(p.name + ".latency.json")
+
+
+class _FxResources:
+    """Захваты NAM и IR из <data>/fx для fx_engine.process. Модели, загруженные за проход,
+    выгружаются в close() — видеопамять делится с YuE2."""
+
+    def __init__(self):
+        self._amps: dict = {}
+
+    def ir(self, name: str):
+        p = _fx_asset_path("ir", name)
+        if not p.is_file():
+            raise KeyError(name)
+        import soundfile as sf
+        data, sr = sf.read(str(p), dtype="float32")
+        return data, sr
+
+    def amp(self, name: str):
+        p = _fx_asset_path("amp", name)
+        if not p.is_file():
+            raise KeyError(name)
+        if p.name not in self._amps:
+            if NAM_DEPS and NAM_DEPS not in sys.path:
+                sys.path.insert(0, NAM_DEPS)
+            import fx_nam
+            lp = _nam_latency_path(p)
+            cached = None
+            try:
+                cached = int(json.loads(lp.read_text())["latency"])
+            except (OSError, ValueError, KeyError, TypeError):
+                pass  # нет замера — load_nam замерит щелчком
+            m = fx_nam.load_nam(p, cached)
+            if cached is None:
+                lp.write_text(json.dumps({"latency": m.latency}))
+            self._amps[p.name] = m
+        return self._amps[p.name]
+
+    def close(self) -> None:
+        for m in self._amps.values():
+            m.close()
+        self._amps.clear()
+
+
+def fx_resources() -> _FxResources:
+    return _FxResources()
+
+
+class FxIn(BaseModel):
+    model_config = {"populate_by_name": True}
+    source: str = "mix"
+    chain: list
+    from_: float | None = Field(None, alias="from")
+    to: float | None = None
+    output: str = "mix"
+    label: str = ""
+
+
+def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
+    """Вес обработанного звука по сэмплам: 1 в окне, 0 вне, линейный кроссфейд FX_XFADE_S
+    внутри окна на краях. Без окна — None (везде 1)."""
+    import numpy as np
+    if frm is None and to is None:
+        return None
+    a = int(round((frm or 0.0) * sr))
+    b = int(round(to * sr)) if to is not None else n
+    w = np.zeros(n)
+    w[a:b] = 1.0
+    xf = min(int(FX_XFADE_S * sr), (b - a) // 2)
+    if xf > 0:
+        ramp = np.linspace(0.0, 1.0, xf + 2)[1:-1]
+        if a > 0:
+            w[a:a + xf] = ramp
+        if b < n:
+            w[b - xf:b] = ramp[::-1]
+    return w
+
+
+def _fx_render(job_id: int, req: FxIn) -> dict:
+    import hashlib
+    import numpy as np
+    import soundfile as sf
+    import fx_engine
+    try:
+        chain = fx_engine.parse_chain(req.chain)
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+    if req.source not in FX_SOURCES:
+        raise HTTPException(422, f"source must be one of {', '.join(FX_SOURCES)}")
+    if req.output not in ("mix", "solo"):
+        raise HTTPException(422, "output must be mix or solo")
+    if len(req.label) > DSP_LABEL_MAX:
+        raise HTTPException(422, f"label longer than {DSP_LABEL_MAX} chars")
+    row = _job_row(job_id)
+    if row is None or not row["audio_file"]:
+        raise HTTPException(404, "job or audio not found")
+    jdir = JOBS_DIR / str(job_id)
+    src = jdir / row["audio_file"]
+    info = sf.info(str(src))
+    sr, n = info.samplerate, info.frames
+    dur = n / sr
+    frm, to = req.from_, req.to
+    if frm is not None and not 0 <= frm < dur:
+        raise HTTPException(422, f"from must be within 0…{dur:.2f} s")
+    if to is not None and not 0 < to <= dur + 1e-6:
+        raise HTTPException(422, f"to must be within 0…{dur:.2f} s")
+    if frm is not None and to is not None and frm >= to:
+        raise HTTPException(422, "from must be less than to")
+
+    track, _ = sf.read(str(src), always_2d=True, dtype="float64")
+    if req.source == "mix":
+        part = track
+    else:
+        try:
+            _ensure_stems(job_id)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"separation failed: {friendly_error(e)}") from e
+        sp = jdir / f"stem-{req.source}.flac"
+        if not sp.is_file():
+            hint = " (части барабанов — только при разделении RoFormer)" if req.source in DRUM_PARTS else ""
+            raise HTTPException(422, f"у трека нет дорожки {req.source}{hint}")
+        part, _ = sf.read(str(sp), always_2d=True, dtype="float64")
+        part = part[:n] if len(part) >= n else np.pad(part, ((0, n - len(part)), (0, 0)))
+        if part.shape[1] != track.shape[1]:
+            part = np.repeat(part.mean(axis=1, keepdims=True), track.shape[1], axis=1)
+
+    res = fx_resources()
+    try:
+        with gpu_queue(f"fx {job_id}") if fx_engine.needs_gpu(chain) else contextlib.nullcontext():
+            try:
+                wet = fx_engine.process(part.astype(np.float32), sr, chain, res).astype(np.float64)
+            finally:
+                # выгрузка захватов NAM (empty_cache) — тоже работа с GPU: внутри очереди
+                close = getattr(res, "close", None)
+                if close:
+                    close()
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+
+    # в треке меняется только разница «обработанная − исходная»: вне окна трек побитно тот же
+    w = _fx_window_weights(n, sr, frm, to)
+    delta = wet - part if w is None else (wet - part) * w[:, None]
+    if req.output == "solo" and req.source != "mix":
+        out = part + delta
+    else:
+        out = track + delta
+
+    key = json.dumps({"chain": chain, "from": frm, "to": to, "output": req.output}, sort_keys=True)
+    fname = f"dsp-fx-{req.source}-{hashlib.sha1(key.encode()).hexdigest()[:8]}.flac"
+    label = req.label or f"Движок: {' → '.join(b['type'] for b in chain)} · {req.source}"
+    target = jdir / fname
+    created = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        sf.write(str(target), out, sr, subtype=info.subtype if info.subtype in ("PCM_16", "PCM_24") else "PCM_24")
+        metrics = analyze_file(target)
+        (jdir / f"{fname}.metrics.json").write_text(json.dumps(
+            {"file": fname, "created_at": created, "metrics": metrics, "label": label}, ensure_ascii=False))
+    except Exception as e:  # noqa: BLE001
+        target.unlink(missing_ok=True)
+        (jdir / f"{fname}.metrics.json").unlink(missing_ok=True)
+        log.exception("fx render failed for job %s", job_id)
+        raise HTTPException(500, f"fx render failed: {friendly_error(e)}") from e
+    peak = float(np.max(np.abs(out))) if out.size else 0.0
+    log.info("job %s: fx %s (%s) → %s, пик %.2f", job_id, req.source, label, fname, peak)
+    return {"file": fname, "label": label, "created_at": created, "metrics": metrics,
+            "clipped": peak > 1.0}
+
+
+@app.post("/jobs/{job_id}/fx")
+def job_fx(job_id: int, req: FxIn):
+    """Звуковой движок: цепочка блоков (fx_engine) на весь трек или дорожку, в окне
+    from/to или целиком. Результат — вариант dsp-fx-*.flac (как варианты эффектов ПК)."""
+    if not fx_engine_enabled():
+        raise HTTPException(503, "звуковой движок выключен (настройка fx_engine / YUE_FX_ENGINE=0)")
+    return _fx_render(job_id, req)
+
+
+@app.get("/fx/assets")
+def fx_assets():
+    """Загруженные захваты NAM (с замеренной задержкой, если уже была) и IR."""
+    import soundfile as sf
+    amps, irs = [], []
+    for p in sorted((_fx_dir() / "amps").glob("*.nam")):
+        lat = None
+        try:
+            lat = int(json.loads(_nam_latency_path(p).read_text())["latency"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # ещё не замерена — замер при первом применении
+        amps.append({"name": p.name, "latency": lat})
+    for p in sorted((_fx_dir() / "irs").glob("*.wav")):
+        try:
+            i = sf.info(str(p))
+            irs.append({"name": p.name, "sr": i.samplerate, "seconds": round(i.frames / i.samplerate, 3)})
+        except Exception:  # noqa: BLE001 - битый файл в списке не показываем, остальные — да
+            log.warning("fx: unreadable IR %s", p.name)
+    return {"amps": amps, "irs": irs}
+
+
+@app.post("/fx/assets")
+async def fx_asset_upload(request: Request, kind: str = "", name: str = ""):
+    """Загрузить захват NAM (.nam) или IR (.wav): тело — байты файла. В поставку не
+    входят — пользователь кладёт свои (лицензии захватов — у их авторов)."""
+    if kind not in FX_KINDS:
+        raise HTTPException(422, "kind must be amp or ir")
+    ext = FX_KINDS[kind][1]
+    if not name.lower().endswith(ext):
+        raise HTTPException(422, f"name must end with {ext}")
+    try:
+        target = _fx_asset_path(kind, name)
+    except KeyError:
+        raise HTTPException(422, "bad name: allowed letters, digits, space and . , ( ) + - _ "
+                                 "(no / \\ or ..), up to 150 chars") from None
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        declared = 0
+    if declared > FX_UPLOAD_MAX:
+        raise HTTPException(413, f"file larger than {FX_UPLOAD_MAX // (1024 * 1024)} MB")
+    data = await request.body()
+    if len(data) > FX_UPLOAD_MAX:
+        raise HTTPException(413, f"file larger than {FX_UPLOAD_MAX // (1024 * 1024)} MB")
+    if not data:
+        raise HTTPException(422, "empty body")
+    if kind == "amp":
+        try:
+            cfg = json.loads(data)
+            ok = isinstance(cfg, dict) and "architecture" in cfg and "weights" in cfg
+        except ValueError:
+            ok = False
+        if not ok:
+            raise HTTPException(422, "not a .nam file (JSON with architecture and weights)")
+    else:
+        import io
+        import soundfile as sf
+        try:
+            ir, _ = sf.read(io.BytesIO(data), dtype="float32")
+            ok = len(ir) > 0
+        except Exception:  # noqa: BLE001 - любой сбой разбора = не wav
+            ok = False
+        if not ok:
+            raise HTTPException(422, "not a readable .wav file")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(target)
+    _nam_latency_path(target).unlink(missing_ok=True)  # новый файл — старый замер не годится
+    log.info("fx asset uploaded: %s %s (%d bytes)", kind, target.name, len(data))
+    return {"name": target.name, "kind": kind}
 
 
 @app.get("/listen/{job_id}")

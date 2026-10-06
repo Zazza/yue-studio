@@ -94,7 +94,12 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 **Библиотека**: `styles` (группы/поиск, готовые строки стиля) · `slot_options`
 (рус → англ словарь слотов).
 
-**Настройки**: `config_get` / `config_set` (адрес воркера, Ollama).
+**Звуковой движок** (обработка на воркере, не ffmpeg): `fx_apply` — цепочка блоков
+gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожку → вариант `dsp-fx-*.flac`
+(звук не сдвигается — годится для вклейки нота в ноту) · `fx_assets` — загруженные захваты NAM и IR ·
+`fx_asset_upload` — загрузить свой `.nam`/`.wav` с ПК. Подробно — docs/effects.md, «Звуковой движок».
+
+**Настройки**: `config_get` / `config_set` (адрес воркера, Ollama, `stems_model`, `fx_engine` — движок вкл/выкл).
 
 **Установка и диагностика**: `doctor` (воркер/GPU/ffmpeg/HF-токен) ·
 `install_worker` (локально или по ssh на GPU-машину; сухой прогон по умолчанию) ·

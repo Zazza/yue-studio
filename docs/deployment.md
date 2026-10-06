@@ -77,6 +77,8 @@ systemd-юнита `yue-worker`. Хост задаётся `YUE_DEPLOY_HOST=user
 | `YUE_SEP_PY` | `~/sep-venv/bin/python` | интерпретатор окружения разделения (RoFormer) — см. ниже |
 | `YUE_SEP_MODELS` | `~/sep-models` | каталог весов RoFormer/DrumSep (~1,1 ГБ, качаются при первом разделении) |
 | `YUE_STEMS_MODEL` | — | `demucs` — откат: разделять demucs, даже если RoFormer выбран в настройках и установлен |
+| `YUE_NAM_DEPS` | — | папка с пакетами NAM для блока `amp` звукового движка — см. ниже |
+| `YUE_FX_ENGINE` | — | `0` — откат: звуковой движок выключен (`/jobs/{id}/fx` → 503), что бы ни было в настройках |
 
 Настройки Ollama также меняются на лету из приложения (⚙ в шапке → `/config` воркера).
 
@@ -115,6 +117,32 @@ systemd-юнита `yue-worker`. Хост задаётся `YUE_DEPLOY_HOST=user
   длительности голоса.
 - Лицензия Seed-VC — GPL-3.0: ставится пользователем явно и работает отдельной
   программой, код Yue Studio под неё не попадает.
+
+## Звуковой движок и усилители NAM
+
+Звуковой движок (`POST /jobs/{id}/fx`, MCP `fx_apply`) работает на numpy/scipy — они уже есть у
+воркера, ставить ничего не нужно. Только блоку `amp` (усилитель NAM) нужен пакет
+neural-amp-modeler **0.12.2** (MIT; читает захваты `.nam` формата v0.5, 0.13 — уже нет). Импортом он
+тянет matplotlib и pytorch_lightning, поэтому ставится отдельной папкой без своего torch (torch берётся
+у воркера), на любой диск:
+
+```bash
+uv pip install --python ~/yue/.venv/bin/python --target /opt/yue/nam-deps --no-deps \
+  neural-amp-modeler==0.12.2 wavio pytorch_lightning lightning_utilities torchmetrics auraloss \
+  matplotlib contourpy cycler fonttools kiwisolver pillow pyparsing python-dateutil
+echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и перезапуск воркера
+```
+
+- Захваты усилителей (`.nam`) и импульсные отклики кабинетов/залов (`.wav`) в поставку не входят:
+  пользователь загружает свои (`fx_asset_upload`, у каждого захвата своя лицензия). Лежат в
+  `<YUE_DATA_DIR>/fx/amps` и `fx/irs`. Задержка захвата меряется щелчком при первом применении и
+  кэшируется рядом (`<имя>.nam.latency.json`).
+- Ресурсы (замер на RTX 4070 Ti SUPER): первая загрузка ~13 с (инициализация CUDA), дальше — доли
+  секунды; 4 минуты стерео через усилитель — ~2 с; остальные блоки — 0,4–2 с на CPU.
+- Без `YUE_NAM_DEPS` движок работает, недоступен только блок `amp` (ошибка с причиной).
+- Откат: `YUE_FX_ENGINE=0` в `worker.env` или `config_set fx_engine=false` — эндпоинт отвечает 503,
+  эффекты ffmpeg приложения работают как прежде (движок их не заменяет).
+- pedalboard (Spotify) не используется: его лицензия GPL-3, проект — MIT.
 
 ## Разделение на дорожки — BS-Roformer-SW
 

@@ -7,7 +7,7 @@ import {
   YueTranscribeFile, YueTranscribeJob, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
-  YueMakeStems, YueJobStems, YueMakeMinus,
+  YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
   YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueJobGrid, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
@@ -37,6 +37,10 @@ export const api = {
   dspChains: () => YueDspChains(),
   applyDsp: (id, chain, params) => YueApplyDsp(id, chain, params),
   dspVariants: (id) => YueDspVariants(id),
+  // звуковой движок воркера: req = {source, chain: [{type, …}], from?, to?, output?, label?}
+  applyFx: (id, req) => YueApplyFx(id, req),
+  fxAssets: () => YueFxAssets(),
+  uploadFxAsset: (kind) => YueUploadFxAsset(kind),
   // быстрое превью эффектов (steps — цепочка по порядку) на куске трека; куски
   // «было/стало» остаются на ПК, играет playPreview (slot '' или A–D, which wet/dry)
   fxPreview: (id, stem, steps, from, to, slot = '') => YueFxPreview(id, stem, steps, from, to, slot),

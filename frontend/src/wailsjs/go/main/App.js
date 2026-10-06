@@ -18,6 +18,10 @@ export function YueApplyDsp(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueApplyDsp'](arg1, arg2, arg3);
 }
 
+export function YueApplyFx(arg1, arg2) {
+  return window['go']['main']['App']['YueApplyFx'](arg1, arg2);
+}
+
 export function YueApplySteps(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueApplySteps'](arg1, arg2, arg3);
 }
@@ -88,6 +92,10 @@ export function YueDspVariants(arg1) {
 
 export function YueEnsureMp3(arg1) {
   return window['go']['main']['App']['YueEnsureMp3'](arg1);
+}
+
+export function YueFxAssets() {
+  return window['go']['main']['App']['YueFxAssets']();
 }
 
 export function YueFxPreview(arg1, arg2, arg3, arg4, arg5, arg6) {
@@ -272,6 +280,10 @@ export function YueTranscribeJob(arg1) {
 
 export function YueTranslate(arg1) {
   return window['go']['main']['App']['YueTranslate'](arg1);
+}
+
+export function YueUploadFxAsset(arg1) {
+  return window['go']['main']['App']['YueUploadFxAsset'](arg1);
 }
 
 export function YueVariantToTrack(arg1, arg2, arg3, arg4) {

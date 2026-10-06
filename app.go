@@ -494,6 +494,37 @@ func (a *App) YueMakeStems(id int64) (map[string]any, error) {
 	return a.yue.MakeStems(a.ctx, id)
 }
 
+// YueApplyFx — звуковой движок воркера: цепочка блоков на трек/дорожку → вариант dsp-fx-*.flac.
+func (a *App) YueApplyFx(id int64, req yue.FxRequest) (*yue.DspVariant, error) {
+	return a.yue.ApplyFx(a.ctx, id, req)
+}
+
+// YueFxAssets — захваты NAM и IR, загруженные на воркер.
+func (a *App) YueFxAssets() (map[string]any, error) {
+	return a.yue.FxAssets(a.ctx)
+}
+
+// YueUploadFxAsset — выбрать на ПК захват NAM (kind=amp, .nam) или IR (kind=ir, .wav) и загрузить
+// на воркер; (nil, nil) — диалог отменён.
+func (a *App) YueUploadFxAsset(kind string) (map[string]any, error) {
+	ext := map[string]string{"amp": "*.nam", "ir": "*.wav"}[kind]
+	if ext == "" {
+		return nil, fmt.Errorf("kind: amp | ir")
+	}
+	src, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Загрузить на воркер",
+		Filters: []runtime.FileFilter{{DisplayName: ext, Pattern: ext}},
+	})
+	if err != nil || src == "" {
+		return nil, err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return nil, err
+	}
+	return a.yue.UploadFxAsset(a.ctx, kind, filepath.Base(src), data)
+}
+
 // YueEnsureMp3 — конвертировать джобу в mp3 320, если ещё нет (импортные треки).
 func (a *App) YueEnsureMp3(id int64) (map[string]any, error) {
 	return a.yue.EnsureMp3(a.ctx, id)

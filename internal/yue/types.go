@@ -39,6 +39,10 @@ type Service interface {
 	// MakeStemsWith — разделение разово заданной моделью (roformer | htdemucs; "" — по настройке)
 	MakeStemsWith(ctx context.Context, id int64, model string) (map[string]any, error)
 	MakeMinus(ctx context.Context, id int64, exclude []string) (map[string]any, error)
+	// звуковой движок воркера: цепочка блоков на трек/дорожку → вариант; захваты NAM и IR
+	ApplyFx(ctx context.Context, id int64, req FxRequest) (*DspVariant, error)
+	FxAssets(ctx context.Context) (map[string]any, error)
+	UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
 	TranscribeJob(ctx context.Context, id int64) (map[string]any, error)
 	EnsureMp3(ctx context.Context, id int64) (map[string]any, error)

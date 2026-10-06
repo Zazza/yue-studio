@@ -428,6 +428,28 @@ export namespace yue {
 	        this.label = source["label"];
 	    }
 	}
+	export class FxRequest {
+	    source: string;
+	    chain: any[];
+	    from?: number;
+	    to?: number;
+	    output?: string;
+	    label?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FxRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.chain = source["chain"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.output = source["output"];
+	        this.label = source["label"];
+	    }
+	}
 	export class HealthInfo {
 	    status: string;
 	    model_loaded: boolean;

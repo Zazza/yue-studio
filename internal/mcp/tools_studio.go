@@ -17,6 +17,7 @@ import (
 // RegisterStudioTools — настройка адреса, Ollama, DSP, стемы, корпуса.
 func RegisterStudioTools(s *Server) {
 	registerRevoiceTools(s)
+	registerFxTools(s)
 	s.Register(Tool{
 		Name:        "config_get",
 		Description: "Текущие настройки: адрес воркера, Ollama (url/модель), пути данных воркера.",
@@ -35,12 +36,13 @@ func RegisterStudioTools(s *Server) {
 	s.Register(Tool{
 		Name: "config_set",
 		Description: "Настройки: server_url — адрес воркера (сохраняется и в settings приложения); " +
-			"ollama_url / ollama_model — применяются на лету; stems_model — модель дорожек по умолчанию (htdemucs | roformer).",
+			"ollama_url / ollama_model — применяются на лету; stems_model — модель дорожек по умолчанию (htdemucs | roformer); fx_engine — звуковой движок вкл/выкл.",
 		InputSchema: props(map[string]any{
 			"server_url":   prop("адрес воркера, напр. http://gpu-host:8091", "string"),
 			"stems_model":  prop("чем делать дорожки по умолчанию: htdemucs (быстро) | roformer (чище, ~4,5× дольше, веса некоммерческие)", "string"),
 			"ollama_url":   prop("URL Ollama (api/chat)", "string"),
 			"ollama_model": prop("модель Ollama", "string"),
+			"fx_engine":    prop("звуковой движок воркера (fx_apply): false — выключить (откат на эффекты ffmpeg)", "boolean"),
 		}),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			if u := argString(args, "server_url"); u != "" {
@@ -56,6 +58,9 @@ func RegisterStudioTools(s *Server) {
 			}
 			if v := argString(args, "stems_model"); v != "" {
 				cfg["stems_model"] = v
+			}
+			if v, ok := args["fx_engine"].(bool); ok {
+				cfg["fx_engine"] = v
 			}
 			if len(cfg) > 0 {
 				if err := s.client.SetWorkerConfig(context.Background(), cfg); err != nil {

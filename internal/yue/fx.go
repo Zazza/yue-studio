@@ -1,0 +1,46 @@
+package yue
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+)
+
+// FxRequest — обработка звуковым движком воркера (POST /jobs/{id}/fx): цепочка блоков
+// gate/eq/comp/drive/amp/cab/reverb/delay по порядку на весь трек (source=mix) или дорожку.
+type FxRequest struct {
+	Source string           `json:"source"`
+	Chain  []map[string]any `json:"chain"`
+	From   *float64         `json:"from,omitempty"`   // окно, секунды; nil — с начала
+	To     *float64         `json:"to,omitempty"`     // nil — до конца
+	Output string           `json:"output,omitempty"` // mix (по умолчанию) | solo — только дорожка
+	Label  string           `json:"label,omitempty"`
+}
+
+// ApplyFx — цепочка движка на трек/дорожку → вариант dsp-fx-*.flac (список вариантов).
+func (c *Client) ApplyFx(ctx context.Context, id int64, req FxRequest) (*DspVariant, error) {
+	var out DspVariant
+	if err := c.postJSON(ctx, fmt.Sprintf("/jobs/%d/fx", id), req, gpuTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FxAssets — загруженные на воркер захваты NAM и IR: {"amps": [...], "irs": [...]}.
+func (c *Client) FxAssets(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := c.get(ctx, "/fx/assets", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UploadFxAsset — загрузить захват NAM (kind=amp, .nam) или IR (kind=ir, .wav).
+func (c *Client) UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error) {
+	q := url.Values{"kind": {kind}, "name": {name}}
+	var out map[string]any
+	if err := c.postRaw(ctx, "/fx/assets?"+q.Encode(), name, data, planTimeout, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

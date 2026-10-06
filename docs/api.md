@@ -59,6 +59,13 @@ POST /jobs/{id}/dsp?label=  вариант эффекта/микс от прил
                        label (до 300 символов) — что сделано («Перегруз голоса · голос»)
 GET  /jobs/{id}/dsp    варианты с метриками и label (пусто — понятно по имени файла)
 DELETE /jobs/{id}/dsp/{file}  удалить вариант эффекта/вклейки (файл + метрики)
+POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|bass|other|guitar|piano|kick…,
+                       chain: [{type: gate|eq|comp|drive|amp|cab|reverb|delay, …}], from?, to?,
+                       output?: mix|solo, label?} → вариант dsp-fx-<source>-<хэш>.flac (как у /dsp,
+                       + clipped). Без сдвига во времени; amp (NAM) — через очередь GPU. 422 — неверная
+                       цепочка (причина в detail), 503 — движок выключен (fx_engine / YUE_FX_ENGINE=0)
+GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}]} — захваты NAM и IR
+POST /fx/assets?kind=amp|ir&name=  загрузить .nam / .wav (байты тела, ≤ 50 МБ) → {name, kind}
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным
                        треком-готов: копия аудио + партитура исходника, стемы/минус работают
                        (parent_id = исходник, role = variant)
