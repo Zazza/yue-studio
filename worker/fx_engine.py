@@ -14,7 +14,9 @@
 """
 from __future__ import annotations
 
+import json
 from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
 from scipy import signal
@@ -31,26 +33,21 @@ MAX_TAIL_S = 10.0    # предел длины хвоста реверба/ди�
 EPS = 1e-12
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
 
-# параметр: (умолчание, мин, макс)
+# описание блоков — один источник worker/fx_blocks.json (копии во фронте и MCP — make mcp-data)
+BLOCKS_JSON = Path(__file__).with_name("fx_blocks.json")
+_BLOCKS = json.loads(BLOCKS_JSON.read_text(encoding="utf-8"))
+# параметр: (умолчание, мин, макс); zero_off — 0 тоже допустим и значит «выкл»
 SPEC: dict[str, dict[str, tuple]] = {
-    "gate": {"threshold_db": (-50.0, -90.0, 0.0), "range_db": (-40.0, -90.0, 0.0),
-             "attack_ms": (1.0, 0.1, 50.0), "release_ms": (100.0, 5.0, 1000.0)},
-    "eq": {"highpass_hz": (0.0, 0.0, 1000.0), "lowpass_hz": (0.0, 0.0, 22000.0)},
-    "comp": {"threshold_db": (-20.0, -60.0, 0.0), "ratio": (4.0, 1.0, 20.0),
-             "attack_ms": (10.0, 0.1, 200.0), "release_ms": (100.0, 5.0, 2000.0),
-             "makeup_db": (0.0, -12.0, 24.0)},
-    "drive": {"gain_db": (12.0, 0.0, 48.0), "mix": (1.0, 0.0, 1.0), "output_db": (0.0, -24.0, 12.0)},
-    "amp": {"input_db": (0.0, -24.0, 24.0), "output_db": (0.0, -24.0, 24.0)},
-    "cab": {"cutoff_hz": (7000.0, 2000.0, 12000.0), "mix": (1.0, 0.0, 1.0)},
-    "reverb": {"decay_s": (1.5, 0.1, 10.0), "predelay_ms": (10.0, 0.0, 200.0),
-               "lowpass_hz": (8000.0, 1000.0, 20000.0), "wet": (0.3, 0.0, 1.0)},
-    "delay": {"time_ms": (375.0, 1.0, 2000.0), "feedback": (0.35, 0.0, 0.95),
-              "lowpass_hz": (6000.0, 1000.0, 20000.0), "wet": (0.3, 0.0, 1.0)},
-}
+    t: {p["id"]: (float(p["default"]), float(p["min"]), float(p["max"])) for p in b.get("params", [])}
+    for t, b in _BLOCKS.items()}
+ZERO_OFF: dict[str, set[str]] = {t: {p["id"] for p in b.get("params", []) if p.get("zero_off")}
+                                 for t, b in _BLOCKS.items()}
 # строковые параметры: (умолчание или None — обязателен)
-STR_SPEC: dict[str, dict[str, str | None]] = {"amp": {"model": None}, "cab": {"ir": ""}, "reverb": {"ir": ""}}
-BAND_SPEC = {"freq_hz": (1000.0, 20.0, 20000.0), "gain_db": (0.0, -24.0, 24.0), "q": (1.0, 0.1, 10.0)}
-LOWPASS_MIN = 1000.0  # lowpass_hz эквалайзера: 0 — выкл, иначе не ниже
+STR_SPEC: dict[str, dict[str, str | None]] = {
+    t: {s["id"]: (None if s.get("required") else s.get("default", "")) for s in b["strings"]}
+    for t, b in _BLOCKS.items() if b.get("strings")}
+BAND_SPEC = {k: (float(v["default"]), float(v["min"]), float(v["max"]))
+             for k, v in _BLOCKS["eq"]["bands"].items()}
 
 
 def _num(v) -> bool:
@@ -103,7 +100,8 @@ def parse_chain(chain) -> list[dict]:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
         norm: dict = {"type": t}
         for k, s in nums.items():
-            norm[k] = _check_num(where, k, blk.get(k, s[0]), s)
+            v = blk.get(k, s[0])
+            norm[k] = 0.0 if k in ZERO_OFF.get(t, ()) and _num(v) and v == 0 else _check_num(where, k, v, s)
         for k, default in strs.items():
             v = blk.get(k, default)
             if v is None:
@@ -112,9 +110,6 @@ def parse_chain(chain) -> list[dict]:
                 raise ChainError(f"{where}: {k} должен быть строкой")
             norm[k] = v
         if t == "eq":
-            lp = norm["lowpass_hz"]
-            if 0 < lp < LOWPASS_MIN:
-                raise ChainError(f"{where}: lowpass_hz — 0 (выкл) или от {LOWPASS_MIN:g}")
             norm["bands"] = _parse_bands(where, blk.get("bands", []))
         out.append(norm)
     return out

@@ -64,6 +64,10 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        output?: mix|solo, label?} → вариант dsp-fx-<source>-<хэш>.flac (как у /dsp,
                        + clipped). Без сдвига во времени; amp (NAM) — через очередь GPU. 422 — неверная
                        цепочка (причина в detail), 503 — движок выключен (fx_engine / YUE_FX_ENGINE=0)
+                       preview: true (+ обязательные from/to) — только прослушать кусок: файл
+                       preview-fx-<хэш>.flac (окно + хвост реверба/дилея до 3 с), без метрик, не в
+                       вариантах; тот же запрос — тот же файл без пересчёта; на джобу ≤ 8 таких файлов
+                       → {file, duration_sec, clipped}
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}]} — захваты NAM и IR
 POST /fx/assets?kind=amp|ir&name=  загрузить .nam / .wav (байты тела, ≤ 50 МБ) → {name, kind}
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным

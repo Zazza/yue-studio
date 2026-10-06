@@ -1,0 +1,85 @@
+// Готовые цепочки звукового движка (страница «Инструменты», MCP fx_presets через make mcp-data).
+// chain — тот же JSON, что уходит воркеру (POST /jobs/{id}/fx); пропущенное — умолчания блоков.
+// amp.model пустой — захват выбирает пользователь из загруженных (в поставке их нет).
+
+export const fxPresets = [
+  {
+    id: 'guitar-crunch',
+    name: { ru: 'Гитара: перегруз (NAM)', en: 'Guitar: crunch (NAM)' },
+    note: {
+      ru: 'Гейт → срез низа/верха → захват усилителя БЕЗ кабинета → лёгкий кабинет. Захват с кабинетом даёт «два кабинета» — звук как из телефона.',
+      en: 'Gate → low/high cut → amp-only capture (NO cab) → light cab. A capture with a cab gives "two cabs" — telephone sound.',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -55 },
+      { type: 'eq', highpass_hz: 100, lowpass_hz: 5500 },
+      { type: 'amp', model: '' },
+      { type: 'cab', cutoff_hz: 7000 },
+    ],
+  },
+  {
+    id: 'guitar-clean',
+    name: { ru: 'Гитара: чистая с пружиной', en: 'Guitar: clean with spring' },
+    note: {
+      ru: 'Без усилителя: ровнее компрессором, чуть яснее середина, короткий тёмный хвост как у пружины.',
+      en: 'No amp: evened out by the compressor, a little clearer mids, a short dark spring-like tail.',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -60 },
+      { type: 'eq', highpass_hz: 80, bands: [{ freq_hz: 3000, gain_db: 2, q: 1 }] },
+      { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 3 },
+      { type: 'reverb', decay_s: 1.2, predelay_ms: 0, lowpass_hz: 4500, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'vocal-plate',
+    name: { ru: 'Голос: плейт', en: 'Vocal: plate' },
+    note: {
+      ru: 'Гейт, срез низа, разборчивость на 3 кГц, компрессор, хвост с предзадержкой 30 мс — слова не тонут.',
+      en: 'Gate, low cut, presence at 3 kHz, compressor, tail with 30 ms pre-delay — words stay clear.',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -50 },
+      { type: 'eq', highpass_hz: 100, bands: [{ freq_hz: 3000, gain_db: 2, q: 1 }] },
+      { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 6 },
+      { type: 'reverb', decay_s: 1.6, predelay_ms: 30, lowpass_hz: 8000, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'drums-room',
+    name: { ru: 'Барабаны: комната', en: 'Drums: room' },
+    note: {
+      ru: 'Компрессор с медленной атакой (удар проходит) и короткая комната — барабаны «в помещении», а не в вакууме.',
+      en: 'Slow-attack compressor (the hit gets through) and a short room — drums in a space, not in a vacuum.',
+    },
+    chain: [
+      { type: 'comp', threshold_db: -18, ratio: 3, attack_ms: 20, release_ms: 150, makeup_db: 2 },
+      { type: 'reverb', decay_s: 0.6, predelay_ms: 5, lowpass_hz: 9000, wet: 0.2 },
+    ],
+  },
+  {
+    id: 'synth-delay',
+    name: { ru: 'Синт: дилей и зал', en: 'Synth: delay and hall' },
+    note: {
+      ru: 'Срез низа (место басу), повторы 375 мс и длинный зал — пэд шире и глубже.',
+      en: 'Low cut (room for the bass), 375 ms repeats and a long hall — the pad gets wider and deeper.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 120 },
+      { type: 'delay', time_ms: 375, feedback: 0.35, lowpass_hz: 5000, wet: 0.25 },
+      { type: 'reverb', decay_s: 2.5, predelay_ms: 20, lowpass_hz: 7000, wet: 0.2 },
+    ],
+  },
+  {
+    id: 'master-glue',
+    name: { ru: 'Мастер: склейка', en: 'Master: glue' },
+    note: {
+      ru: 'На весь трек: чуть низа и воздуха, мягкий компрессор 2:1 с медленной атакой — микс плотнее, удары целы.',
+      en: 'Whole track: a touch of lows and air, gentle 2:1 slow-attack compressor — a tighter mix with intact hits.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 30, bands: [{ freq_hz: 100, gain_db: 1.5, q: 0.7 }, { freq_hz: 10000, gain_db: 1.5, q: 0.7 }] },
+      { type: 'comp', threshold_db: -12, ratio: 2, attack_ms: 30, release_ms: 200 },
+    ],
+  },
+]

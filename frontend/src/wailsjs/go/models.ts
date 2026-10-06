@@ -435,6 +435,7 @@ export namespace yue {
 	    to?: number;
 	    output?: string;
 	    label?: string;
+	    preview?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FxRequest(source);
@@ -448,6 +449,7 @@ export namespace yue {
 	        this.to = source["to"];
 	        this.output = source["output"];
 	        this.label = source["label"];
+	        this.preview = source["preview"];
 	    }
 	}
 	export class HealthInfo {

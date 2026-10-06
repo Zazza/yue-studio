@@ -15,6 +15,8 @@ type FxRequest struct {
 	To     *float64         `json:"to,omitempty"`     // nil — до конца
 	Output string           `json:"output,omitempty"` // mix (по умолчанию) | solo — только дорожка
 	Label  string           `json:"label,omitempty"`
+	// Preview — прослушать кусок окна (обязательны From/To): preview-fx-*.flac, не вариант
+	Preview bool `json:"preview,omitempty"`
 }
 
 // ApplyFx — цепочка движка на трек/дорожку → вариант dsp-fx-*.flac (список вариантов).

@@ -183,3 +183,76 @@ func TestUploadFxAssetSendsKindNameAndBytes(t *testing.T) {
 		t.Errorf("ответ: %v", got)
 	}
 }
+
+// Тесты карточки internal-instruments-page, тест-кейс 8: режим превью движка.
+// FxRequest.Preview уходит в тело только при true; ответ превью
+// {file, duration_sec, clipped} декодируется в вариант (поле File).
+
+func TestApplyFxPreviewSentOnlyWhenTrue(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/jobs/7/fx" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		got = nil
+		b, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(b, &got); err != nil {
+			t.Errorf("тело не JSON: %v (%s)", err, b)
+		}
+		_, _ = w.Write([]byte(`{"file":"preview-fx-0123abcd.flac","duration_sec":18.0,"clipped":false}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	from, to := 20.0, 35.0
+
+	v, err := c.ApplyFx(context.Background(), 7, FxRequest{
+		Source: "guitar", Chain: []map[string]any{{"type": "reverb"}}, From: &from, To: &to, Preview: true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyFx preview: %v", err)
+	}
+	if got["preview"] != true {
+		t.Errorf("preview=true не ушёл в тело: %v", got)
+	}
+	if got["from"] != 20.0 || got["to"] != 35.0 {
+		t.Errorf("окно превью: from=%v to=%v", got["from"], got["to"])
+	}
+	if v == nil || v.File != "preview-fx-0123abcd.flac" {
+		t.Fatalf("ответ превью: %+v", v)
+	}
+
+	// без Preview — поля нет вовсе (обычный вариант этапа 2)
+	if _, err := c.ApplyFx(context.Background(), 7, FxRequest{
+		Source: "guitar", Chain: []map[string]any{{"type": "reverb"}},
+	}); err != nil {
+		t.Fatalf("ApplyFx: %v", err)
+	}
+	if _, ok := got["preview"]; ok {
+		t.Errorf("preview=false ушёл в тело: %v", got)
+	}
+}
+
+// Решение кросс-ревью internal-instruments-page: ответ превью
+// {file, duration_sec, clipped} не теряет duration_sec и clipped.
+func TestApplyFxPreviewKeepsDurationAndClipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"file":"preview-fx-89abcdef.flac","duration_sec":18.5,"clipped":true}`))
+	}))
+	defer srv.Close()
+	from, to := 20.0, 35.0
+	v, err := New(srv.URL).ApplyFx(context.Background(), 7, FxRequest{
+		Source: "guitar", Chain: []map[string]any{{"type": "reverb"}}, From: &from, To: &to, Preview: true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyFx preview: %v", err)
+	}
+	if v == nil || v.File != "preview-fx-89abcdef.flac" {
+		t.Fatalf("ответ превью: %+v", v)
+	}
+	if v.DurationSec != 18.5 {
+		t.Errorf("duration_sec потерян: %v", v.DurationSec)
+	}
+	if !v.Clipped {
+		t.Errorf("clipped=true потерян: %+v", v)
+	}
+}

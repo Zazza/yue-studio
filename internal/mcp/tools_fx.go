@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,15 @@ import (
 
 	"yue-studio/internal/yue"
 )
+
+// Описание блоков движка (копия worker/fx_blocks.json) и готовые цепочки (из
+// frontend/src/fxPresets.js) — генерирует make mcp-data, руками не править.
+//
+//go:embed fx_blocks.json
+var fxBlocksJSON string
+
+//go:embed fx_presets.json
+var fxPresetsJSON string
 
 // fxChainDoc — формат цепочки звукового движка для описаний инструментов.
 const fxChainDoc = "Цепочка — массив блоков по порядку: " +
@@ -39,6 +49,8 @@ func registerFxTools(s *Server) {
 			"to":     prop("конец окна, с (необязательно)", "number"),
 			"output": prop("mix (по умолчанию) | solo", "string"),
 			"label":  prop("подпись варианта (необязательно)", "string"),
+			"preview": prop("true — только прослушать кусок окна from–to (+ хвост реверба/дилея до 3 с): "+
+				"файл preview-fx-*.flac, в варианты не попадает, повтор тех же настроек — без пересчёта", "boolean"),
 		}, "job_id", "chain"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			chain, err := argObjects(args, "chain")
@@ -51,11 +63,32 @@ func registerFxTools(s *Server) {
 				req.Source = "mix"
 			}
 			req.From, req.To = optFloat(args, "from"), optFloat(args, "to")
+			req.Preview = argBool(args, "preview")
 			out, err := s.client.ApplyFx(context.Background(), argInt(args, "job_id"), req)
 			if err != nil {
 				return "", err
 			}
 			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "fx_blocks",
+		Description: "Описание блоков звукового движка для fx_apply: параметры каждого блока с умолчанием, " +
+			"границами, шагом и подписями ru/en (zero_off — 0 значит «выкл»), строковые (захват/IR), полосы eq.",
+		InputSchema: props(nil),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			return fxBlocksJSON, nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "fx_presets",
+		Description: "Готовые цепочки звукового движка (те же, что на странице «Инструменты»): " +
+			"{id, name, note, chain} — chain сразу годится в fx_apply. Пустой amp.model — подставь захват из fx_assets.",
+		InputSchema: props(nil),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			return fxPresetsJSON, nil
 		},
 	})
 

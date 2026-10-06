@@ -236,6 +236,9 @@ type DspVariant struct {
 	CreatedAt string         `json:"created_at"`
 	Metrics   map[string]any `json:"metrics"`
 	Label     string         `json:"label,omitempty"` // что сделано; пусто — понятно по имени файла
+	// звуковой движок (POST /jobs/{id}/fx): длина файла превью и перегруз (пик выше 0 дБ)
+	DurationSec float64 `json:"duration_sec,omitempty"`
+	Clipped     bool    `json:"clipped,omitempty"`
 }
 
 type TranscribeResult struct {

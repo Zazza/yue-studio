@@ -9,6 +9,8 @@ import { writeFileSync } from 'node:fs'
 import { slotOptions, durOptions } from './frontend/src/slotOptions.js'
 import { groups as builtinGroups } from './frontend/src/groups.js'
 import { presets } from './frontend/src/presets.js'
+import { readFileSync } from 'node:fs'
+import { fxPresets } from './frontend/src/fxPresets.js'
 
 // слоты: {[2]string}
 writeFileSync('internal/mcp/slot_options.json', JSON.stringify(slotOptions, null, 1))
@@ -28,5 +30,10 @@ const groups = [...builtinGroups.map((g) => ({
   items: (g.items || []).map((i) => ({ id: i.id, name: i.name, style: i.style })),
 })), presetGroup]
 writeFileSync('internal/mcp/style_groups.json', JSON.stringify(groups, null, 1))
+// звуковой движок: описание блоков — один источник worker/fx_blocks.json, копии побайтно
+const fxBlocks = readFileSync('worker/fx_blocks.json')
+writeFileSync('frontend/src/fxBlocks.json', fxBlocks)
+writeFileSync('internal/mcp/fx_blocks.json', fxBlocks)
+writeFileSync('internal/mcp/fx_presets.json', JSON.stringify(fxPresets, null, 1))
 console.log('mcp data ok:', slotOptions ? Object.keys(slotOptions).length : 0, 'slots,', groups.length, 'groups')
 EOF

@@ -837,3 +837,17 @@ func TestInstallSystemdStepFallbackHint(t *testing.T) {
 		})
 	}
 }
+
+// --- internal-instruments-page, решение кросс-ревью: локальная установка
+// копирует worker/fx_blocks.json — без него воркер не загрузит звуковой движок.
+
+func TestInstallPlanLocalCopiesFxBlocks(t *testing.T) {
+	_, steps := workerInstallPlan(true, false, false, "~/h", "~/s")
+	st, ok := findNamed(steps, "скопировать файлы воркера")
+	if !ok {
+		t.Fatalf("copy-files step missing with local=true")
+	}
+	if !strings.Contains(st.cmd, "fx_blocks.json") && !strings.Contains(st.cmd, "*.json") {
+		t.Errorf("copy-files step does not copy fx_blocks.json: %s", st.cmd)
+	}
+}

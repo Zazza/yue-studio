@@ -844,6 +844,7 @@ def get_config():
         "stems_model": MODEL_ROFORMER if roformer_enabled(stems_pref()) else MODEL_DEMUCS,
         "roformer_available": roformer_available(),
         "fx_engine": fx_engine_enabled(),
+        "fx_preview": True,   # воркер умеет превью движка (страница «Инструменты»); старый — нет поля
     }
 
 
@@ -2536,6 +2537,9 @@ def dsp_variants(job_id: int):
 FX_KINDS = {"amp": ("amps", ".nam"), "ir": ("irs", ".wav")}
 FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
+FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
+FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
+FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
 FX_SOURCES = ("mix",) + MAIN_STEMS + DETAIL_STEMS + DRUM_PARTS
 # имя захвата/IR: буквы (в т.ч. кириллица), цифры, пробел и « .,()+-_»; без путей
 FX_NAME_RE = re.compile(r"^[\w][\w .,()+\-]{0,150}$")
@@ -2624,6 +2628,7 @@ class FxIn(BaseModel):
     to: float | None = None
     output: str = "mix"
     label: str = ""
+    preview: bool = False   # прослушать кусок (страница «Инструменты»): preview-fx-*.flac, не вариант
 
 
 def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
@@ -2677,6 +2682,9 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     if frm is not None and to is not None and frm >= to:
         raise HTTPException(422, "from must be less than to")
 
+    if req.preview and (frm is None or to is None):
+        raise HTTPException(422, "preview needs from and to")
+
     track, _ = sf.read(str(src), always_2d=True, dtype="float64")
     if req.source == "mix":
         part = track
@@ -2694,18 +2702,11 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
         if part.shape[1] != track.shape[1]:
             part = np.repeat(part.mean(axis=1, keepdims=True), track.shape[1], axis=1)
 
-    res = fx_resources()
-    try:
-        with gpu_queue(f"fx {job_id}") if fx_engine.needs_gpu(chain) else contextlib.nullcontext():
-            try:
-                wet = fx_engine.process(part.astype(np.float32), sr, chain, res).astype(np.float64)
-            finally:
-                # выгрузка захватов NAM (empty_cache) — тоже работа с GPU: внутри очереди
-                close = getattr(res, "close", None)
-                if close:
-                    close()
-    except fx_engine.ChainError as e:
-        raise HTTPException(422, str(e)) from e
+    if req.preview:
+        used = [src] if req.source == "mix" else [src, jdir / f"stem-{req.source}.flac"]
+        return _fx_preview(job_id, jdir, req, chain, track, part, sr, used)
+
+    wet = _fx_process(job_id, part.astype(np.float32), sr, chain).astype(np.float64)
 
     # в треке меняется только разница «обработанная − исходная»: вне окна трек побитно тот же
     w = _fx_window_weights(n, sr, frm, to)
@@ -2734,6 +2735,91 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     log.info("job %s: fx %s (%s) → %s, пик %.2f", job_id, req.source, label, fname, peak)
     return {"file": fname, "label": label, "created_at": created, "metrics": metrics,
             "clipped": peak > 1.0}
+
+
+def _fx_process(job_id: int, part, sr: int, chain: list):
+    """Цепочка движка; с amp — в очереди GPU (выгрузка захватов — тоже внутри неё)."""
+    import fx_engine
+    res = fx_resources()
+    try:
+        with gpu_queue(f"fx {job_id}") if fx_engine.needs_gpu(chain) else contextlib.nullcontext():
+            try:
+                return fx_engine.process(part, sr, chain, res)
+            finally:
+                close = getattr(res, "close", None)
+                if close:
+                    close()
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def _fx_stamp(paths: list[Path], chain: list) -> list:
+    """Версии файлов, от которых зависит звук превью: источник и захваты/IR цепочки (mtime_ns).
+    Пересобрали дорожки или перезалили захват под тем же именем — превью новое, не из кэша."""
+    files = list(paths)
+    for blk in chain:
+        for kind, key in (("amp", "model"), ("ir", "ir")):
+            name = blk.get(key)
+            if name and (blk["type"] == "amp") == (kind == "amp"):
+                try:
+                    files.append(_fx_asset_path(kind, name))
+                except KeyError:
+                    pass  # неверное имя уже отвергнуто бы обработкой; в ключ не идёт
+    out = []
+    for f in files:
+        try:
+            out.append([f.name, f.stat().st_mtime_ns])
+        except OSError:
+            out.append([f.name, 0])
+    return out
+
+
+def _mtime_or_zero(p: Path) -> float:
+    """mtime для сортировки превью: файл могли удалить параллельно — тогда он «самый старый»."""
+    try:
+        return p.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr: int,
+                used: list[Path]) -> dict:
+    """Превью куска [from, to) (+ хвост реверба/дилея): вход после to — тишина, в миксе
+    к треку добавляется разница «обработанное − исходное». Тот же запрос — тот же файл."""
+    import hashlib
+    import uuid
+    import numpy as np
+    import soundfile as sf
+    n = len(track)
+    a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
+    tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
+    end = min(b + int(tail * sr), n)
+    key = json.dumps({"source": req.source, "chain": chain, "from": req.from_, "to": req.to,
+                      "output": req.output, "files": _fx_stamp(used, chain)}, sort_keys=True)
+    fname = f"preview-fx-{hashlib.sha1(key.encode()).hexdigest()[:8]}.flac"
+    target = jdir / fname
+    if target.is_file():
+        try:
+            data, fsr = sf.read(str(target), dtype="float32")
+            # перегруз в файле уже срезан записью — признак: пик на полной шкале
+            return {"file": fname, "duration_sec": round(len(data) / fsr, 3),
+                    "clipped": bool(data.size and float(np.max(np.abs(data))) >= FX_CLIP_FULL_SCALE)}
+        except (OSError, RuntimeError):
+            pass  # файл вытеснили параллельно — считаем заново
+    seg = np.zeros((end - a, part.shape[1]))
+    seg[:b - a] = part[a:b]
+    wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
+    out = wet if (req.output == "solo" and req.source != "mix") else track[a:end] + (wet - seg)
+    # своё временное имя на запрос (одинаковые превью параллельно не делят файл) и не *.flac —
+    # вытеснение ниже его не видит
+    tmp = target.with_name(f"{target.name}.{uuid.uuid4().hex[:8]}.part")
+    sf.write(str(tmp), out, sr, format="FLAC", subtype="PCM_24")
+    tmp.replace(target)
+    olds = sorted(jdir.glob("preview-fx-*.flac"), key=_mtime_or_zero, reverse=True)
+    for old in olds[FX_PREVIEW_KEEP:]:
+        old.unlink(missing_ok=True)
+    peak = float(np.max(np.abs(out))) if out.size else 0.0
+    return {"file": fname, "duration_sec": round((end - a) / sr, 3), "clipped": peak > 1.0}
 
 
 @app.post("/jobs/{job_id}/fx")

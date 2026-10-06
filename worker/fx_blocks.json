@@ -1,0 +1,418 @@
+{
+ "gate": {
+  "label": {
+   "ru": "Шумоподавитель",
+   "en": "Noise gate"
+  },
+  "params": [
+   {
+    "id": "threshold_db",
+    "default": -50,
+    "min": -90,
+    "max": 0,
+    "step": 1,
+    "label": {
+     "ru": "порог, дБ",
+     "en": "threshold, dB"
+    }
+   },
+   {
+    "id": "range_db",
+    "default": -40,
+    "min": -90,
+    "max": 0,
+    "step": 1,
+    "label": {
+     "ru": "глубина подавления, дБ",
+     "en": "range, dB"
+    }
+   },
+   {
+    "id": "attack_ms",
+    "default": 1,
+    "min": 0.1,
+    "max": 50,
+    "step": 0.1,
+    "label": {
+     "ru": "открытие, мс",
+     "en": "attack, ms"
+    }
+   },
+   {
+    "id": "release_ms",
+    "default": 100,
+    "min": 5,
+    "max": 1000,
+    "step": 5,
+    "label": {
+     "ru": "закрытие, мс",
+     "en": "release, ms"
+    }
+   }
+  ]
+ },
+ "eq": {
+  "label": {
+   "ru": "Эквалайзер",
+   "en": "EQ"
+  },
+  "params": [
+   {
+    "id": "highpass_hz",
+    "default": 0,
+    "min": 0,
+    "max": 1000,
+    "step": 5,
+    "label": {
+     "ru": "срез низа, Гц (0 — выкл)",
+     "en": "high-pass, Hz (0 — off)"
+    }
+   },
+   {
+    "id": "lowpass_hz",
+    "default": 0,
+    "min": 1000,
+    "max": 22000,
+    "step": 100,
+    "label": {
+     "ru": "срез верха, Гц (0 — выкл)",
+     "en": "low-pass, Hz (0 — off)"
+    },
+    "zero_off": true
+   }
+  ],
+  "bands": {
+   "freq_hz": {
+    "default": 1000,
+    "min": 20,
+    "max": 20000,
+    "step": 10,
+    "label": {
+     "ru": "частота, Гц",
+     "en": "frequency, Hz"
+    }
+   },
+   "gain_db": {
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "усиление, дБ",
+     "en": "gain, dB"
+    }
+   },
+   "q": {
+    "default": 1,
+    "min": 0.1,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "добротность",
+     "en": "Q"
+    }
+   }
+  }
+ },
+ "comp": {
+  "label": {
+   "ru": "Компрессор",
+   "en": "Compressor"
+  },
+  "params": [
+   {
+    "id": "threshold_db",
+    "default": -20,
+    "min": -60,
+    "max": 0,
+    "step": 0.5,
+    "label": {
+     "ru": "порог, дБ",
+     "en": "threshold, dB"
+    }
+   },
+   {
+    "id": "ratio",
+    "default": 4,
+    "min": 1,
+    "max": 20,
+    "step": 0.5,
+    "label": {
+     "ru": "степень сжатия",
+     "en": "ratio"
+    }
+   },
+   {
+    "id": "attack_ms",
+    "default": 10,
+    "min": 0.1,
+    "max": 200,
+    "step": 0.5,
+    "label": {
+     "ru": "атака, мс",
+     "en": "attack, ms"
+    }
+   },
+   {
+    "id": "release_ms",
+    "default": 100,
+    "min": 5,
+    "max": 2000,
+    "step": 5,
+    "label": {
+     "ru": "восстановление, мс",
+     "en": "release, ms"
+    }
+   },
+   {
+    "id": "makeup_db",
+    "default": 0,
+    "min": -12,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость после, дБ",
+     "en": "makeup, dB"
+    }
+   }
+  ]
+ },
+ "drive": {
+  "label": {
+   "ru": "Перегруз",
+   "en": "Drive"
+  },
+  "params": [
+   {
+    "id": "gain_db",
+    "default": 12,
+    "min": 0,
+    "max": 48,
+    "step": 1,
+    "label": {
+     "ru": "перегруз, дБ",
+     "en": "gain, dB"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "сухой/обработанный",
+     "en": "dry/wet"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 12,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "output, dB"
+    }
+   }
+  ]
+ },
+ "amp": {
+  "label": {
+   "ru": "Усилитель (NAM)",
+   "en": "Amp (NAM)"
+  },
+  "params": [
+   {
+    "id": "input_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "вход, дБ (от −20 дБFS)",
+     "en": "input, dB (from −20 dBFS)"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "выход, дБ",
+     "en": "output, dB"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "model",
+    "asset": "amp",
+    "required": true,
+    "label": {
+     "ru": "захват",
+     "en": "capture"
+    }
+   }
+  ]
+ },
+ "cab": {
+  "label": {
+   "ru": "Кабинет",
+   "en": "Cabinet"
+  },
+  "params": [
+   {
+    "id": "cutoff_hz",
+    "default": 7000,
+    "min": 2000,
+    "max": 12000,
+    "step": 100,
+    "label": {
+     "ru": "срез верха без IR, Гц",
+     "en": "top cut without IR, Hz"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "сухой/обработанный",
+     "en": "dry/wet"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "ir",
+    "asset": "ir",
+    "default": "",
+    "label": {
+     "ru": "IR (пусто — лёгкий кабинет)",
+     "en": "IR (empty — light cab)"
+    }
+   }
+  ]
+ },
+ "reverb": {
+  "label": {
+   "ru": "Реверб",
+   "en": "Reverb"
+  },
+  "params": [
+   {
+    "id": "decay_s",
+    "default": 1.5,
+    "min": 0.1,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "хвост, с",
+     "en": "decay, s"
+    }
+   },
+   {
+    "id": "predelay_ms",
+    "default": 10,
+    "min": 0,
+    "max": 200,
+    "step": 1,
+    "label": {
+     "ru": "предзадержка, мс",
+     "en": "pre-delay, ms"
+    }
+   },
+   {
+    "id": "lowpass_hz",
+    "default": 8000,
+    "min": 1000,
+    "max": 20000,
+    "step": 100,
+    "label": {
+     "ru": "верх хвоста, Гц",
+     "en": "tail top, Hz"
+    }
+   },
+   {
+    "id": "wet",
+    "default": 0.3,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "громкость хвоста",
+     "en": "wet"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "ir",
+    "asset": "ir",
+    "default": "",
+    "label": {
+     "ru": "IR зала (пусто — встроенный)",
+     "en": "room IR (empty — built-in)"
+    }
+   }
+  ]
+ },
+ "delay": {
+  "label": {
+   "ru": "Дилей",
+   "en": "Delay"
+  },
+  "params": [
+   {
+    "id": "time_ms",
+    "default": 375,
+    "min": 1,
+    "max": 2000,
+    "step": 1,
+    "label": {
+     "ru": "время, мс",
+     "en": "time, ms"
+    }
+   },
+   {
+    "id": "feedback",
+    "default": 0.35,
+    "min": 0,
+    "max": 0.95,
+    "step": 0.05,
+    "label": {
+     "ru": "повторы",
+     "en": "feedback"
+    }
+   },
+   {
+    "id": "lowpass_hz",
+    "default": 6000,
+    "min": 1000,
+    "max": 20000,
+    "step": 100,
+    "label": {
+     "ru": "верх повторов, Гц",
+     "en": "repeats top, Hz"
+    }
+   },
+   {
+    "id": "wet",
+    "default": 0.3,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "громкость повторов",
+     "en": "wet"
+    }
+   }
+  ]
+ }
+}

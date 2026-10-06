@@ -56,7 +56,7 @@ jobs:
         working-directory: .
         run: |
           ./tools/mcp-gendata.sh
-          git diff --exit-code -- internal/mcp/ || (echo 'internal/mcp/*.json рассинхронизированы с frontend/src — запусти make mcp-data и закоммить'; exit 1)
+          git diff --exit-code -- internal/mcp/ frontend/src/fxBlocks.json || (echo 'internal/mcp/*.json рассинхронизированы с frontend/src — запусти make mcp-data и закоммить'; exit 1)
 
   worker:
     runs-on: ubuntu-latest
@@ -75,4 +75,4 @@ jobs:
           pip install fastapi httpx numpy scipy librosa soundfile
           cd worker
           python3 -m unittest test_pure test_plancheck test_voice test_loudness test_grid test_vocal_leak test_roformer_stems \
-            test_fx_engine test_fx_api
+            test_fx_engine test_fx_api test_fx_preview

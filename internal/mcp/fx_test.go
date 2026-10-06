@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -184,5 +185,163 @@ func TestFxAssetUploadMissingFile(t *testing.T) {
 	}
 	if len(fake.uploads) != 0 {
 		t.Errorf("загружено при ошибке: %v", fake.uploads)
+	}
+}
+
+// Тесты карточки internal-instruments-page, тест-кейс 9 (MCP): fx_apply передаёт
+// preview; fx_blocks — описание блоков из встроенной копии worker/fx_blocks.json;
+// fx_presets — готовые цепочки (встроенный fx_presets.json из frontend/src/fxPresets.js).
+
+var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay"}
+
+func TestFxApplyPassesPreview(t *testing.T) {
+	s, fake := newFxServer(t)
+	out, ok := call(t, s, "fx_apply", jsonArgs(t, `{"job_id":466,"source":"guitar","chain":[{"type":"reverb"}],`+
+		`"from":20,"to":35,"output":"solo","preview":true}`))
+	if !ok {
+		t.Fatalf("fx_apply preview failed: %s", out)
+	}
+	if len(fake.applies) != 1 {
+		t.Fatalf("ApplyFx вызван %d раз", len(fake.applies))
+	}
+	r := fake.applies[0].req
+	if !r.Preview {
+		t.Errorf("preview=true не передан: %+v", r)
+	}
+	if r.From == nil || *r.From != 20 || r.To == nil || *r.To != 35 || r.Output != "solo" {
+		t.Errorf("окно/output превью: %+v", r)
+	}
+}
+
+// Без preview (и при preview=false) — обычный вариант.
+func TestFxApplyPreviewDefaultFalse(t *testing.T) {
+	s, fake := newFxServer(t)
+	for _, args := range []string{
+		`{"job_id":466,"source":"mix","chain":[{"type":"comp"}]}`,
+		`{"job_id":466,"source":"mix","chain":[{"type":"comp"}],"preview":false}`,
+	} {
+		if out, ok := call(t, s, "fx_apply", jsonArgs(t, args)); !ok {
+			t.Fatalf("fx_apply failed: %s", out)
+		}
+	}
+	for i, c := range fake.applies {
+		if c.req.Preview {
+			t.Errorf("вызов %d: preview придуман: %+v", i, c.req)
+		}
+	}
+}
+
+func TestFxBlocksListsAllTypesFromWorkerSource(t *testing.T) {
+	s, _ := newFxServer(t)
+	out, ok := call(t, s, "fx_blocks", map[string]any{})
+	if !ok {
+		t.Fatalf("fx_blocks failed: %s", out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("ответ не JSON-объект: %v (%s)", err, out)
+	}
+	for _, typ := range fxBlockTypes {
+		b, _ := got[typ].(map[string]any)
+		if b == nil {
+			t.Errorf("нет блока %q", typ)
+			continue
+		}
+		if ps, _ := b["params"].([]any); len(ps) == 0 {
+			t.Errorf("у блока %q пустые params", typ)
+		}
+	}
+	// содержимое — то же, что в источнике воркера (одна правда на всех клиентов)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "worker", "fx_blocks.json"))
+	if err != nil {
+		t.Fatalf("нет источника worker/fx_blocks.json: %v", err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatalf("источник не JSON: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("fx_blocks отличается от worker/fx_blocks.json")
+	}
+}
+
+func TestFxPresetsReturnsList(t *testing.T) {
+	s, _ := newFxServer(t)
+	out, ok := call(t, s, "fx_presets", map[string]any{})
+	if !ok {
+		t.Fatalf("fx_presets failed: %s", out)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("ответ не JSON-список: %v (%s)", err, out)
+	}
+	if len(got) == 0 {
+		t.Fatal("список пресетов пуст")
+	}
+	known := map[string]bool{}
+	for _, typ := range fxBlockTypes {
+		known[typ] = true
+	}
+	ids := map[string]bool{}
+	for i, p := range got {
+		id, _ := p["id"].(string)
+		if id == "" || ids[id] {
+			t.Errorf("пресет %d: пустой или повторный id %q", i, id)
+		}
+		ids[id] = true
+		chain, _ := p["chain"].([]any)
+		if len(chain) == 0 {
+			t.Errorf("пресет %q: пустая цепочка", id)
+		}
+		for _, b := range chain {
+			m, _ := b.(map[string]any)
+			if typ, _ := m["type"].(string); !known[typ] {
+				t.Errorf("пресет %q: неизвестный блок %v", id, m["type"])
+			}
+		}
+	}
+	// тот же набор, что встроенная копия fx_presets.json (make mcp-data из fxPresets.js)
+	raw, err := os.ReadFile("fx_presets.json")
+	if err != nil {
+		t.Fatalf("нет internal/mcp/fx_presets.json (make mcp-data): %v", err)
+	}
+	var want []map[string]any
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatalf("fx_presets.json не JSON-список: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("fx_presets отличается от встроенного fx_presets.json")
+	}
+}
+
+// Решение кросс-ревью internal-instruments-page: ответ fx_apply в режиме превью
+// несёт duration_sec и clipped от воркера (страница и агент видят длину куска
+// и перегруз). Воркер — fxPreviewFake, отдающий вариант превью.
+
+type fxPreviewFake struct {
+	*fxFake
+}
+
+func (f *fxPreviewFake) ApplyFx(ctx context.Context, id int64, req yue.FxRequest) (*yue.DspVariant, error) {
+	f.applies = append(f.applies, fxApplyCall{id, req})
+	return &yue.DspVariant{File: "preview-fx-0123abcd.flac", DurationSec: 18.5, Clipped: true}, nil
+}
+
+func TestFxApplyReturnsDurationAndClipped(t *testing.T) {
+	s, base := newFxServer(t)
+	s.client = &fxPreviewFake{fxFake: base}
+	out, ok := call(t, s, "fx_apply", jsonArgs(t, `{"job_id":466,"source":"guitar","chain":[{"type":"reverb"}],`+
+		`"from":20,"to":35,"output":"solo","preview":true}`))
+	if !ok {
+		t.Fatalf("fx_apply preview failed: %s", out)
+	}
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`"file"\s*:\s*"preview-fx-0123abcd\.flac"`),
+		regexp.MustCompile(`"duration_sec"\s*:\s*18\.5\b`),
+		regexp.MustCompile(`"clipped"\s*:\s*true\b`),
+	} {
+		if !re.MatchString(out) {
+			t.Errorf("в ответе fx_apply нет %s: %s", re, out)
+		}
 	}
 }

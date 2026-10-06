@@ -36,7 +36,8 @@
 
 Вручную:
 
-1. Скопировать `worker/*.py` в `~/yue-studio/` на GPU-машину (scp / WinSCP / флешка).
+1. Скопировать `worker/*.py` и `worker/fx_blocks.json` (описание блоков звукового движка — без него
+   движок не загрузится) в `~/yue-studio/` на GPU-машину (scp / WinSCP / флешка).
 2. Окружение (один раз):
    ```bash
    uv venv ~/yue/.venv --python 3.12
