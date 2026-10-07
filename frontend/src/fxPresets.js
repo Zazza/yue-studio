@@ -107,7 +107,7 @@ export const fxPresets = [
       ru: 'На дорожку «бочка» (RoFormer): удары бочки заменяются сэмплами набора The Open Source Drum Kit, сила удара выбирает сэмпл. Набор — fx_kit_install osdk.',
       en: 'On the "kick" stem (RoFormer): kick hits are replaced with The Open Source Drum Kit samples, hit strength picks the sample. Kit — fx_kit_install osdk.',
     },
-    chain: [{ type: 'sampler', kit: 'osdk/kick', floor_db: -18 }],
+    chain: [{ type: 'sampler', kit: 'osdk/kick', floor_db: -18, output_db: -2 }],
   },
   {
     id: 'drums-snare-kit',
@@ -116,7 +116,7 @@ export const fxPresets = [
       ru: 'На дорожку «малый барабан» (RoFormer): удары малого — сэмплами набора; порог −20 дБ пропускает и тихие удары (гоулст-ноты); слышна протечка бочки/хэта — поднимите порог.',
       en: 'On the "snare" stem (RoFormer): snare hits with kit samples; the −20 dB floor keeps quiet ghost notes too; if kick/hat bleed is heard — raise the floor.',
     },
-    chain: [{ type: 'sampler', kit: 'osdk/snare', floor_db: -20 }],
+    chain: [{ type: 'sampler', kit: 'osdk/snare', floor_db: -20, output_db: -2 }],
   },
   {
     id: 'master-glue',

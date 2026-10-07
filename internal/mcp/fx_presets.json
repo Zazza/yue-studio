@@ -260,7 +260,8 @@
    {
     "type": "sampler",
     "kit": "osdk/kick",
-    "floor_db": -18
+    "floor_db": -18,
+    "output_db": -2
    }
   ]
  },
@@ -278,7 +279,8 @@
    {
     "type": "sampler",
     "kit": "osdk/snare",
-    "floor_db": -20
+    "floor_db": -20,
+    "output_db": -2
    }
   ]
  },
