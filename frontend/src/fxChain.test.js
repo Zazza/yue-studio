@@ -12,7 +12,7 @@ import {
   toWorkerChain, fromWorkerChain, missingKits,
 } from './fxChain.js'
 
-const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay', 'gain', 'sampler']
+const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay', 'gain', 'sampler', 'bass']
 
 // deepFreeze — любая мутация входа в строгом режиме модуля бросит исключение.
 function deepFreeze(o) {
@@ -42,7 +42,7 @@ const chain3 = () => deepFreeze([
 const types = (c) => c.map((b) => b.type)
 
 describe('описание блоков (fxBlocks.json)', () => {
-  it('десять типов в порядке показа (sampler — после gain)', () => {
+  it('одиннадцать типов в порядке показа (sampler — после gain, bass — последним)', () => {
     expect(Object.keys(blocks)).toEqual(TYPES)
   })
 })
@@ -350,5 +350,31 @@ describe('missingKits: недостающие наборы sampler', () => {
 
   it('пустая цепочка → []', () => {
     expect(missingKits([], [])).toEqual([])
+  })
+})
+
+// Условие 15 (internal-studio-engine, этап 5б), ТК15: автоскачивание набора — и для блока bass.
+describe('missingKits: недостающие наборы bass', () => {
+  it('bass с kit growlybass/bass, набора нет → [\'growlybass\']', () => {
+    const chain = deepFreeze([{ type: 'bass', kit: 'growlybass/bass', division: 2, floor_db: -20, output_db: 0 }])
+    expect(missingKits(chain, [])).toEqual(['growlybass'])
+    expect(missingKits(chain, deepFreeze([{ name: 'osdk/kick', samples: 3 }]))).toEqual(['growlybass'])
+  })
+
+  it('набор bass загружен → []', () => {
+    const chain = deepFreeze([{ type: 'bass', kit: 'growlybass/bass' }])
+    expect(missingKits(chain, deepFreeze([{ name: 'growlybass/bass', samples: 40 }]))).toEqual([])
+  })
+
+  it('sampler и bass в одной цепочке — оба набора, в порядке цепочки', () => {
+    const chain = deepFreeze([
+      { type: 'bass', kit: 'growlybass/bass' },
+      { type: 'sampler', kit: 'osdk/kick' },
+    ])
+    expect(missingKits(chain, [])).toEqual(['growlybass', 'osdk'])
+  })
+
+  it('bass без kit игнорируется', () => {
+    expect(missingKits(deepFreeze([{ type: 'bass' }, { type: 'bass', kit: '' }]), [])).toEqual([])
   })
 })

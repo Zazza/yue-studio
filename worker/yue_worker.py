@@ -2538,7 +2538,8 @@ FX_KINDS = {"amp": ("amps", ".nam"), "ir": ("irs", ".wav")}
 FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
 FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
-FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler после окна (бочка/малый звучат ~0,3–0,8 с)
+FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler/bass после окна (бочка/малый ~0,3–0,8 с)
+FX_KIT_MAX_S = 6.0       # сэмпл набора читается не дольше (бас: 224 файла по 6 с — долгая нота целиком)
 FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
 FX_FADE_MAX_S = 0.5      # край окна превью — не длиннее
 FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
@@ -2613,7 +2614,7 @@ class _FxResources:
         return self._amps[p.name]
 
     def kit(self, name: str):
-        """Сэмплы набора `<набор>/<часть>` и их частота (sampler)."""
+        """Сэмплы набора `<набор>/<часть>` и их частота (sampler, bass); не длиннее FX_KIT_MAX_S."""
         import soundfile as sf
         d = _kit_path(name)
         files = sorted(d.glob("*.wav")) if d.is_dir() else []
@@ -2621,7 +2622,7 @@ class _FxResources:
             raise KeyError(name)
         out, sr = [], None
         for f in files:
-            x, s = sf.read(str(f), dtype="float32")
+            x, s = sf.read(str(f), dtype="float32", frames=int(sf.info(str(f)).samplerate * FX_KIT_MAX_S))
             if sr is None:
                 sr = s
             elif s != sr:                # разная частота в одном наборе — пересчитать к первой
@@ -2788,7 +2789,7 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     Пересобрали дорожки или перезалили захват под тем же именем — превью новое, не из кэша."""
     files = list(paths)
     for blk in chain:
-        if blk.get("type") == "sampler" and blk.get("kit"):
+        if blk.get("type") in ("sampler", "bass") and blk.get("kit"):
             try:
                 files += sorted(_kit_path(blk["kit"]).glob("*.wav"))
             except KeyError:
@@ -2828,7 +2829,7 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     n = len(track)
     a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
     tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
-    if not tail and any(blk["type"] == "sampler" for blk in chain):
+    if not tail and any(blk["type"] in ("sampler", "bass") for blk in chain):
         tail = FX_SAMPLER_TAIL_S             # удар у конца окна: сэмпл звучит дальше, без обрыва
     fade = int(round(req.fade * sr))
     stop = min(b + fade, n)              # вход: до to и спад края после него
@@ -2904,7 +2905,7 @@ def fx_assets():
     return {"amps": amps, "irs": irs, "kits": _kit_list()}
 
 
-# ---------- Наборы сэмплов барабанов (блок движка sampler) ----------
+# ---------- Наборы сэмплов (блоки движка sampler — барабаны, bass — бас) ----------
 
 # каталог наборов, которые воркер качает сам по требованию: части → (каталог в репозитории, отбор
 # файлов). В поставку не входят; лицензия — у автора набора (docs/deployment.md)
@@ -2914,6 +2915,11 @@ FX_KITS = {
         # версия закреплена: файлы набора не подменятся под тем же именем
         "ref": "c58808b2ff5a6cd77c2f47cf45f1a892ce6a1e2c",
         "parts": {"kick": ("kick", r"kick\d+\.wav"), "snare": ("snare", r"snare-top\d+\.wav")},
+    },
+    "growlybass": {  # Growlybass (Karoryfer Lecolds): Squier Jazz Bass, CC0 — блок bass
+        "repo": "sfzinstruments/karoryfer.growlybass",
+        "ref": "4f483268fc66b5a6d5781d421c0d11b8d08d3fc6",
+        "parts": {"bass": ("sustain", r"[\w-]+\.wav")},
     },
 }
 FX_KIT_PART_RE = re.compile(r"^[a-z0-9-]{1,40}$")

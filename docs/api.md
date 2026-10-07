@@ -73,7 +73,7 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        тишина), чтобы вставить его без задержки (adelay ffmpeg ошибается на сэмпл)
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}], kits: [{name: «osdk/kick», samples}]} —
                        захваты NAM, IR и наборы сэмплов барабанов
-POST /fx/kits/install?name=osdk  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
+POST /fx/kits/install?name=osdk|growlybass  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
                        повтор — без сети; неизвестное имя → 422; сбой сети → 502 (без полукаталога)
 POST /fx/assets?kind=amp|ir&name=  загрузить .nam / .wav (байты тела, ≤ 50 МБ) → {name, kind}
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным

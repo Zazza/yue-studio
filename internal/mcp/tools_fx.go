@@ -32,7 +32,9 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}; " +
 	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу); " +
 	"sampler {kit «osdk/kick», floor_db −18, output_db 0} — замена ударов части барабанов (source kick/snare) " +
-	"сэмплами набора (fx_kit_install), пик в пик. " +
+	"сэмплами набора (fx_kit_install), пик в пик; " +
+	"bass {kit «growlybass/bass», division 2 (нот на долю), floor_db −20, output_db 0} — замена баса (source bass) " +
+	"сэмплами бас-гитары: ритм — доли дорожки, высота — по басу, громкость и баланс — как у исходного. " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."
 
 // registerFxTools — звуковой движок воркера (POST /jobs/{id}/fx, /fx/assets).
@@ -114,10 +116,11 @@ func registerFxTools(s *Server) {
 
 	s.Register(Tool{
 		Name: "fx_kit_install",
-		Description: "Скачать на воркер набор сэмплов барабанов для блока sampler (замена ударов): osdk — " +
-			"The Open Source Drum Kit (бочка, малый; общественное достояние). Повтор — без перекачки. " +
-			"Наборы и их части — в fx_assets (kits: «osdk/kick», «osdk/snare»).",
-		InputSchema: props(map[string]any{"name": prop("набор: osdk", "string")}, "name"),
+		Description: "Скачать на воркер набор сэмплов: osdk — The Open Source Drum Kit (бочка, малый; " +
+			"общественное достояние) для блока sampler; growlybass — бас-гитара Squier Jazz (Karoryfer, CC0) " +
+			"для блока bass. Повтор — без перекачки. Наборы и их части — в fx_assets (kits: «osdk/kick», " +
+			"«osdk/snare», «growlybass/bass»).",
+		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass", "string")}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			out, err := s.client.InstallFxKit(context.Background(), argString(args, "name"))
 			if err != nil {

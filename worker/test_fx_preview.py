@@ -43,7 +43,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 BLOCKS_JSON = Path(__file__).resolve().with_name("fx_blocks.json")
-TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler")
+TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass")
 PREVIEW_RE = re.compile(r"^preview-fx-[0-9a-f]{8}\.flac$")
 TAIL = 3.0
 MAX_PREVIEWS = 8
@@ -906,6 +906,123 @@ class TestPreviewSampler(_PreviewCase):
         self.assertEqual(a["file"], b["file"])
 
 
+# ---------- Условие 15 (internal-studio-engine, этап 5б): превью с bass, ТК14 ----------
+#
+# Контракт: превью с bass — хвост как у sampler (1 с): end = min(b + F + 1 с, n);
+# кэш превью (_fx_stamp) учитывает файлы набора <data>/fx/kits/<набор>/<часть>/*.wav.
+# Набор — настоящее хранилище воркера (файлы), дорожка bass — ноты на долях 120 BPM.
+
+BASS_KIT_NAME = "growlybass/bass"
+BASS_CHAIN = [{"type": "bass", "kit": BASS_KIT_NAME}]
+
+
+def _bass_wav(hz, peak=0.8, sr=SR):
+    import io
+
+    import soundfile as sf
+    from test_fx_engine import _pluck
+    buf = io.BytesIO()
+    sf.write(buf, _pluck(hz, peak, sr=sr, dur=1.5), sr, format="WAV", subtype="PCM_24")
+    return buf.getvalue()
+
+
+@unittest.skipUnless(fa._OK and _HAS_NP, fa._SKIP)
+class TestPreviewBass(_PreviewCase):
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(self.w, "fx_resources", self.real_fx_resources)
+        p.start()
+        self.addCleanup(p.stop)
+        self.kit_dir = self.data / "fx" / "kits" / BASS_KIT_NAME
+        self.kit_dir.mkdir(parents=True)
+
+    def _put(self, name, hz, peak=0.8):
+        path = self.kit_dir / name
+        existed = path.exists()
+        old = path.stat().st_mtime_ns if existed else 0
+        path.write_bytes(_bass_wav(hz, peak))
+        if existed:
+            st = path.stat()
+            os.utime(path, ns=(st.st_atime_ns, max(st.st_mtime_ns, old) + 10 * 10**9))
+        return path
+
+    def _full_kit(self):
+        for i, hz in enumerate((41.2, 55.0, 65.4, 82.4)):
+            for j, pk in enumerate((0.3, 0.6, 1.0)):
+                self._put(f"s{i}{j}.wav", hz, pk)
+
+    def _bass_job(self):
+        from test_fx_engine import _bass_line
+        ev = [(0.5 + i * 0.5, (55.0, 82.41, 73.42)[i % 3], 0.5, 0.22, 0.3) for i in range(7)]
+        x, _ = _bass_line(ev, fa.DUR, sr=SR)
+        return self._audio_job(extra={"bass": x})
+
+    def test_tc14_tail_1s(self):
+        self._full_kit()
+        jid, d = self._bass_job()
+        for fr, to, fade, want in ((0.5, 1.5, 0.0, 1.0 + SAMPLER_TAIL),
+                                   (0.5, 1.5, 0.05, 1.0 + 0.05 + SAMPLER_TAIL),
+                                   (1.2, 1.7, 0.05, 0.5 + 0.05 + SAMPLER_TAIL)):
+            with self.subTest(fr=fr, to=to, fade=fade):
+                out = self._ok_preview(jid, BASS_CHAIN, fr, to, source="bass", output="solo", fade=fade)
+                y, _ = _read(d / out["file"])
+                self.assertAlmostEqual(len(y) / SR, want, delta=2 / SR)
+                self.assertAlmostEqual(out["duration_sec"], want, delta=0.01)
+
+    def test_tc14_tail_not_past_track_end(self):
+        self._full_kit()
+        jid, d = self._bass_job()
+        out = self._ok_preview(jid, BASS_CHAIN, 2.5, 3.5, source="bass", output="solo", fade=0.05)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(len(y) / SR, fa.DUR - 2.5, delta=2 / SR)
+
+    def test_tc14_replaced_kit_wav_recomputed(self):
+        import fx_engine
+        self._full_kit()
+        jid, _ = self._bass_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            a = self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            calls = proc.call_count
+            self._put("s10.wav", 65.4, 0.3)
+            b = self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            self.assertGreater(proc.call_count, calls, "файл набора сменился, а превью взято из кэша")
+        self.assertNotEqual(a["file"], b["file"])
+
+    def test_tc14_added_kit_wav_recomputed(self):
+        import fx_engine
+        self._full_kit()
+        jid, _ = self._bass_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            calls = proc.call_count
+            self._put("extra.wav", 55.0, 0.9)
+            self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            self.assertGreater(proc.call_count, calls, "в наборе новый файл, а превью взято из кэша")
+
+    def test_tc14_same_kit_same_file_from_cache(self):
+        import fx_engine
+        self._full_kit()
+        jid, _ = self._bass_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            a = self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            calls = proc.call_count
+            b = self._ok_preview(jid, BASS_CHAIN, 0.5, 1.5, source="bass", output="solo")
+            self.assertEqual(proc.call_count, calls)
+        self.assertEqual(a["file"], b["file"])
+
+    def test_tc14_fx_stamp_counts_bass_kit_files(self):
+        # _fx_stamp(paths, chain): версия превью зависит от файлов набора bass
+        self._full_kit()
+        s1 = self.w._fx_stamp([], BASS_CHAIN)
+        self.assertEqual(s1, self.w._fx_stamp([], BASS_CHAIN), "штамп нестабилен")
+        self._put("s10.wav", 65.4, 0.3)
+        s2 = self.w._fx_stamp([], BASS_CHAIN)
+        self.assertNotEqual(s1, s2, "замена файла набора bass не меняет штамп")
+        self._put("extra.wav", 55.0, 0.9)
+        self.assertNotEqual(s2, self.w._fx_stamp([], BASS_CHAIN), "новый файл набора bass не меняет штамп")
+
+
 # ---------- ТК7: один источник описания блоков ----------
 
 def _blocks():
@@ -984,7 +1101,7 @@ STAGE2 = {
 
 def _need(t):
     """Обязательные строковые поля блока для проверки parse_chain."""
-    return {"amp": {"model": "fake"}, "sampler": {"kit": "fake/kick"}}.get(t, {})
+    return {"amp": {"model": "fake"}, "sampler": {"kit": "fake/kick"}, "bass": {"kit": "fake/bass"}}.get(t, {})
 
 
 @unittest.skipUnless(_HAS_NP, "нужны numpy/scipy (окружение воркера)")

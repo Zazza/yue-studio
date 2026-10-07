@@ -152,6 +152,9 @@ echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и пере
   достоянием — можно в своих треках без указания автора (заявление автора на KVR:
   https://www.kvraudio.com/forum/viewtopic.php?t=277132; в репозитории файла лицензии нет). Версия набора
   закреплена за коммитом репозитория. В поставку не входит; приложение качает набор само, когда он нужен цепочке.
+- Набор бас-гитары для блока `bass` — Growlybass (Karoryfer Lecolds, Squier Jazz Bass,
+  github.com/sfzinstruments/karoryfer.growlybass, лицензия CC0 — без ограничений и без указания автора):
+  `fx_kit_install growlybass`, 224 сэмпла (~170 МБ, часть `sustain`), версия закреплена за коммитом.
 - pedalboard (Spotify) не используется: его лицензия GPL-3, проект — MIT.
 
 ## Разделение на дорожки — BS-Roformer-SW

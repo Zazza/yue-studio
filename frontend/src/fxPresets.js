@@ -119,6 +119,15 @@ export const fxPresets = [
     chain: [{ type: 'sampler', kit: 'osdk/snare', floor_db: -20, output_db: -2 }],
   },
   {
+    id: 'bass-kit',
+    name: { ru: 'Бас: бас-гитара (набор)', en: 'Bass: bass guitar (kit)' },
+    note: {
+      ru: 'На дорожку «бас»: ноты баса играются сэмплами настоящей бас-гитары (Growlybass, Squier Jazz). Ритм — доли дорожки (2 ноты на долю — восьмые), высота — по басу, громкость и баланс низа/середины следуют за исходным басом. Сложный рисунок (слэп, быстрые пассажи) не повторит. Набор — fx_kit_install growlybass.',
+      en: 'On the "bass" stem: the bass notes are played with real bass guitar samples (Growlybass, Squier Jazz). Rhythm follows the stem beats (2 notes per beat — eighths), pitch follows the bass, loudness and low/mid balance follow the original. Will not copy complex parts (slap, fast runs). Kit — fx_kit_install growlybass.',
+    },
+    chain: [{ type: 'bass', kit: 'growlybass/bass', division: 2, floor_db: -20 }],
+  },
+  {
     id: 'master-glue',
     name: { ru: 'Мастер: склейка', en: 'Master: glue' },
     note: {

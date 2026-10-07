@@ -32,6 +32,10 @@ OVERSAMPLE = 4       # передискретизация перегруза
 MAX_TAIL_S = 10.0    # предел длины хвоста реверба/дилея
 EPS = 1e-12
 SAMPLER_HOP = 128    # кадр поиска ударов sampler, сэмплов (2,7 мс при 48 кГц)
+BASS_SAMPLE_S = 6.0  # bass: сэмпл набора дольше не тянется (Growlybass записан по 6 с — целиком)
+BASS_RELEASE_S = 0.03  # bass: глушение струны в конце ноты
+BASS_FOLLOW_DB = 15.0  # bass: предел подгонки громкости по времени к входу, ± дБ
+BASS_RISE_DB = 2.0   # bass: удар — рост громкости 25 мс после начала против 25 мс до, не меньше
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
 
 # описание блоков — один источник worker/fx_blocks.json (копии во фронте и MCP — make mcp-data)
@@ -43,6 +47,9 @@ SPEC: dict[str, dict[str, tuple]] = {
     for t, b in _BLOCKS.items()}
 ZERO_OFF: dict[str, set[str]] = {t: {p["id"] for p in b.get("params", []) if p.get("zero_off")}
                                  for t, b in _BLOCKS.items()}
+# целые параметры (число нот на долю): 2.5 — ошибка, а не округление
+INTEGER: dict[str, set[str]] = {t: {p["id"] for p in b.get("params", []) if p.get("integer")}
+                                for t, b in _BLOCKS.items()}
 # строковые параметры: (умолчание или None — обязателен)
 STR_SPEC: dict[str, dict[str, str | None]] = {
     t: {s["id"]: (None if s.get("required") else s.get("default", "")) for s in b["strings"]}
@@ -103,6 +110,8 @@ def parse_chain(chain) -> list[dict]:
         for k, s in nums.items():
             v = blk.get(k, s[0])
             norm[k] = 0.0 if k in ZERO_OFF.get(t, ()) and _num(v) and v == 0 else _check_num(where, k, v, s)
+            if k in INTEGER.get(t, ()) and norm[k] != int(norm[k]):
+                raise ChainError(f"{where}: {k} должен быть целым")
         for k, default in strs.items():
             v = blk.get(k, default)
             if v is None:
@@ -400,7 +409,7 @@ def _resource(res, kind: str, name: str):
 
 
 def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
-    """Удары во входе (n, ch): начала нот (librosa), пик — максимум |моно| в 15 мс после начала;
+    """Удары во входе (n, ch): начала нот (librosa), пик — максимум |моно| до 40 мс после начала;
     тише p95·10^(floor_db/20) — отбрасываются (протечка других барабанов в дорожке-части)."""
     import librosa
     mono = np.abs(x).mean(axis=1)
@@ -416,9 +425,13 @@ def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
     back = max(2 * hop, int(0.02 * sr))
     for o in on:
         # начало ноты librosa даёт с точностью до кадра и бывает позже самого удара (у края —
-        # на сотни сэмплов): пик ищем до 20 мс назад, не заходя за предыдущий удар, и 15 мс вперёд
+        # на сотни сэмплов): пик ищем до 20 мс назад, не заходя за предыдущий удар, и до 40 мс вперёд,
+        # не заходя за следующее начало. 15 мс вперёд было мало: у бочки несколько почти равных пиков
+        # подряд, и выбор зависел от кадра начала — на #279 каждый пятый удар гулял на 1–10 мс
+        # между окнами, начатыми в разных местах
         a = max(0, o - back, (hits[-1][0] + hop) if hits else 0)
-        seg = mono[a:o + win]
+        nxt = on[on > o + win]
+        seg = mono[a:min(o + int(0.04 * sr), int(nxt[0]) - hop if len(nxt) else len(mono), len(mono))]
         if len(seg):
             t = int(a + np.argmax(seg))
             if not hits or t - hits[-1][0] > hop:   # тот же удар, найденный с двух кадров, — один раз
@@ -463,6 +476,282 @@ def _sampler(x, sr, p, res):
     return y * (rin / max(_rms(y), EPS) if rin > EPS else 1.0) * _db(p["output_db"])
 
 
+def _kit_notes(raw, ksr: int) -> list[tuple[float, float, int, np.ndarray]]:
+    """Сэмплы набора баса: (высота MIDI по самому звуку, пик, начало атаки, моно-сэмпл) — имена
+    файлов не нужны. Длинные сэмплы режутся до BASS_SAMPLE_S: щипок дольше не тянется."""
+    import librosa
+    out = []
+    for s in raw:
+        s = np.asarray(s, dtype=np.float32)   # 224 сэмпла по 6 с: float64 — лишние 240 МБ
+        s = (s.mean(axis=1) if s.ndim > 1 else s)[:int(BASS_SAMPLE_S * ksr)]
+        peak = float(np.abs(s).max()) if len(s) else 0.0
+        if peak <= 0:
+            continue
+        a = int(np.argmax(np.abs(s) > 0.1 * peak))          # начало атаки
+        body = s[a + int(0.05 * ksr):a + int(0.6 * ksr)]    # после щелчка струны — тон
+        if len(body) < 2048:
+            continue
+        f0 = librosa.yin(body, fmin=25, fmax=500, sr=ksr, frame_length=2048)
+        out.append((float(librosa.hz_to_midi(np.median(f0))), peak, a, s))
+    return out
+
+
+def _attack_at(m: np.ndarray, hf: np.ndarray, c: np.ndarray, o: int, sr: int) -> tuple[int, float] | None:
+    """Удар около начала ноты librosa: (сэмпл начала, рост громкости в дБ) или None, если удара нет.
+    Начало — точка от −30 до +60 мс, где громкость 25 мс после неё больше всего превышает громкость 25 мс до
+    неё (окно короче периода E1 — 24 мс — гуляло бы с фазой волны); максимум на краю поиска — удар
+    дальше, этот кандидат не он. Есть щелчок струны (верх — разность соседних сэмплов) рядом —
+    начало уточняется по нему до сэмпла: первый сэмпл, где щелчок доходит до 30 % своего пика."""
+    w = max(8, int(0.025 * sr))
+    # вперёд дальше: на паузе между нотами librosa отмечает её начало, а удар — после паузы. У начала
+    # окна «до» короче 25 мс (не меньше 2 мс): иначе нота через 10 мс после начала окна не находилась,
+    # и щипок вставал на начало окна — раньше ноты
+    t = np.arange(max(int(0.002 * sr), o - int(0.03 * sr)), min(len(m) - w, o + int(0.06 * sr)) + 1)
+    if len(t) < 3:
+        return None
+    lo_t = np.maximum(t - w, 0)
+    ratio = ((c[t + w] - c[t]) / w) / ((c[t] - c[lo_t]) / (t - lo_t) + EPS)
+    k = int(np.argmax(ratio))
+    if k == 0 or k == len(t) - 1:
+        return None
+    at = int(t[k])
+    # рост — с отступом 10 мс по обе стороны: провал на стыке легато (спад и атака по 5 мс) сам
+    # по себе не удар, а в окна вплотную он попадал и давал «рост» больше 2 дБ у повтора той же ноты
+    g = int(0.01 * sr)
+    a0, a1 = min(len(m), at + g), min(len(m), at + g + w)
+    b0, b1 = max(0, at - g - w), max(0, at - g)
+    before = (c[b1] - c[b0]) / max(b1 - b0, 1)
+    rise = 10 * np.log10(max((c[a1] - c[a0]) / max(a1 - a0, 1) / (before + EPS), EPS))
+    # окна по 25 мс ставят точку позже начала плавной атаки (5–10 мс): начало — последняя точка за
+    # 20 мс до неё, где огибающая (максимум |звука| на 2 мс вперёд — назад не заглядывает) ещё не
+    # выше уровня до удара + 20 % подъёма к пику следующих 20 мс
+    from scipy.ndimage import maximum_filter1d
+    b0, b1 = max(0, at - int(0.045 * sr)), min(len(m), at + int(0.02 * sr))
+    q = int(0.002 * sr)
+    if at - b0 > int(0.02 * sr) + q and b1 > at:
+        ef = maximum_filter1d(np.abs(m[b0:b1 + q]), 2 * q + 1, origin=-q)[:b1 - b0]
+        q0, q1 = at - int(0.02 * sr) - b0, at - b0 + 1
+        base, peak = float(np.median(ef[:q0])), float(ef[q1 - 1:].max())
+        if peak > base:
+            low = np.flatnonzero(ef[q0:q1] <= base + 0.2 * (peak - base))
+            if len(low):
+                at = b0 + q0 + int(low[-1])
+    hop = SAMPLER_HOP
+    lo, hi = max(1, at - 2 * hop), min(len(m), at + 2 * hop)
+    seg = np.abs(hf[lo:hi])
+    base = np.median(np.abs(hf[max(0, lo - int(0.05 * sr)):lo])) if lo > 1 else 0.0
+    if len(seg) and seg.max() > 8 * max(base, EPS):
+        at = int(lo + np.argmax(seg >= 0.3 * seg.max()))
+    return at, rise
+
+
+def _bass_cells(m: np.ndarray, sr: int, division: int, changes=()) -> tuple[np.ndarray, set]:
+    """Границы ячеек (сэмплы) и множество тех, что начинаются ударом. Сетка — доли дорожки,
+    поделённые на division; удары (начала нот) встают в сетку сами и заменяют соседнюю границу
+    ближе 40 мс. Долей не нашлось (одна нота, рубато) — ячейки только по ударам."""
+    import librosa
+    hop = SAMPLER_HOP
+    # края — зеркальным продолжением, не тишиной: окно превью/пересборки начинается посреди звучащего
+    # баса, и скачок из тишины давал огромный ложный удар — librosa нормирует силу ударов по самому
+    # сильному, и настоящие уходили под порог (отрывок RoFormer: 9 начал нот вместо 140)
+    pad = min(max(4 * hop, int(0.25 * sr)), len(m) - 1)
+    lead = np.pad(m, pad, mode="reflect").astype(np.float32) if pad > 0 else m.astype(np.float32)
+    # кадр 256: начало всё равно уточняется до сэмпла в _attack_at, а кадр 128 стоил 1,4 ГБ на трек
+    on = librosa.onset.onset_detect(y=lead, sr=sr, units="samples", hop_length=2 * hop, backtrack=True)
+    on = np.unique(np.clip(on - pad, 0, len(m) - 1))
+    hf = np.diff(m, prepend=m[:1])     # верх без фильтра: нулевая фаза размазала бы щелчок назад на ~3 мс
+    c = np.cumsum(np.concatenate([[0.0], m * m]))
+    near = int(0.04 * sr)
+    # удар — только с ростом громкости (иначе librosa ловит и конец ноты, и переливы тянущейся);
+    # кандидаты ближе 40 мс — один удар: остаётся тот, где рост больше
+    cand = sorted(h for h in (_attack_at(m, hf, c, int(o), sr) for o in on) if h and h[1] >= BASS_RISE_DB)
+    soft = np.array(sorted(h[0] for h in (_attack_at(m, hf, c, int(o), sr) for o in on) if h), dtype=int)
+    hits: list = []
+    for h in cand:
+        if hits and h[0] - hits[-1][0] < near:
+            if h[1] > hits[-1][1]:
+                hits[-1] = h
+        else:
+            hits.append(h)
+    on = np.array([h[0] for h in hits], dtype=int)
+    # доли — кадром 512: сетка нужна лишь там, где ударов нет; кадр 128 стоил 14,5 ГБ на трек 279 с
+    _, beats = librosa.beat.beat_track(y=m.astype(np.float32), sr=sr, hop_length=512, units="samples")
+    grid = []
+    if len(beats) >= 2:
+        step = float(np.median(np.diff(beats))) / division
+        g = float(beats[0])
+        while g - step >= 0:
+            g -= step
+        grid = list(np.arange(g, len(m), step).astype(int))
+    bounds = set(int(o) for o in on)
+    # смена высоты без удара — тоже граница: доли по басу бывают найдены вдвое реже (#466: 59 вместо
+    # 129 BPM), и нота тянулась бы через смену. Кадр yin — 186 мс: смена рядом с ударом (±120 мс) —
+    # это сам удар, иначе граница встала бы перед ним и дала щипок раньше удара. Без удара — на начало
+    # ноты librosa без роста громкости рядом (±120 мс): смена ноты слышна там, а не в середине кадра yin.
+    # Начала нет — смену не берём: на мутной дорожке (Demucs, гитара в басе) высота дрожит, и щипки
+    # по ней шли бы мимо такта — хуже, чем нота, дотянутая до следующего удара
+    lim = int(0.12 * sr)
+    for g in changes:
+        if (len(on) and np.min(np.abs(on - g)) <= lim) or not len(soft) or np.min(np.abs(soft - g)) > lim:
+            continue
+        g = int(soft[np.argmin(np.abs(soft - g))])
+        if not bounds or min(abs(g - b) for b in bounds) > near:
+            bounds.add(int(g))
+    if not len(on) or on[0] > near:   # удар у самого начала окна — ячейка [0, удар) дала бы второй щипок
+        bounds.add(0)
+    # сетка — лишь в промежутках: не ближе 100 мс к любой границе (удару, смене ноты, началу окна) —
+    # граница чуть раньше другой давала короткий щипок перед ней (#466: пары через 40–55 мс)
+    # (не дальше 0,6 шага сетки: при division 4 и быстром темпе шаг сам ~90 мс). Сравнение — с границами
+    # до сетки: с только что добавленной точкой сетки выпадала бы каждая вторая
+    far = int(min(0.1 * sr, 0.6 * step)) if grid else 0
+    fixed = set(bounds) | {-far - 1}
+    for g in grid:
+        if min(abs(g - b) for b in fixed) > far:
+            bounds.add(int(g))
+    return np.array(sorted(bounds) + [len(m)]), set(int(o) for o in on)
+
+
+def _pitch_changes(f0: np.ndarray, fr: np.ndarray, step: float) -> list[int]:
+    """Сэмплы, где нота баса сменилась и держится ≥ 5 кадров (~116 мс): кадры yin (шаг step сэмплов),
+    тихие (< 5 % самого громкого) не считаются. Октава — тоже смена: дрожь yin отсекает устойчивость
+    5 кадров, а октавные ходы у баса обычны."""
+    from scipy.ndimage import median_filter
+    voiced = fr > 0.05 * max(float(fr.max()), EPS)
+    if voiced.sum() < 3:
+        return []
+    midi = 12 * np.log2(np.maximum(f0, EPS) / 440.0) + 69
+    tun = float(np.median((midi[voiced] - np.round(midi[voiced]) + 0.5) % 1 - 0.5))
+    q = median_filter(np.round(midi - tun), 3)
+    run = 5                      # короче — дрожь yin на мутной дорожке (#466: 175 «смен» за минуту)
+    out, last = [], None
+    for k in range(len(q) - run + 1):
+        if not voiced[k:k + run].all() or not (q[k:k + run] == q[k]).all():
+            continue
+        if last is not None and q[k] != last:
+            out.append(int(k * step))
+        last = q[k]
+    return out
+
+
+def _band_follow(y: np.ndarray, ref: np.ndarray, sr: int) -> np.ndarray:
+    """Громкость y по времени — как у ref, отдельно до 200 Гц и выше (окно 0,5 с, ±15 дБ):
+    у сэмплов другой баланс низа и середины, а одна общая громкость давала «бас мешает под голосом»."""
+    from scipy import signal
+    from scipy.ndimage import uniform_filter1d
+    sos = signal.butter(4, 200, "lowpass", fs=sr, output="sos")
+    w = max(1, int(0.5 * sr))
+    env = lambda v: np.sqrt(uniform_filter1d(v * v, w) + 1e-12)
+    out = np.zeros_like(y)
+    lo_y, lo_r = _zero_phase(sos, y[:, None])[:, 0], _zero_phase(sos, ref[:, None])[:, 0]
+    for a, b in ((lo_y, lo_r), (y - lo_y, ref - lo_r)):     # верх — остаток: полосы в сумме — целое
+        g0 = _rms(b) / max(_rms(a), EPS)                        # общий уровень полосы, а по времени —
+        out += a * g0 * np.clip(env(b) / (env(a) * g0), _db(-BASS_FOLLOW_DB), _db(BASS_FOLLOW_DB))  # ±предел
+    # где y молчит, полосы — только предзвон фильтра нулевой фазы, а подгонка в тишине его усиливает:
+    # выход — лишь там, где звучит y (запас 1 мс: предзвон перед атакой — тоже «звук раньше удара»)
+    k = max(1, int(0.001 * sr))
+    live = np.abs(y) > 1e-6 * max(float(np.abs(y).max()), EPS)
+    return out * (uniform_filter1d(live.astype(float), 2 * k + 1) > 0)
+
+
+def _bass(x, sr, p, res):
+    """Замена баса сэмплами бас-гитары: ячейки — доли дорожки (division на долю) и её удары; в ячейке —
+    нота дорожки (медиана частоты, строй учтён); новый щипок — на ударе, смене ноты или после тишины,
+    иначе нота тянется. Атака сэмпла — на начале удара (без сдвига); громкость и баланс низ/верх
+    следуют за входом во времени (+ output_db)."""
+    import librosa
+    raw, ksr = _resource(res, "kit", p["kit"])
+    kit = _kit_notes(raw, int(ksr))
+    if not kit:
+        raise ChainError(f"набор {p['kit']!r}: нет сэмплов с высотой")
+    n = x.shape[0]
+    m = x.mean(axis=1)
+    y = np.zeros(n)
+    if _rms(m) <= EPS:
+        return np.zeros_like(x)
+    # высота: yin на пониженной частоте (быстро); кадры тише порога не голосуют
+    dsr = 11025
+    md = _resample(m[:, None], sr, dsr)[:, 0]
+    hop = 256
+    f0 = librosa.yin(md, fmin=30, fmax=400, sr=dsr, frame_length=2048, hop_length=hop, center=True)
+    fr = librosa.feature.rms(y=md, frame_length=2048, hop_length=hop, center=True)[0]
+    bounds, onsets = _bass_cells(m, sr, int(round(p["division"])), _pitch_changes(f0, fr, hop * sr / dsr))
+    cells = []
+    for c0, c1 in zip(bounds[:-1], bounds[1:], strict=True):
+        a, b = c0 * dsr // sr // hop, max(c0 * dsr // sr // hop + 1, c1 * dsr // sr // hop)
+        k0, k1 = a + (b - a) // 5, b - (b - a) // 5             # края ячейки — переходы, не голосуют
+        rf = fr[k0:max(k1, k0 + 1)]
+        sel = f0[k0:max(k1, k0 + 1)][rf > 0.3 * max(rf.max(), EPS)]   # по своей громкости: тихая нота — тоже
+        cells.append([int(c0), int(c1), float(librosa.hz_to_midi(np.median(sel))) if len(sel) else None,
+                      _rms(m[c0:c1])])
+    loud = np.percentile([c[3] for c in cells], 90)
+    for c in cells:
+        if c[3] < loud * _db(p["floor_db"]):
+            c[2] = None
+    voiced = [c[2] for c in cells if c[2] is not None]
+    if not voiced:
+        return np.zeros_like(x)
+    tun = float(np.median([(v - round(v) + 0.5) % 1 - 0.5 for v in voiced]))   # строй дорожки, полутона
+    lo = min(k[0] for k in kit)
+    for c in cells:
+        if c[2] is not None:
+            q = int(round(c[2] - tun))
+            while q > lo + 24:
+                q -= 12
+            while q < lo - 0.5:
+                q += 12
+            c[2] = q
+    for i in range(1, len(cells) - 1):                          # одиночный выброс — к соседям
+        a, b, c = cells[i - 1][2], cells[i][2], cells[i + 1][2]
+        if a is not None and a == c and b is not None and b != a:
+            cells[i][2] = a
+    # ноты: щипок на ударе, смене ноты или после тишины; иначе ячейка продлевает ноту
+    notes = []
+    for c0, c1, q, e in cells:
+        if q is None:
+            continue
+        if notes and notes[-1][1] == c0 and notes[-1][2] == q and c0 not in onsets:
+            notes[-1][1] = c1
+        else:
+            notes.append([c0, c1, q, e])
+    es = np.array([nt[3] for nt in notes])
+    ranks = np.argsort(np.argsort(es)) / max(len(es) - 1, 1)
+    groups = {}
+    for k in kit:
+        groups.setdefault(int(round(k[0])), []).append(k)
+    for g in groups.values():
+        g.sort(key=lambda k: k[1])
+    rel = int(BASS_RELEASE_S * sr)
+    # конец ноты — где вход замолк: ячейка сетки бывает длиннее звука, и нота тянулась бы в тишину
+    from scipy.ndimage import uniform_filter1d
+    env = np.sqrt(uniform_filter1d(m * m, max(1, int(0.02 * sr))))
+    quiet = env < np.percentile(env, 90) * _db(p["floor_db"] - 10)
+    for nt in notes:
+        after = np.flatnonzero(quiet[nt[0] + int(0.02 * sr):nt[1]])
+        if len(after):
+            nt[1] = max(nt[0] + 1, nt[0] + int(0.02 * sr) + int(after[0]) - rel)
+    prev: dict = {}                                             # группа → дубль предыдущего щипка
+    for i, ((t0, t1, q, _), r) in enumerate(zip(notes, ranks, strict=True)):
+        gk = min(groups, key=lambda kk: abs(kk - q))
+        g = groups[gk]
+        j = min(len(g) - 1, max(0, int(round(r * (len(g) - 1))) + (i % 3) - 1))   # слой + чередование дублей
+        if len(g) > 1 and prev.get(gk) == j:                   # ранг съел чередование — соседний дубль
+            j = j - 1 if j > 0 else j + 1
+        prev[gk] = j
+        midi_s, _, att, s = g[j]
+        ratio = 2 ** ((q + tun - midi_s) / 12) * ksr / sr      # шаг по сэмплу на сэмпл выхода
+        length = min(t1 - t0 + rel, n - t0)
+        idx = att + np.arange(length) * ratio
+        idx = idx[idx < len(s) - 1]
+        if not len(idx):
+            continue
+        w = np.interp(idx, np.arange(len(s)), s)
+        f = min(rel, len(w))
+        w[-f:] *= np.linspace(1, 0, f)                          # глушение струны к следующей ноте
+        y[t0:t0 + len(w)] += w
+    y = _band_follow(y, m, sr) * _db(p["output_db"])
+    return np.repeat(y[:, None], x.shape[1], axis=1)
+
+
 def _gain(x, sr, p, _res):
     """Громкость: перегруз и усилитель выравнивают выход по своему входу — после узкой
     полосы эквалайзера звук тихий, поднять его в цепочке нечем было, кроме компрессора."""
@@ -470,7 +759,8 @@ def _gain(x, sr, p, _res):
 
 
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
-          "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler}
+          "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler,
+          "bass": _bass}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

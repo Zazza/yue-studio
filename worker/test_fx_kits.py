@@ -528,5 +528,59 @@ class TestSamplerOverHttp(_KitCase):
         self.assertEqual(self.gh.calls, [], "применение набора не ходит в сеть")
 
 
+# ---------- Условие 15 (internal-studio-engine, этап 5б): набор growlybass, ТК14 ----------
+#
+# Контракт: FX_KITS["growlybass"] — Karoryfer growlybass (GitHub
+# sfzinstruments/karoryfer.growlybass), версия закреплена коммитом (40 hex);
+# sustain/*.wav → часть bass.
+
+class TestGrowlybassCatalog(_KitCase):
+
+    def setUp(self):
+        super().setUp()
+        self.kits = self.w.FX_KITS
+
+    def test_tc14_growlybass_pinned(self):
+        self.assertIn("growlybass", self.kits)
+        spec = self.kits["growlybass"]
+        self.assertEqual(spec["repo"], "sfzinstruments/karoryfer.growlybass")
+        self.assertRegex(spec["ref"], r"^[0-9a-f]{40}$", "версия набора не закреплена коммитом")
+
+    def test_tc14_part_bass_from_sustain_wavs(self):
+        parts = self.kits["growlybass"]["parts"]
+        self.assertEqual(list(parts), ["bass"])
+        folder, pattern = parts["bass"]
+        self.assertEqual(folder, "sustain")
+        for name in ("a1_vl1_rr1.wav", "E1.wav", "x.wav"):
+            with self.subTest(name=name):
+                self.assertTrue(re.fullmatch(pattern, name), f"{name} не попадает в часть bass")
+        for name in ("readme.txt", "a1.sfz", "a1.wav.bak"):
+            with self.subTest(name=name):
+                self.assertFalse(re.fullmatch(pattern, name), f"{name} попал в часть bass")
+
+
+# ---------- Условие 15, ТК22: сэмпл набора читается до 6 с (FX_KIT_MAX_S) ----------
+
+class TestKitMaxLength(_KitCase):
+
+    def test_tc22_max_len_constant(self):
+        self.assertEqual(self.w.FX_KIT_MAX_S, 6)
+
+    def test_tc22_long_sample_read_up_to_6s(self):
+        import numpy as np
+        import soundfile as sf
+        d = self.kits / "growlybass" / "bass"
+        d.mkdir(parents=True)
+        k = np.arange(8 * KIT_SR)
+        x = (0.5 * np.exp(-k / KIT_SR / 4.0) * np.sin(2 * np.pi * 55 * k / KIT_SR)).astype(np.float32)
+        sf.write(str(d / "a1.wav"), x, KIT_SR, subtype="PCM_24")
+        samples, sr = self.real_fx_resources().kit("growlybass/bass")
+        self.assertEqual(sr, KIT_SR)
+        self.assertEqual(len(samples), 1)
+        n = len(np.asarray(samples[0]))
+        self.assertLessEqual(n, 6 * KIT_SR, "сэмпл длиннее 6 с прочитан целиком")
+        self.assertGreaterEqual(n, 6 * KIT_SR - KIT_SR // 100, "сэмпл обрезан короче 6 с")
+
+
 if __name__ == "__main__":
     unittest.main()

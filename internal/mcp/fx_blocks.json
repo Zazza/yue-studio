@@ -474,5 +474,58 @@
     }
    }
   ]
+ },
+ "bass": {
+  "label": {
+   "ru": "Замена баса (набор)",
+   "en": "Bass replace (kit)"
+  },
+  "params": [
+   {
+    "id": "division",
+    "default": 2,
+    "min": 1,
+    "max": 4,
+    "step": 1,
+    "label": {
+     "ru": "нот на долю (2 — восьмые)",
+     "en": "notes per beat (2 — eighths)"
+    },
+    "integer": true
+   },
+   {
+    "id": "floor_db",
+    "default": -20,
+    "min": -40,
+    "max": 0,
+    "step": 1,
+    "label": {
+     "ru": "порог звука, дБ (тише — тишина)",
+     "en": "floor, dB (quieter — silence)"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "output, dB"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "kit",
+    "asset": "kit",
+    "required": true,
+    "label": {
+     "ru": "набор",
+     "en": "kit"
+    }
+   }
+  ]
  }
 }
