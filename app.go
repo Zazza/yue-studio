@@ -504,6 +504,11 @@ func (a *App) YueFxAssets() (map[string]any, error) {
 	return a.yue.FxAssets(a.ctx)
 }
 
+// YueInstallFxKit — воркер качает набор сэмплов барабанов (блок sampler) из своего каталога.
+func (a *App) YueInstallFxKit(name string) (map[string]any, error) {
+	return a.yue.InstallFxKit(a.ctx, name)
+}
+
 // YueUploadFxAsset — выбрать на ПК захват NAM (kind=amp, .nam) или IR (kind=ir, .wav) и загрузить
 // на воркер; (nil, nil) — диалог отменён.
 func (a *App) YueUploadFxAsset(kind string) (map[string]any, error) {

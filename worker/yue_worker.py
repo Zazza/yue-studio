@@ -2538,6 +2538,7 @@ FX_KINDS = {"amp": ("amps", ".nam"), "ir": ("irs", ".wav")}
 FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
 FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
+FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler после окна (бочка/малый звучат ~0,3–0,8 с)
 FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
 FX_FADE_MAX_S = 0.5      # край окна превью — не длиннее
 FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
@@ -2610,6 +2611,26 @@ class _FxResources:
                 lp.write_text(json.dumps({"latency": m.latency}))
             self._amps[p.name] = m
         return self._amps[p.name]
+
+    def kit(self, name: str):
+        """Сэмплы набора `<набор>/<часть>` и их частота (sampler)."""
+        import soundfile as sf
+        d = _kit_path(name)
+        files = sorted(d.glob("*.wav")) if d.is_dir() else []
+        if not files:
+            raise KeyError(name)
+        out, sr = [], None
+        for f in files:
+            x, s = sf.read(str(f), dtype="float32")
+            if sr is None:
+                sr = s
+            elif s != sr:                # разная частота в одном наборе — пересчитать к первой
+                from fractions import Fraction
+                from scipy import signal
+                fr = Fraction(sr, s)
+                x = signal.resample_poly(x, fr.numerator, fr.denominator, axis=0).astype("float32")
+            out.append(x)
+        return out, sr
 
     def close(self) -> None:
         for m in self._amps.values():
@@ -2767,6 +2788,11 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     Пересобрали дорожки или перезалили захват под тем же именем — превью новое, не из кэша."""
     files = list(paths)
     for blk in chain:
+        if blk.get("type") == "sampler" and blk.get("kit"):
+            try:
+                files += sorted(_kit_path(blk["kit"]).glob("*.wav"))
+            except KeyError:
+                pass  # неверное имя — process отвергнет
         for kind, key in (("amp", "model"), ("ir", "ir")):
             name = blk.get(key)
             if name and (blk["type"] == "amp") == (kind == "amp"):
@@ -2802,6 +2828,8 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     n = len(track)
     a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
     tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
+    if not tail and any(blk["type"] == "sampler" for blk in chain):
+        tail = FX_SAMPLER_TAIL_S             # удар у конца окна: сэмпл звучит дальше, без обрыва
     fade = int(round(req.fade * sr))
     stop = min(b + fade, n)              # вход: до to и спад края после него
     end = min(stop + int(tail * sr), n)
@@ -2873,7 +2901,104 @@ def fx_assets():
             irs.append({"name": p.name, "sr": i.samplerate, "seconds": round(i.frames / i.samplerate, 3)})
         except Exception:  # noqa: BLE001 - битый файл в списке не показываем, остальные — да
             log.warning("fx: unreadable IR %s", p.name)
-    return {"amps": amps, "irs": irs}
+    return {"amps": amps, "irs": irs, "kits": _kit_list()}
+
+
+# ---------- Наборы сэмплов барабанов (блок движка sampler) ----------
+
+# каталог наборов, которые воркер качает сам по требованию: части → (каталог в репозитории, отбор
+# файлов). В поставку не входят; лицензия — у автора набора (docs/deployment.md)
+FX_KITS = {
+    "osdk": {  # The Open Source Drum Kit (Real Music Media) — public domain
+        "repo": "crabacus/the-open-source-drumkit",
+        # версия закреплена: файлы набора не подменятся под тем же именем
+        "ref": "c58808b2ff5a6cd77c2f47cf45f1a892ce6a1e2c",
+        "parts": {"kick": ("kick", r"kick\d+\.wav"), "snare": ("snare", r"snare-top\d+\.wav")},
+    },
+}
+FX_KIT_PART_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+_fx_kit_locks: dict = {}               # установка одного набора — по одной (общий каталог .part)
+_fx_kit_locks_guard = threading.Lock()
+
+
+def _kits_dir() -> Path:
+    return _fx_dir() / "kits"
+
+
+def _kit_path(name: str) -> Path:
+    """`<набор>/<часть>` → каталог сэмплов; неверное имя — KeyError."""
+    kit, _, part = name.partition("/")
+    if not (FX_KIT_PART_RE.match(kit) and FX_KIT_PART_RE.match(part)):
+        raise KeyError(name)
+    return _kits_dir() / kit / part
+
+
+def _kit_list() -> list:
+    out = []
+    root = _kits_dir()
+    if root.is_dir():
+        for d in sorted(p for p in root.glob("*/*") if p.is_dir() and FX_KIT_PART_RE.match(p.name)):
+            n = len(list(d.glob("*.wav")))
+            if n:
+                out.append({"name": f"{d.parent.name}/{d.name}", "samples": n})
+    return out
+
+
+def _http_get(url: str, timeout: float = 60) -> bytes:
+    """GET без прокси окружения (воркер в LAN; прокси ПК сюда не относится)."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(url, timeout=timeout) as r:
+        return r.read()
+
+
+@app.post("/fx/kits/install")
+def fx_kit_install(name: str = ""):
+    """Скачать набор сэмплов из каталога FX_KITS (повтор — без сети). Одновременные установки
+    одного набора идут по очереди: иначе вторая удаляла бы каталог, опубликованный первой."""
+    spec = FX_KITS.get(name)
+    if spec is None:
+        raise HTTPException(422, f"unknown kit {name!r} (есть: {', '.join(FX_KITS)})")
+    with _fx_kits_guard_for(name):
+        return _fx_kit_install(name, spec)
+
+
+def _fx_kits_guard_for(name: str) -> threading.Lock:
+    with _fx_kit_locks_guard:
+        return _fx_kit_locks.setdefault(name, threading.Lock())
+
+
+def _fx_kit_install(name: str, spec: dict) -> dict:
+    import http.client
+    parts, downloaded = {}, False
+    for part, (src, pattern) in spec["parts"].items():
+        dst = _kits_dir() / name / part
+        have = list(dst.glob("*.wav")) if dst.is_dir() else []
+        if have:
+            parts[part] = len(have)
+            continue
+        tmp = dst.with_name(dst.name + ".part")   # недокачанное — не набор: в список не попадёт
+        try:
+            listing = json.loads(_http_get(
+                f"https://api.github.com/repos/{spec['repo']}/contents/{src}?ref={spec['ref']}"))
+            if not isinstance(listing, list):
+                raise ValueError("GitHub ответил не списком файлов")
+            files = [f for f in listing if isinstance(f, dict) and re.fullmatch(pattern, str(f.get("name", "")))]
+            if not files:
+                raise ValueError("в источнике нет файлов")
+            shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir(parents=True)
+            for f in files:
+                (tmp / f["name"]).write_bytes(_http_get(str(f["download_url"])))
+        except (OSError, ValueError, KeyError, http.client.HTTPException) as e:
+            # сеть, обрыв ответа, разбор — причина в ответ, без полукаталога
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise HTTPException(502, f"kit {name}/{part}: не скачать — {e}") from e
+        shutil.rmtree(dst, ignore_errors=True)
+        tmp.replace(dst)
+        parts[part] = len(files)
+        downloaded = True
+        log.info("fx kit %s/%s: %d samples", name, part, len(files))
+    return {"name": name, "parts": parts, "downloaded": downloaded}
 
 
 @app.post("/fx/assets")

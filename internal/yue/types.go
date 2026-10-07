@@ -43,6 +43,7 @@ type Service interface {
 	ApplyFx(ctx context.Context, id int64, req FxRequest) (*DspVariant, error)
 	FxAssets(ctx context.Context) (map[string]any, error)
 	UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error)
+	InstallFxKit(ctx context.Context, name string) (map[string]any, error)
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
 	TranscribeJob(ctx context.Context, id int64) (map[string]any, error)
 	EnsureMp3(ctx context.Context, id int64) (map[string]any, error)

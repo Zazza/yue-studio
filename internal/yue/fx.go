@@ -42,6 +42,15 @@ func (c *Client) FxAssets(ctx context.Context) (map[string]any, error) {
 	return out, nil
 }
 
+// InstallFxKit — воркер скачивает набор сэмплов барабанов из своего каталога (повтор — без сети).
+func (c *Client) InstallFxKit(ctx context.Context, name string) (map[string]any, error) {
+	var out map[string]any
+	if err := c.post(ctx, "/fx/kits/install?name="+url.QueryEscape(name), planTimeout, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UploadFxAsset — загрузить захват NAM (kind=amp, .nam) или IR (kind=ir, .wav).
 func (c *Client) UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error) {
 	q := url.Values{"kind": {kind}, "name": {name}}

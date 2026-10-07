@@ -9,10 +9,10 @@ import blocks from './fxBlocks.json'
 import { fxPresets } from './fxPresets.js'
 import {
   newBlock, addBlock, removeBlock, moveBlock, toggleBlock, setParam,
-  toWorkerChain, fromWorkerChain,
+  toWorkerChain, fromWorkerChain, missingKits,
 } from './fxChain.js'
 
-const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay', 'gain']
+const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay', 'gain', 'sampler']
 
 // deepFreeze — любая мутация входа в строгом режиме модуля бросит исключение.
 function deepFreeze(o) {
@@ -42,7 +42,7 @@ const chain3 = () => deepFreeze([
 const types = (c) => c.map((b) => b.type)
 
 describe('описание блоков (fxBlocks.json)', () => {
-  it('девять типов в порядке показа (gain — последним)', () => {
+  it('десять типов в порядке показа (sampler — после gain)', () => {
     expect(Object.keys(blocks)).toEqual(TYPES)
   })
 })
@@ -291,5 +291,64 @@ describe('ТК2: пресет → редактируемая цепочка → 
       const twice = toWorkerChain(fromWorkerChain(deepFreeze(JSON.parse(JSON.stringify(once))), blocks))
       expect(twice).toEqual(once)
     }
+  })
+})
+
+// Условие 14 (internal-studio-engine, этап 5а), регрессия кросс-ревью:
+// missingKits(workerChain, kits) — какие наборы надо скачать перед расчётом.
+// workerChain — цепочка для воркера ({type, ...параметры}); kits — список из
+// GET /fx/assets ([{name: '<набор>/<часть>', samples}]). Ответ — имена наборов
+// (часть до «/»), которых нет, без повторов, в порядке появления в цепочке.
+describe('missingKits: недостающие наборы sampler', () => {
+  const kits = () => deepFreeze([{ name: 'osdk/kick', samples: 3 }, { name: 'osdk/snare', samples: 2 }])
+
+  it('набор есть → []', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/kick', floor_db: -18, output_db: 0 }])
+    expect(missingKits(chain, kits())).toEqual([])
+  })
+
+  it('набора нет → имя набора до «/»', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/kick' }])
+    expect(missingKits(chain, [])).toEqual(['osdk'])
+  })
+
+  it('часть набора не загружена → нужен набор', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/toms' }])
+    expect(missingKits(chain, kits())).toEqual(['osdk'])
+  })
+
+  it('без повторов: две части одного набора → одно имя', () => {
+    const chain = deepFreeze([
+      { type: 'sampler', kit: 'osdk/kick' },
+      { type: 'gain', gain_db: 3 },
+      { type: 'sampler', kit: 'osdk/snare' },
+      { type: 'sampler', kit: 'osdk/kick' },
+    ])
+    expect(missingKits(chain, [])).toEqual(['osdk'])
+  })
+
+  it('разные недостающие наборы — каждый по разу, в порядке цепочки', () => {
+    const chain = deepFreeze([
+      { type: 'sampler', kit: 'other/kick' },
+      { type: 'sampler', kit: 'osdk/kick' },
+      { type: 'sampler', kit: 'third/snare' },
+      { type: 'sampler', kit: 'other/snare' },
+    ])
+    expect(missingKits(chain, kits())).toEqual(['other', 'third'])
+  })
+
+  it('блоки не sampler и sampler без kit игнорируются', () => {
+    const chain = deepFreeze([
+      { type: 'amp', model: 'osdk/kick' },
+      { type: 'cab', ir: 'nope/room.wav' },
+      { type: 'reverb', kit: 'nope/kick' },
+      { type: 'sampler' },
+      { type: 'sampler', kit: '' },
+    ])
+    expect(missingKits(chain, [])).toEqual([])
+  })
+
+  it('пустая цепочка → []', () => {
+    expect(missingKits([], [])).toEqual([])
   })
 })

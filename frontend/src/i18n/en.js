@@ -754,4 +754,7 @@ export default {
   'instr.toStudio': '→ to studio',
   'instr.toStudio.tip': 'This chain on this stem in the piece window — into the track rebuild (with inserts); not for the whole track or drum parts',
   'instr.toStudio.done': 'Done: the chain is in the track studio, the track is rebuilt.',
+  'instr.kit': 'download kit',
+  'instr.kit.busy': 'downloading kit…',
+  'instr.kit.tip': 'The worker downloads The Open Source Drum Kit samples (kick, snare; public domain)',
 }

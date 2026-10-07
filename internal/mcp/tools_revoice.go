@@ -38,7 +38,7 @@ func registerRevoiceTools(s *Server) {
 				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?} — chain/params: эффект на " +
 				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
 				"steps [{chain, params, off}] вместо chain — цепочка эффектов по порядку (педали, dsp_presets). " +
-				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне: считается на воркере, звук не сдвигается, хвост реверба/дилея звучит после to. " +
+				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне (и на части барабанов kick/snare/toms/hh/ride/crash — только при дорожках RoFormer; замена ударов — блок sampler): считается на воркере, звук не сдвигается, хвост реверба/дилея/сэмплов звучит после to. " +
 				"stems: drums/bass/other/vocals; при child_id 0 ещё guitar/piano — гитара и клавиши внутри other " +
 				"(заменить куском их нельзя)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),

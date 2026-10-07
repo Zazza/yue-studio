@@ -13,7 +13,7 @@ import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import {
   addBlock, removeBlock, moveBlock, toggleBlock, setParam, addBand, removeBand, setBand,
-  toWorkerChain, fromWorkerChain, missingRequired,
+  toWorkerChain, fromWorkerChain, missingRequired, missingKits,
 } from '../fxChain.js'
 
 const { t, locale } = useI18n()
@@ -25,8 +25,8 @@ const inserts = useInserts()
 const SOURCES = ['mix', 'vocals', 'drums', 'bass', 'other', 'guitar', 'piano',
   'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
 const LEN_MIN = 3
-// дорожки, которые пересборка студии меняет (Go: studio.mutable); части барабанов — нет
-const STUDIO_STEMS = ['vocals', 'drums', 'bass', 'other', 'guitar', 'piano']
+// дорожки, которые пересборка студии меняет движком (Go: studio.engineStems): и части барабанов
+const STUDIO_STEMS = ['vocals', 'drums', 'bass', 'other', 'guitar', 'piano', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
 const LEN_MAX = 60
 
 const jobs = ref([])
@@ -60,7 +60,7 @@ const ready = computed(() => engineOn.value && engineKnown.value && job.value &&
   toWorkerChain(chain.value).length > 0 && (source.value === 'mix' || stems.value.includes(source.value)))
 
 function assetOptions(kind, def) {
-  const list = (kind === 'amp' ? assets.value.amps : assets.value.irs) || []
+  const list = ({ amp: assets.value.amps, ir: assets.value.irs, kit: assets.value.kits })[kind] || []
   const opts = list.map((a) => ({ value: a.name, label: a.name }))
   return def === '' ? [{ value: '', label: t('instr.builtin') }, ...opts] : opts
 }
@@ -146,6 +146,24 @@ function window_() {
   return { from, to: Math.min(from + l, dur) }
 }
 
+// наборы сэмплов, которых нет на воркере, — скачать перед расчётом (по требованию)
+// workerChain — уже собранная до первого await цепочка: пока качается набор, форму могут поменять;
+// after — какое «занято» вернуть после скачивания (на кнопках снова «считаю»)
+async function ensureKits(workerChain, after) {
+  const need = missingKits(workerChain, assets.value.kits)
+  if (!need.length) return
+  busy.value = 'kit'
+  for (const k of need) await api.installFxKit(k)
+  await loadAssets()
+  busy.value = after
+}
+
+async function installKit(name) {
+  err.value = ''
+  busy.value = 'kit'
+  try { await api.installFxKit(name); await loadAssets() } catch (e) { err.value = String(e) } finally { busy.value = '' }
+}
+
 function request(preview) {
   const req = { source: source.value, chain: toWorkerChain(chain.value), output: solo.value ? 'solo' : 'mix' }
   if (preview) Object.assign(req, window_(), { preview: true })
@@ -163,10 +181,12 @@ async function playAfter() {
   err.value = ''
   note.value = ''
   await toggleArtifact('instr-after', t('instr.after'), async () => {
-    busy.value = 'preview'
     const j = job.value             // трек сменят во время расчёта — играть файл того, для кого считали
+    const req = request(true)       // весь запрос — до первого await (скачивание набора)
     try {
-      const r = await api.applyFx(j.id, request(true))
+      await ensureKits(req.chain, 'preview')
+      busy.value = 'preview'
+      const r = await api.applyFx(j.id, req)
       lastPreview.value = r
       if (r && r.clipped) note.value = t('instr.clipped')
       await api.playFile(j.id, r.file, r.duration_sec || len.value)
@@ -209,8 +229,10 @@ async function toTrack() {
   err.value = ''
   const j = job.value               // трек/пресет сменят во время расчёта — вариант и имя остаются свои
   const title = `${j.title || '#' + j.id} · ${tr(preset.value?.name) || t('instr.title')}`
+  const req = request(false)        // весь запрос — до первого await (скачивание набора)
   try {
-    const v = await api.applyFx(j.id, request(false))
+    await ensureKits(req.chain, 'apply')
+    const v = await api.applyFx(j.id, req)
     await api.variantToTrack(j.id, v.file, title)
     note.value = t('instr.toTrack.done')
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
@@ -224,8 +246,11 @@ async function toStudio() {
   const j = job.value
   const { from, to } = window_()
   const label = t('engine.label', { name: tr(preset.value?.name) || t('instr.title') })
+  const stem = source.value          // всё — до первого await (скачивание набора)
+  const workerChain = toWorkerChain(chain.value)
   try {
-    await inserts.addStemEngine(j.id, { stem: source.value, chain: toWorkerChain(chain.value), from, to, label })
+    await ensureKits(workerChain, 'studio')
+    await inserts.addStemEngine(j.id, { stem, chain: workerChain, from, to, label })
     note.value = t('instr.toStudio.done')
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
 }
@@ -299,7 +324,8 @@ async function upload(kind) {
               <VSelect :model-value="b.params[s.id]" :options="assetOptions(s.asset, s.default)"
                        :placeholder="t('instr.asset.none')" @update:model-value="(v) => set(i, s.id, v)" />
               <span>
-                <button class="ghost small-btn" :title="t('instr.upload.tip')" @click.prevent="upload(s.asset)">{{ t('instr.upload') }}</button>
+                <button v-if="s.asset !== 'kit'" class="ghost small-btn" :title="t('instr.upload.tip')" @click.prevent="upload(s.asset)">{{ t('instr.upload') }}</button>
+                <button v-else class="ghost small-btn" :disabled="!!busy" :title="t('instr.kit.tip')" @click.prevent="installKit('osdk')">{{ busy === 'kit' ? t('instr.kit.busy') : t('instr.kit') }}</button>
               </span>
             </label>
             <label v-for="p in BLOCKS[b.type].params" :key="p.id">

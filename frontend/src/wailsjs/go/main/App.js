@@ -110,6 +110,10 @@ export function YueImportTrack() {
   return window['go']['main']['App']['YueImportTrack']();
 }
 
+export function YueInstallFxKit(arg1) {
+  return window['go']['main']['App']['YueInstallFxKit'](arg1);
+}
+
 export function YueJobAbcText(arg1, arg2) {
   return window['go']['main']['App']['YueJobAbcText'](arg1, arg2);
 }

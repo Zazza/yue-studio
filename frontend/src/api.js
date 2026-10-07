@@ -7,7 +7,7 @@ import {
   YueTranscribeFile, YueTranscribeJob, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
-  YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset,
+  YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset, YueInstallFxKit,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
   YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueJobGrid, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
@@ -41,6 +41,7 @@ export const api = {
   applyFx: (id, req) => YueApplyFx(id, req),
   fxAssets: () => YueFxAssets(),
   uploadFxAsset: (kind) => YueUploadFxAsset(kind),
+  installFxKit: (name) => YueInstallFxKit(name),
   // быстрое превью эффектов (steps — цепочка по порядку) на куске трека; куски
   // «было/стало» остаются на ПК, играет playPreview (slot '' или A–D, which wet/dry)
   fxPreview: (id, stem, steps, from, to, slot = '') => YueFxPreview(id, stem, steps, from, to, slot),

@@ -105,3 +105,68 @@ describe.each(cases)('пресет %s', (_, p) => {
     }
   })
 })
+
+// Тесты карточки internal-studio-engine, условия 13–14. Условие 13: вместо «Гитара: перегруз
+// (NAM)» (id guitar-crunch) — три гитарные цепочки: чистый усилитель + реверб (вход −6),
+// перегруз погорячее (вход +12), Vox и пружина (вход +6, пружинный реверб); amp.model пустой
+// (захват выбирает пользователь). Условие 14: готовые цепочки «Бочка: набор», «Малый: набор»
+// с блоком sampler (kit — строка), блок sampler есть в описании блоков.
+describe('fxPresets: гитары (условие 13) и наборы барабанов (условие 14)', () => {
+  const amps = (p) => p.chain.filter((b) => b.type === 'amp')
+  const ampPresets = fxPresets.filter((p) => amps(p).length > 0)
+  const byInput = (db) => ampPresets.filter((p) => amps(p).some((b) => b.input_db === db))
+
+  it('пресета guitar-crunch больше нет', () => {
+    expect(fxPresets.map((p) => p.id)).not.toContain('guitar-crunch')
+  })
+
+  it('три гитарных пресета с усилителем: вход −6, +12 и +6 — разные цепочки', () => {
+    const picked = [-6, 12, 6].map((db) => {
+      const found = byInput(db)
+      expect(found.length, `нет пресета с amp.input_db = ${db}`).toBeGreaterThan(0)
+      return found[0].id
+    })
+    expect(new Set(picked).size).toBe(3)
+  })
+
+  it('у гитарных пресетов amp.model пустой — захват выбирает пользователь', () => {
+    for (const db of [-6, 12, 6]) {
+      for (const p of byInput(db)) {
+        for (const b of amps(p)) expect(b.model, `${p.id}: amp.model`).toBe('')
+      }
+    }
+  })
+
+  it('чистый (вход −6) и Vox (вход +6) — с реверберацией после усилителя', () => {
+    for (const db of [-6, 6]) {
+      const ok = byInput(db).some((p) => {
+        const ai = p.chain.findIndex((b) => b.type === 'amp')
+        return p.chain.slice(ai + 1).some((b) => b.type === 'reverb')
+      })
+      expect(ok, `пресет с amp.input_db = ${db} без reverb после amp`).toBe(true)
+    }
+  })
+
+  it('блок sampler есть в описании блоков: kit — строка-набор, обязательная', () => {
+    expect(blocks.sampler, 'нет блока sampler в fxBlocks.json').toBeTruthy()
+    const kit = (blocks.sampler.strings || []).find((s) => s.id === 'kit')
+    expect(kit, 'нет строки kit').toBeTruthy()
+    expect(kit.asset).toBe('kit')
+    expect(kit.required).toBe(true)
+  })
+
+  it('готовые цепочки «Бочка: набор» и «Малый: набор» — с sampler, kit — строка', () => {
+    const samplers = fxPresets.filter((p) => p.chain.some((b) => b.type === 'sampler'))
+    expect(samplers.length).toBeGreaterThanOrEqual(2)
+    for (const want of ['Бочка', 'Малый']) {
+      expect(samplers.some((p) => p.name.ru.startsWith(want)), `нет пресета «${want}: набор»`).toBe(true)
+    }
+    for (const p of samplers) {
+      for (const b of p.chain.filter((x) => x.type === 'sampler')) {
+        expect(typeof b.kit, `${p.id}: sampler.kit`).toBe('string')
+        // kit — «<набор>/<часть>» либо пусто (выбор набора на странице)
+        if (b.kit !== '') expect(b.kit, `${p.id}: sampler.kit`).toMatch(/^[^/]+\/[^/]+$/)
+      }
+    }
+  })
+})

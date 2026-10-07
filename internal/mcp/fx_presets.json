@@ -1,13 +1,13 @@
 [
  {
-  "id": "guitar-crunch",
+  "id": "guitar-amp-clean",
   "name": {
-   "ru": "Гитара: перегруз (NAM)",
-   "en": "Guitar: crunch (NAM)"
+   "ru": "Гитара: чистый усилитель",
+   "en": "Guitar: clean amp"
   },
   "note": {
-   "ru": "Гейт → срез низа/верха → захват усилителя БЕЗ кабинета → лёгкий кабинет. Захват с кабинетом даёт «два кабинета» — звук как из телефона.",
-   "en": "Gate → low/high cut → amp-only capture (NO cab) → light cab. A capture with a cab gives \"two cabs\" — telephone sound."
+   "ru": "Перегруз YuE через чистый захват (Fender Twin и похожие) с убавленным входом и комнатой — звук заметно другой, старая гитара не узнаётся. Захват — только усилителя, без кабинета.",
+   "en": "YuE overdrive through a clean capture (Fender Twin and the like) with lowered input and a room — clearly different, the old guitar is not recognisable. Amp-only capture, no cab."
   },
   "chain": [
    {
@@ -21,7 +21,45 @@
    },
    {
     "type": "amp",
-    "model": ""
+    "model": "",
+    "input_db": -6
+   },
+   {
+    "type": "cab",
+    "cutoff_hz": 8000
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.2,
+    "predelay_ms": 15,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "guitar-amp-hot",
+  "name": {
+   "ru": "Гитара: перегруз погорячее",
+   "en": "Guitar: hotter drive"
+  },
+  "note": {
+   "ru": "Вход усилителя +12 дБ — захват перегруза (JCM2000/JCM900 и похожие) работает в полную силу. На похожем захвате с тем же уровнем замена малозаметна — гоните вход. Захват без кабинета.",
+   "en": "Amp input +12 dB — a drive capture (JCM2000/JCM900 and the like) at full tilt. A similar capture at the same level barely changes the sound — push the input. Amp-only capture."
+  },
+  "chain": [
+   {
+    "type": "gate",
+    "threshold_db": -55
+   },
+   {
+    "type": "eq",
+    "highpass_hz": 100,
+    "lowpass_hz": 5500
+   },
+   {
+    "type": "amp",
+    "model": "",
+    "input_db": 12
    },
    {
     "type": "cab",
@@ -30,10 +68,48 @@
   ]
  },
  {
+  "id": "guitar-amp-spring",
+  "name": {
+   "ru": "Гитара: Vox и короткий реверб",
+   "en": "Guitar: Vox and short reverb"
+  },
+  "note": {
+   "ru": "Захват в духе Vox AC15 TopBoost, вход +6 дБ, короткий тёмный реверб (встроенный, в духе пружины; настоящую пружину — своим IR) — винтажный звон.",
+   "en": "A Vox AC15 TopBoost style capture, input +6 dB, a short dark built-in reverb (spring-like; a real spring — your own IR) — vintage jangle."
+  },
+  "chain": [
+   {
+    "type": "gate",
+    "threshold_db": -55
+   },
+   {
+    "type": "eq",
+    "highpass_hz": 100,
+    "lowpass_hz": 5500
+   },
+   {
+    "type": "amp",
+    "model": "",
+    "input_db": 6
+   },
+   {
+    "type": "cab",
+    "cutoff_hz": 7500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1,
+    "predelay_ms": 0,
+    "lowpass_hz": 4500,
+    "wet": 0.3
+   }
+  ]
+ },
+ {
   "id": "guitar-clean",
   "name": {
-   "ru": "Гитара: чистая с пружиной",
-   "en": "Guitar: clean with spring"
+   "ru": "Гитара: чистая с коротким ревербом",
+   "en": "Guitar: clean with short reverb"
   },
   "note": {
    "ru": "Без усилителя: ровнее компрессором, чуть яснее середина, короткий тёмный хвост как у пружины.",
@@ -167,6 +243,42 @@
     "predelay_ms": 20,
     "lowpass_hz": 7000,
     "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "drums-kick-kit",
+  "name": {
+   "ru": "Бочка: набор",
+   "en": "Kick: kit"
+  },
+  "note": {
+   "ru": "На дорожку «бочка» (RoFormer): удары бочки заменяются сэмплами набора The Open Source Drum Kit, сила удара выбирает сэмпл. Набор — fx_kit_install osdk.",
+   "en": "On the \"kick\" stem (RoFormer): kick hits are replaced with The Open Source Drum Kit samples, hit strength picks the sample. Kit — fx_kit_install osdk."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "kit": "osdk/kick",
+    "floor_db": -18
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-kit",
+  "name": {
+   "ru": "Малый: набор",
+   "en": "Snare: kit"
+  },
+  "note": {
+   "ru": "На дорожку «малый барабан» (RoFormer): удары малого — сэмплами набора; порог −20 дБ пропускает и тихие удары (гоулст-ноты); слышна протечка бочки/хэта — поднимите порог.",
+   "en": "On the \"snare\" stem (RoFormer): snare hits with kit samples; the −20 dB floor keeps quiet ghost notes too; if kick/hat bleed is heard — raise the floor."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "kit": "osdk/snare",
+    "floor_db": -20
    }
   ]
  },

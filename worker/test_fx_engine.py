@@ -70,17 +70,22 @@ class FakeAmp:
 
 
 class FakeResources:
-    """resources по контракту: ir(name) → (ir, sr), amp(name) → модель; нет — KeyError."""
+    """resources по контракту: ir(name) → (ir, sr), amp(name) → модель,
+    kit(name) → (список сэмплов, sr); нет — KeyError."""
 
-    def __init__(self, amps=None, irs=None):
+    def __init__(self, amps=None, irs=None, kits=None):
         self.amps = dict(amps or {})
         self.irs = dict(irs or {})
+        self.kits = dict(kits or {})
 
     def amp(self, name):
         return self.amps[name]
 
     def ir(self, name):
         return self.irs[name]
+
+    def kit(self, name):
+        return self.kits[name]
 
 
 def _res(**kw):
@@ -573,6 +578,358 @@ class TestGain(unittest.TestCase):
                 loud = _fx().process(x, SR, base + [_block("gain", gain_db=g)], None)
                 self.assertEqual(loud.shape, x.shape)
                 self.assertAlmostEqual(_db(_rms(loud) / _rms(quiet)), g, delta=0.05)
+
+
+# ---------- Условие 14 (internal-studio-engine, этап 5а): блок «сэмплер» (sampler) ----------
+#
+# Контракт: вход — дорожка части барабанов; удары — начала нот во входе (моно-сумма),
+# пик удара — максимум |x| в 15 мс после начала; удары тише p95·10^(floor_db/20) (от
+# громких) отбрасываются; сила удара → слой набора по рангу (громкий удар — громкий
+# сэмпл, соседние удары сдвигаются на −1/0/+1 слой); сэмпл (в частоте входа) ставится
+# пиком на пик удара, сила — пик удара / пик сэмпла; выход — только новые удары,
+# RMS как у входа, затем × output_db; длина и форма — как у входа; нет ударов — тишина.
+# Набор — resources.kit(name) → (список сэмплов, sr); нет набора — ChainError.
+#
+# Слои фейкового набора различимы по частоте: слой i — затухающий тон HZ_i с пиком
+# ровно на отсчёте ATT (не на нуле — так видно, что сэмплер ставит пик, а не начало).
+# Удар во входе — затухающий тон 90 Гц с пиком |x| ровно на первом отсчёте.
+
+ATT = 40                                   # отсчёт пика сэмпла
+LAYER_HZ = (400, 700, 1250, 2200, 4000)   # частоты слоёв, по возрастанию пика
+LAYER_PEAK = (0.2, 0.4, 0.6, 0.8, 1.0)
+HIT_HZ = 90
+
+
+def _layer(hz, peak, sr=SR, dur=0.1, ch=None):
+    k = np.arange(int(dur * sr))
+    att = ATT * sr // SR if sr != SR else ATT
+    env = np.where(k <= att, k / att, np.exp(-(k - att) / (0.02 * sr)))
+    x = (peak * env * np.cos(2 * np.pi * hz * (k - att) / sr)).astype(np.float32)
+    if ch:
+        x = np.stack([x] * ch, axis=1)
+    return x
+
+
+def _kit(sr=SR, ch=None, hz=LAYER_HZ, peaks=LAYER_PEAK):
+    # слои в перемешанном порядке: сортирует по пику сам движок
+    order = [3, 0, 4, 1, 2][:len(hz)] if len(hz) == 5 else list(range(len(hz)))
+    return [_layer(hz[i], peaks[i], sr=sr, ch=ch) for i in order], sr
+
+
+def _kit_res(name="test/kick", **kw):
+    return FakeResources(kits={name: _kit(**kw)})
+
+
+def _hits(positions, amps, n, ch=None, sr=SR):
+    """Удары: затухающий тон HIT_HZ длиной 80 мс, пик |x| = amp ровно на отсчёте p."""
+    x = np.zeros(n, dtype=np.float64)
+    k = np.arange(int(0.08 * sr))
+    shape = np.exp(-k / (0.01 * sr)) * np.cos(2 * np.pi * HIT_HZ * k / sr)
+    for p, a in zip(positions, amps, strict=True):
+        m = min(len(k), n - p)
+        x[p:p + m] += a * shape[:m]
+    x = x.astype(np.float32)
+    if ch:
+        x = np.stack([x] * ch, axis=1)
+    return x
+
+
+def _sampler(**params):
+    return _block("sampler", kit=params.pop("kit", "test/kick"), **params)
+
+
+def _mono(y):
+    y = np.abs(np.asarray(y, dtype=np.float64))
+    return y.max(axis=1) if y.ndim == 2 else y
+
+
+def _peak_near(y, p, sr=SR, before=0.05, after=0.1):
+    a = _mono(y)
+    lo, hi = max(0, p - int(before * sr)), min(len(a), p + int(after * sr))
+    return lo + int(np.argmax(a[lo:hi])), float(a[lo:hi].max())
+
+
+def _layer_of(y, p, sr=SR, hz=LAYER_HZ):
+    """Индекс слоя (по частоте) в выходе у удара p: тон с наибольшей амплитудой на [p, p+50 мс)."""
+    amps = [_tone_amp(y, f, sr=sr, t0=p / sr, t1=p / sr + 0.05) for f in hz]
+    return int(np.argmax(amps))
+
+
+def _positions(count, start=0.2, step=0.3, sr=SR, jitter=(0, 7, 13, 3, 11, 5, 2, 9)):
+    # некруглые отсчёты: не на сетке блоков/окон
+    return [int((start + i * step) * sr) + 17 + jitter[i % len(jitter)] for i in range(count)]
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSampler(unittest.TestCase):
+
+    def _run(self, x, chain, res=None, sr=SR):
+        out = _fx().process(x, sr, chain, res if res is not None else _kit_res())
+        self.assertEqual(out.shape, x.shape)
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(np.all(np.isfinite(out)))
+        return out
+
+    # --- без сдвига ---
+
+    def test_no_shift_mono(self):
+        pos = _positions(8)
+        n = pos[-1] + SR
+        x = _hits(pos, [0.8] * len(pos), n)
+        y = self._run(x, [_sampler()])
+        for p in pos:
+            with self.subTest(hit=p):
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    def test_no_shift_stereo_input_mono_kit(self):
+        pos = _positions(6)
+        n = pos[-1] + SR
+        x = _hits(pos, [0.8] * len(pos), n, ch=2)
+        y = self._run(x, [_sampler()])
+        self.assertEqual(y.shape, (n, 2))
+        for p in pos:
+            with self.subTest(hit=p):
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    def test_no_shift_mono_input_stereo_kit(self):
+        pos = _positions(6)
+        n = pos[-1] + SR
+        x = _hits(pos, [0.8] * len(pos), n)
+        y = self._run(x, [_sampler()], res=_kit_res(ch=2))
+        self.assertEqual(y.shape, (n,))
+        for p in pos:
+            with self.subTest(hit=p):
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    def test_length_shape_odd(self):
+        n = SR + 7
+        pos = [SR // 4 + 3, SR // 2 + 11]
+        for ch in (None, 2):
+            with self.subTest(ch=ch):
+                x = _hits(pos, [0.8] * 2, n, ch=ch)
+                y = self._run(x, [_sampler()])
+                self.assertEqual(y.shape, x.shape)
+
+    def test_hit_before_sample_attack(self):
+        # удар раньше ATT: начало сэмпла за левым краем — обрезается, пик на месте
+        n = SR + 7
+        pos = [ATT // 2, SR // 2 + 3]
+        y = self._run(_hits(pos, [0.8] * 2, n), [_sampler()])
+        at, _ = _peak_near(y, pos[0], before=0.001, after=0.004)
+        self.assertLessEqual(abs(at - pos[0]), 1, f"пик выхода {at}, удар {pos[0]}")
+
+    def test_hit_at_end_tail_cut(self):
+        # удар у конца: хвост сэмпла обрезается, длина та же, пик на месте
+        n = SR + 7
+        pos = [SR // 3, n - 200]
+        y = self._run(_hits(pos, [0.8] * 2, n), [_sampler()])
+        self.assertEqual(len(y), n)
+        at, _ = _peak_near(y, pos[1], before=0.001, after=0.004)
+        self.assertLessEqual(abs(at - pos[1]), 1, f"пик выхода {at}, удар {pos[1]}")
+
+    def test_click_at_input_edges_peak_in_place(self):
+        # регрессия кросс-ревью: удар у самых краёв входа (сэмпл 0, 20, последний,
+        # предпоследний) находится и ставится пиком на место (±1) — при 22,05 и 48 кГц
+        for sr in (22050, 48000):
+            n = sr + 7
+            res = FakeResources(kits={"test/kick": _kit(sr=sr)})
+            for p in (0, 20, n - 1, n - 2):
+                with self.subTest(sr=sr, click=p):
+                    x = np.zeros(n, dtype=np.float32)
+                    for k, a in enumerate((0.8, -0.4, 0.2)):  # короткий щелчок, пик |x| на p
+                        if p + k < n:
+                            x[p + k] = a
+                    y = self._run(x, [_sampler()], res=res, sr=sr)
+                    self.assertGreater(float(_mono(y).max()), 0, "удар у края не найден — выход тишина")
+                    at = _peak(y)
+                    self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, щелчок {p}")
+
+    # --- сила → слой ---
+
+    def test_loud_hit_loud_layer_quiet_hit_quiet_layer(self):
+        # самый громкий удар — из громких слоёв, самый тихий — из тихих (с учётом сдвига ±1)
+        amps = [0.5, 0.2, 0.7, 1.0, 0.35, 0.6, 0.9, 0.45, 0.8, 0.3]
+        pos = _positions(len(amps))
+        x = _hits(pos, amps, pos[-1] + SR)
+        y = self._run(x, [_sampler(floor_db=-40)])
+        top = len(LAYER_HZ) - 1
+        loud, quiet = pos[amps.index(1.0)], pos[amps.index(0.2)]
+        self.assertGreaterEqual(_layer_of(y, loud), top - 1, "громкий удар — не громкий слой")
+        self.assertLessEqual(_layer_of(y, quiet), 1, "тихий удар — не тихий слой")
+
+    def test_layer_monotone_by_rank(self):
+        from scipy.stats import spearmanr
+        rng = np.random.default_rng(5)
+        amps = list(rng.permutation(np.linspace(0.2, 1.0, 15)))
+        pos = _positions(len(amps))
+        x = _hits(pos, amps, pos[-1] + SR)
+        y = self._run(x, [_sampler(floor_db=-40)])
+        layers = [_layer_of(y, p) for p in pos]
+        # ранговая корреляция силы удара и слоя: слой — по рангу, сдвиг соседей ±1
+        rho = spearmanr(amps, layers).correlation
+        self.assertGreater(rho, 0.8, f"слои {layers} при силе {np.round(amps, 2)}")
+
+    def test_equal_hits_alternate_layers(self):
+        # соседние удары одной силы — не один и тот же сэмпл («пулемёт»)
+        pos = _positions(8)
+        x = _hits(pos, [0.6] * len(pos), pos[-1] + SR)
+        y = self._run(x, [_sampler()])
+        layers = [_layer_of(y, p) for p in pos]
+        self.assertGreaterEqual(len(set(layers)), 2, f"слои {layers}")
+
+    def test_strength_scales_sample(self):
+        # сила удара = пик удара / пик сэмпла: отношение пиков выхода = отношению пиков ударов
+        amps = [1.0, 0.5, 0.8, 0.3]
+        pos = _positions(len(amps))
+        x = _hits(pos, amps, pos[-1] + SR)
+        y = self._run(x, [_sampler(floor_db=-40)])
+        peaks = [_peak_near(y, p)[1] for p in pos]
+        for a, pk in zip(amps, peaks, strict=True):
+            with self.subTest(amp=a):
+                self.assertAlmostEqual(pk / peaks[0], a / amps[0], delta=0.03 * a / amps[0])
+
+    def test_output_is_only_new_hits(self):
+        # исходного удара (90 Гц) в выходе нет — только сэмплы
+        pos = _positions(5)
+        x = _hits(pos, [0.8] * 5, pos[-1] + SR)
+        y = self._run(x, [_sampler()])
+        for p in pos:
+            with self.subTest(hit=p):
+                layer_amp = max(_tone_amp(y, f, t0=p / SR, t1=p / SR + 0.05) for f in LAYER_HZ)
+                self.assertLess(_tone_amp(y, HIT_HZ, t0=p / SR, t1=p / SR + 0.05), 0.1 * layer_amp)
+
+    # --- порог floor_db ---
+
+    def test_floor_drops_quiet_leak_hits(self):
+        # протечка соседних барабанов — удары на −24 дБ от громких: при −18 отсекаются
+        loud, quiet = 0.8, 0.8 * 10 ** (-24 / 20)
+        amps = [loud, quiet, loud, quiet, loud, loud, quiet, loud, quiet, loud]
+        pos = _positions(len(amps))
+        x = _hits(pos, amps, pos[-1] + SR)
+        y = self._run(x, [_sampler()])  # floor_db по умолчанию −18
+        top = float(_mono(y).max())
+        self.assertGreater(top, 0)
+        for p, a in zip(pos, amps, strict=True):
+            with self.subTest(hit=p, quiet=a == quiet):
+                _, pk = _peak_near(y, p, before=0.002, after=0.05)
+                if a == quiet:
+                    self.assertLess(pk, 1e-3 * top, "тихий удар протечки не отсечён")
+                else:
+                    self.assertGreater(pk, 0.5 * top)
+
+    def test_floor_lower_keeps_quiet_hits(self):
+        loud, quiet = 0.8, 0.8 * 10 ** (-24 / 20)
+        amps = [loud, quiet, loud, quiet, loud, loud]
+        pos = _positions(len(amps))
+        x = _hits(pos, amps, pos[-1] + SR)
+        y = self._run(x, [_sampler(floor_db=-40)])
+        top = float(_mono(y).max())
+        for p, a in zip(pos, amps, strict=True):
+            if a == quiet:
+                with self.subTest(hit=p):
+                    _, pk = _peak_near(y, p, before=0.002, after=0.05)
+                    self.assertGreater(pk, 0.02 * top, "при floor_db −40 удар −24 дБ потерян")
+
+    # --- громкость ---
+
+    def test_rms_matches_input(self):
+        pos = _positions(8)
+        x = _hits(pos, [0.9, 0.5, 0.7, 0.6, 0.9, 0.4, 0.8, 0.7], pos[-1] + SR)
+        for ch in (None, 2):
+            with self.subTest(ch=ch):
+                xi = x if ch is None else np.stack([x, x], axis=1)
+                y = self._run(xi, [_sampler()])
+                self.assertAlmostEqual(_db(_rms(y, 0, len(x) / SR) / _rms(xi, 0, len(x) / SR)), 0, delta=0.1)
+
+    def test_output_db(self):
+        pos = _positions(6)
+        x = _hits(pos, [0.9] * 6, pos[-1] + SR)
+        base = self._run(x, [_sampler()])
+        for g in (-12, 6):
+            with self.subTest(output_db=g):
+                y = self._run(x, [_sampler(output_db=g)])
+                dur = len(x) / SR
+                self.assertAlmostEqual(_db(_rms(y, 0, dur) / _rms(base, 0, dur)), g, delta=0.05)
+
+    # --- края ---
+
+    def test_no_hits_is_silence(self):
+        for ch in (None, 2):
+            with self.subTest(ch=ch):
+                x = np.zeros(SR if ch is None else (SR, ch), dtype=np.float32)
+                y = self._run(x, [_sampler()])
+                self.assertTrue(np.all(y == 0))
+
+    def test_kit_other_sample_rate_resampled(self):
+        # набор 22,05 кГц, дорожка 48 кГц: тон слоя тот же (не ускорен), пики на месте
+        sr_kit = 22050
+        pos = _positions(5)
+        x = _hits(pos, [0.8] * 5, pos[-1] + SR)
+        res = FakeResources(kits={"test/kick": _kit(sr=sr_kit, hz=(1000,) * 5)})
+        y = self._run(x, [_sampler()], res=res)
+        for p in pos:
+            with self.subTest(hit=p):
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+                right = _tone_amp(y, 1000, t0=p / SR, t1=p / SR + 0.05)
+                wrong = _tone_amp(y, 1000 * SR / sr_kit, t0=p / SR, t1=p / SR + 0.05)
+                self.assertGreater(right, 3 * wrong, "частота сэмпла не пересчитана")
+
+    def test_missing_kit_is_chain_error(self):
+        fx = _fx()
+        x = _hits([1000], [0.8], SR)
+        with self.assertRaises(fx.ChainError) as cm:
+            fx.process(x, SR, [_sampler(kit="nope/kick")], _kit_res())
+        self.assertIn("nope/kick", str(cm.exception), "причина не называет набор")
+        with self.assertRaises(fx.ChainError):
+            fx.process(x, SR, [_sampler(kit="test/kick")], FakeResources())
+        with self.assertRaises(fx.ChainError):
+            fx.process(x, SR, [_sampler(kit="test/kick")], None)
+
+    # --- проверка блока ---
+
+    def test_parse_defaults_and_bounds(self):
+        fx = _fx()
+        got = fx.parse_chain([{"type": "sampler", "kit": "osdk/kick"}])[0]
+        self.assertEqual(got["kit"], "osdk/kick")
+        self.assertAlmostEqual(float(got["floor_db"]), -18)
+        self.assertAlmostEqual(float(got["output_db"]), 0)
+        ok = fx.parse_chain([{"type": "sampler", "kit": "a/b", "floor_db": -40, "output_db": -24},
+                             {"type": "sampler", "kit": "a/b", "floor_db": 0, "output_db": 24}])
+        self.assertEqual(len(ok), 2)
+        for bad in ({"floor_db": -41}, {"floor_db": 1}, {"output_db": -25}, {"output_db": 25},
+                    {"floor_db": "loud"}):
+            with self.subTest(bad=bad), self.assertRaises(fx.ChainError):
+                fx.parse_chain([{"type": "sampler", "kit": "a/b", **bad}])
+
+    def test_kit_required_string(self):
+        fx = _fx()
+        for blk in ({"type": "sampler"}, {"type": "sampler", "kit": 5}, {"type": "sampler", "kit": ["a/b"]}):
+            with self.subTest(block=blk):
+                with self.assertRaises(fx.ChainError) as cm:
+                    fx.parse_chain([blk])
+                self.assertIn("kit", str(cm.exception), "причина не называет поле kit")
+
+    def test_in_blocks_json_after_gain(self):
+        import os
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fx_blocks.json")) as f:
+            blocks = json.load(f)
+        keys = list(blocks)
+        self.assertIn("sampler", keys)
+        self.assertEqual(keys.index("sampler"), keys.index("gain") + 1)
+        spec = blocks["sampler"]
+        params = {p["id"]: p for p in spec["params"]}
+        self.assertEqual((params["floor_db"]["default"], params["floor_db"]["min"], params["floor_db"]["max"]),
+                         (-18, -40, 0))
+        self.assertEqual((params["output_db"]["default"], params["output_db"]["min"], params["output_db"]["max"]),
+                         (0, -24, 24))
+        kit = [s for s in spec["strings"] if s["id"] == "kit"]
+        self.assertEqual(len(kit), 1)
+        self.assertEqual(kit[0].get("asset"), "kit")
+        self.assertTrue(kit[0].get("required"))
 
 
 # ---------- ТК10: проверка цепочки ----------

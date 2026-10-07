@@ -10,7 +10,8 @@ GET/POST /fx/assets, флаг fx_engine в /config (тест-кейсы 11–14 
 - ошибки: 404 нет джобы/звука, 422 цепочка/source/output/окно, 503 движок выключен;
 - ресурсы — yue_worker.fx_resources() (тесты подменяют), цепочка с amp —
   внутри yue_worker.gpu_queue(...), без amp — очередь не берётся;
-- GET /fx/assets → {amps: [{name, latency}], irs: [{name, sr, seconds}]};
+- GET /fx/assets → {amps: [{name, latency}], irs: [{name, sr, seconds}],
+  kits: [{name, samples}]} (kits — internal-studio-engine, условие 14);
   POST /fx/assets?kind=amp|ir&name=... — сырые байты; 422 на неверное, 413 > 50 МБ;
   хранение <data>/fx/amps, <data>/fx/irs;
 - /config: fx_engine (по умолчанию да), POST сохраняет, YUE_FX_ENGINE=0 выключает.
@@ -415,7 +416,7 @@ class TestFxAssets(_FxApiCase):
         return r.json()
 
     def test_empty_list(self):
-        self.assertEqual(self._assets(), {"amps": [], "irs": []})
+        self.assertEqual(self._assets(), {"amps": [], "irs": [], "kits": []})
 
     def test_tc13_amp_not_in_store_422(self):
         jid, d = self._audio_job()
@@ -456,7 +457,7 @@ class TestFxAssets(_FxApiCase):
                                  ("ir", "x.nam", _wav_bytes()), ("ir", "x.mp3", _wav_bytes())):
             with self.subTest(kind=kind, name=name):
                 self.assertEqual(self._upload(kind, name, data).status_code, 422)
-        self.assertEqual(self._assets(), {"amps": [], "irs": []})
+        self.assertEqual(self._assets(), {"amps": [], "irs": [], "kits": []})
 
     def test_tc13_bad_ir_content_422(self):
         self.assertEqual(self._upload("ir", "x.wav", b"RIFF....garbage").status_code, 422)

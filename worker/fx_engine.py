@@ -31,6 +31,7 @@ CTRL = 16            # шаг управляющего сигнала гейта
 OVERSAMPLE = 4       # передискретизация перегруза
 MAX_TAIL_S = 10.0    # предел длины хвоста реверба/дилея
 EPS = 1e-12
+SAMPLER_HOP = 128    # кадр поиска ударов sampler, сэмплов (2,7 мс при 48 кГц)
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
 
 # описание блоков — один источник worker/fx_blocks.json (копии во фронте и MCP — make mcp-data)
@@ -394,7 +395,72 @@ def _resource(res, kind: str, name: str):
     try:
         return getattr(res, kind)(name)
     except KeyError:
-        raise ChainError(f"{'захват' if kind == 'amp' else 'IR'} {name!r} не найден") from None
+        what = {"amp": "захват", "ir": "IR", "kit": "набор"}.get(kind, kind)
+        raise ChainError(f"{what} {name!r} не найден") from None
+
+
+def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
+    """Удары во входе (n, ch): начала нот (librosa), пик — максимум |моно| в 15 мс после начала;
+    тише p95·10^(floor_db/20) — отбрасываются (протечка других барабанов в дорожке-части)."""
+    import librosa
+    mono = np.abs(x).mean(axis=1)
+    hop = SAMPLER_HOP
+    # тишина спереди: удар в первом кадре librosa иначе не видит (не с чем сравнить)
+    pad = max(4 * hop, int(0.25 * sr))   # выбор пиков librosa усредняет ~0,1 с истории
+    lead = np.concatenate([np.zeros(pad, dtype=np.float32), x.mean(axis=1).astype(np.float32),
+                           np.zeros(pad, dtype=np.float32)])   # и сзади: удар в последнем кадре
+    on = librosa.onset.onset_detect(y=lead, sr=sr, units="samples", hop_length=hop, backtrack=False, delta=0.08)
+    on = np.clip(on - pad, 0, len(mono) - 1)
+    win = max(1, int(0.015 * sr))
+    hits = []
+    back = max(2 * hop, int(0.02 * sr))
+    for o in on:
+        # начало ноты librosa даёт с точностью до кадра и бывает позже самого удара (у края —
+        # на сотни сэмплов): пик ищем до 20 мс назад, не заходя за предыдущий удар, и 15 мс вперёд
+        a = max(0, o - back, (hits[-1][0] + hop) if hits else 0)
+        seg = mono[a:o + win]
+        if len(seg):
+            t = int(a + np.argmax(seg))
+            if not hits or t - hits[-1][0] > hop:   # тот же удар, найденный с двух кадров, — один раз
+                hits.append((t, float(seg.max())))
+    if not hits:
+        return []
+    top = float(np.percentile([p for _, p in hits], 95))
+    return [(t, p) for t, p in hits if p >= top * _db(floor_db)]
+
+
+def _sampler(x, sr, p, res):
+    """Замена ударов сэмплами набора: сила удара → слой по рангу (соседние удары — соседние
+    слои по кругу), пик сэмпла — на пик удара (без сдвига); громкость — как у входа."""
+    raw, ksr = _resource(res, "kit", p["kit"])
+    layers = []
+    for s in raw:
+        s = np.asarray(s, dtype=np.float64)
+        s = s[:, None] if s.ndim == 1 else s
+        s = _match_channels(_resample(s, int(ksr), sr), x.shape[1])
+        mono = np.abs(s).sum(axis=1)
+        if mono.max() > 0:
+            layers.append((float(np.abs(s).max()), int(np.argmax(mono)), s))
+    if not layers:
+        raise ChainError(f"набор {p['kit']!r}: нет сэмплов")
+    layers.sort(key=lambda t: t[0])
+    n = x.shape[0]
+    y = np.zeros_like(x)
+    hits = _hits(x, sr, p["floor_db"])
+    if not hits:
+        return y
+    ps = np.array([h[1] for h in hits])
+    ranks = np.argsort(np.argsort(ps)) / max(len(ps) - 1, 1)
+    last = len(layers) - 1
+    for i, ((t, pk), r) in enumerate(zip(hits, ranks, strict=True)):
+        k = min(last, max(0, int(round(r * last)) + (i % 3) - 1))   # чередование −1/0/+1 слой
+        peak, at, s = layers[k]
+        s0 = t - at
+        a, b = max(s0, 0), min(s0 + len(s), n)
+        if b > a:
+            y[a:b] += s[a - s0:b - s0] * (pk / peak)
+    rin = _rms(x)
+    return y * (rin / max(_rms(y), EPS) if rin > EPS else 1.0) * _db(p["output_db"])
 
 
 def _gain(x, sr, p, _res):
@@ -404,7 +470,7 @@ def _gain(x, sr, p, _res):
 
 
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
-          "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain}
+          "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

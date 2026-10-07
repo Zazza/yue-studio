@@ -100,6 +100,12 @@ var swappable = []string{"drums", "bass", "other"}
 // mutable — дорожки, которые можно заглушить
 var mutable = []string{"drums", "bass", "other", "vocals", "guitar", "piano"}
 
+// drumParts — части барабанов (DrumSep, только RoFormer): внутри «барабанов», в сумму не входят
+var drumParts = []string{"kick", "snare", "toms", "hh", "ride", "crash"}
+
+// engineStems — дорожки, которые меняет цепочка движка: и части барабанов (замена ударов sampler)
+var engineStems = append(append([]string{}, mutable...), drumParts...)
+
 // detailStems — подробные дорожки (6-стемная модель воркера): гитара и клавиши
 // внутри «прочего». Заменять их нельзя (у куска своих нет), но эффект,
 // громкость и глушение — как у основных: в трек идёт «дорожка − исходная»
@@ -405,7 +411,7 @@ func engineInserts(ctx context.Context, svc yue.Service, parentID int64, s Secti
 	}
 	var out []dsp.Insert
 	for _, name := range s.Stems {
-		if !slices.Contains(mutable, name) || parent[name] == "" {
+		if !slices.Contains(engineStems, name) || parent[name] == "" {
 			continue
 		}
 		fromV, toV := from, to
@@ -633,7 +639,8 @@ func fetchDetailStems(ctx context.Context, svc yue.Service, id int64, specs []Se
 			continue
 		}
 		for _, n := range s.Stems {
-			if slices.Contains(detailStems, n) && !slices.Contains(need, n) {
+			part := len(s.Engine) > 0 && slices.Contains(drumParts, n) // части — только движку
+			if (slices.Contains(detailStems, n) || part) && !slices.Contains(need, n) {
 				need = append(need, n)
 			}
 		}
@@ -658,8 +665,14 @@ func fetchDetailStems(ctx context.Context, svc yue.Service, id int64, specs []Se
 		return fmt.Errorf("стемы #%d: %w", id, err)
 	}
 	if err := get(); err != nil {
-		return fmt.Errorf("дорожка %s #%d не выделилась (воркер без 6-стемной модели?): %w",
-			strings.Join(need, "/"), id, err)
+		hint := "воркер без 6-стемной модели?"
+		for _, n := range need {
+			if slices.Contains(drumParts, n) { // части барабанов — только у RoFormer
+				hint = "части барабанов есть только у разделения RoFormer: настройки → «Разделение на дорожки» или make_stems model=roformer"
+				break
+			}
+		}
+		return fmt.Errorf("дорожка %s #%d не выделилась (%s): %w", strings.Join(need, "/"), id, hint, err)
 	}
 	return nil
 }

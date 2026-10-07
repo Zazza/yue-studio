@@ -433,5 +433,46 @@
     }
    }
   ]
+ },
+ "sampler": {
+  "label": {
+   "ru": "Замена ударов (набор)",
+   "en": "Drum replace (kit)"
+  },
+  "params": [
+   {
+    "id": "floor_db",
+    "default": -18,
+    "min": -40,
+    "max": 0,
+    "step": 1,
+    "label": {
+     "ru": "порог ударов, дБ (тише — протечка)",
+     "en": "hit floor, dB (quieter — bleed)"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "output, dB"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "kit",
+    "asset": "kit",
+    "required": true,
+    "label": {
+     "ru": "набор",
+     "en": "kit"
+    }
+   }
+  ]
  }
 }

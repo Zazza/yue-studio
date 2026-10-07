@@ -30,7 +30,9 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"cab {ir — IR из fx_assets, пусто — «лёгкий кабинет» срезом на cutoff_hz 7000; mix 1}; " +
 	"reverb {ir пусто — встроенный зал, decay_s 1.5, predelay_ms 10, lowpass_hz 8000, wet 0.3}; " +
 	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}; " +
-	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу). " +
+	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу); " +
+	"sampler {kit «osdk/kick», floor_db −18, output_db 0} — замена ударов части барабанов (source kick/snare) " +
+	"сэмплами набора (fx_kit_install), пик в пик. " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."
 
 // registerFxTools — звуковой движок воркера (POST /jobs/{id}/fx, /fx/assets).
@@ -103,6 +105,21 @@ func registerFxTools(s *Server) {
 		InputSchema: props(nil),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			out, err := s.client.FxAssets(context.Background())
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "fx_kit_install",
+		Description: "Скачать на воркер набор сэмплов барабанов для блока sampler (замена ударов): osdk — " +
+			"The Open Source Drum Kit (бочка, малый; общественное достояние). Повтор — без перекачки. " +
+			"Наборы и их части — в fx_assets (kits: «osdk/kick», «osdk/snare»).",
+		InputSchema: props(map[string]any{"name": prop("набор: osdk", "string")}, "name"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			out, err := s.client.InstallFxKit(context.Background(), argString(args, "name"))
 			if err != nil {
 				return "", err
 			}

@@ -59,6 +59,8 @@ export function YueGetServerURL():Promise<string>;
 
 export function YueImportTrack():Promise<Record<string, any>>;
 
+export function YueInstallFxKit(arg1:string):Promise<Record<string, any>>;
+
 export function YueJobAbcText(arg1:number,arg2:string):Promise<string>;
 
 export function YueJobGrid(arg1:number,arg2:number,arg3:number):Promise<yue.BeatGrid>;

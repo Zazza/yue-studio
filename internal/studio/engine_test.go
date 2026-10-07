@@ -119,7 +119,8 @@ func workerFile(t *testing.T, files map[string]string, dir string, id int64, nam
 }
 
 // engSetup — родитель: трек = vocals (3000 Гц) + other (500 Гц), drums/bass — тишина,
-// плюс дорожка kick (не из списка изменяемых) — тон 2000 Гц, в трек не входит.
+// плюс дорожка xyz (не из списка изменяемых) — тон 2000 Гц, в трек не входит.
+// (Условие 14: части барабанов kick… теперь изменяемы — «чужая» дорожка здесь xyz.)
 func engSetup(t *testing.T) (*engFake, []float32) {
 	t.Helper()
 	needFFmpeg(t)
@@ -131,7 +132,7 @@ func engSetup(t *testing.T) (*engFake, []float32) {
 		"stem-other.flac":  lavfi(t, aeval(exprB500, engDur), filepath.Join(dir, "e-other.flac")),
 		"stem-drums.flac":  lavfi(t, aeval("0", engDur), filepath.Join(dir, "e-drums.flac")),
 		"stem-bass.flac":   lavfi(t, aeval("0", engDur), filepath.Join(dir, "e-bass.flac")),
-		"stem-kick.flac":   lavfi(t, aeval("0.3*sin(2*PI*2000*t)", engDur), filepath.Join(dir, "e-kick.flac")),
+		"stem-xyz.flac":    lavfi(t, aeval("0.3*sin(2*PI*2000*t)", engDur), filepath.Join(dir, "e-xyz.flac")),
 	}
 	put(f, parentID, pf)
 	return newEngFake(t, f), decodeFile(t, pf["audio.flac"])
@@ -293,8 +294,8 @@ func TestRebuildSectionsEngineToZeroIsTrackEnd(t *testing.T) {
 
 func TestRebuildSectionsEngineTwoStemsSkipsImmutable(t *testing.T) {
 	f, _ := engSetup(t)
-	// kick есть у родителя, но не в списке изменяемых — пропускается
-	out := engRun(t, f, engSpec([]string{"vocals", "other", "kick"}, 2, 6, 0))
+	// xyz есть у родителя, но не в списке изменяемых — пропускается
+	out := engRun(t, f, engSpec([]string{"vocals", "other", "xyz"}, 2, 6, 0))
 
 	var srcs []string
 	for _, c := range f.calls {
@@ -307,7 +308,7 @@ func TestRebuildSectionsEngineTwoStemsSkipsImmutable(t *testing.T) {
 	}
 	sort.Strings(srcs)
 	if !reflect.DeepEqual(srcs, []string{"other", "vocals"}) {
-		t.Errorf("ApplyFx по дорожкам %v, want [other vocals] (kick неизменяемая)", srcs)
+		t.Errorf("ApplyFx по дорожкам %v, want [other vocals] (xyz неизменяемая)", srcs)
 	}
 	// обе исходные дорожки вычтены в окне, вне окна на месте
 	for _, hz := range []float64{500, 3000} {
@@ -1161,5 +1162,162 @@ func TestRebuildSectionsEngineWorkerIgnoresPadFromZeroWorks(t *testing.T) {
 	}
 	if r := relResidualDb(out, want, nil, z, engFade, 14.99); r > -60 {
 		t.Errorf("окно 0,05–14,99 с (без фейда входа): отличие от base − other + Z %.1f дБ, want ≤ −60 (кусок не на месте)", r)
+	}
+}
+
+// --- Условие 14 (internal-studio-engine, этап 5а): движок на части барабанов ---
+//
+// Пересборка разрешает Engine-запись на дорожку-часть барабанов (kick, snare, toms, hh,
+// ride, crash): часть качается как подробная (stem-<part>.flac), считается на воркере
+// (source = часть) и вычитается из трека, на её место ложится обработанный кусок
+// (sampler — новые удары). Проверка по звуку, как TestRebuildSectionsEngineChunkOnWorkerSamples:
+// база 44,1 кГц = other (белый шум) + drums, drums = часть (другой белый шум); воркер
+// отдаёт сигнал замены Z на своих сэмплах. В окне итог = base − часть + Z (≤ −60 дБ),
+// вне окна — база.
+
+var drumPartNames = []string{"kick", "snare", "toms", "hh", "ride", "crash"}
+
+// samplerChain — цепочка «Бочка/Малый: набор» как из JSON (числа — float64).
+func samplerChain(part string) []map[string]any {
+	return []map[string]any{{"type": "sampler", "kit": "osdk/" + part, "floor_db": -18.0}}
+}
+
+// drumSetup — родитель длиной dur с дорожкой-частью part; возвращает фейк воркера
+// (кусок = Z), трек, дорожку части и Z.
+func drumSetup(t *testing.T, part string, dur float64) (*replaceEngFake, []float32, []float32, []float32) {
+	t.Helper()
+	needFFmpeg(t)
+	dir := t.TempDir()
+	p := func(n string) string { return filepath.Join(dir, n) }
+	noise := func(seed int, name string) string {
+		return lavfiHi(t, fmt.Sprintf("anoisesrc=d=%g:c=white:r=%d:a=0.3:seed=%d", dur, idSR, seed), p(name))
+	}
+	otherP, partP, zP := noise(7, "dr-other.flac"), noise(11, "dr-"+part+".flac"), noise(23, "dr-z.flac")
+	silent := lavfiHi(t, aevalHi("0", dur), p("dr-silent.flac"))
+	other, sub, z := decodeAt(t, otherP, idSR), decodeAt(t, partP, idSR), decodeAt(t, zP, idSR)
+	mix := make([]float32, len(other))
+	for i := range mix {
+		mix[i] = other[i] + sub[i]
+	}
+	baseP := p("dr-audio.flac")
+	writeFlac24(t, mix, idSR, baseP)
+	sf := newSecFake()
+	put(sf, parentID, map[string]string{
+		"audio.flac":             baseP,
+		"stem-other.flac":        otherP,
+		"stem-drums.flac":        partP,
+		"stem-bass.flac":         silent,
+		"stem-vocals.flac":       silent,
+		"stem-" + part + ".flac": partP,
+	})
+	mf := &muteEngFake{secFake: sf, t: t, dir: t.TempDir()}
+	return &replaceEngFake{muteEngFake: mf, z: z}, decodeAt(t, baseP, idSR), sub, z
+}
+
+func TestRebuildSectionsEngineDrumPartReplaced(t *testing.T) {
+	const dur, from, to = 10.0, 2.0, 6.5
+	for _, part := range drumPartNames {
+		t.Run(part, func(t *testing.T) {
+			f, base, sub, z := drumSetup(t, part, dur)
+			spec := SectionSpec{ChildID: 0, From: from, To: to, Stems: []string{part}, Engine: samplerChain(part)}
+			if _, err := RebuildSections(context.Background(), f, parentID, []SectionSpec{spec}); err != nil {
+				t.Fatalf("RebuildSections на части %s: %v (want: часть барабанов допустима)", part, err)
+			}
+			if len(f.calls) != 1 {
+				t.Fatalf("ApplyFx вызван %d раз, want 1", len(f.calls))
+			}
+			c := f.calls[0]
+			if c.Source != part || c.Output != "solo" || !c.Preview || !c.Pad {
+				t.Errorf("ApplyFx: source=%q output=%q preview=%v pad=%v, want %s/solo/true/true",
+					c.Source, c.Output, c.Preview, c.Pad, part)
+			}
+			if !reflect.DeepEqual(c.Chain, samplerChain(part)) {
+				t.Errorf("цепочка изменена: %v, want %v", c.Chain, samplerChain(part))
+			}
+			if !contains(f.fetched, key(parentID, "stem-"+part+".flac")) {
+				t.Errorf("stem-%s.flac не скачивался; скачаны: %v", part, f.fetched)
+			}
+			if len(f.uploads) != 1 {
+				t.Fatalf("загрузок %d, want 1", len(f.uploads))
+			}
+			var out []float32
+			for _, data := range f.uploads {
+				out = decodeHi(t, data)
+			}
+			want := make([]float32, len(base))
+			for i := range want {
+				want[i] = base[i] - sub[i]
+				if i < len(z) {
+					want[i] += z[i]
+				}
+			}
+			if r := relResidualDb(out, want, nil, z, from+0.01, to-0.01); r > -60 {
+				t.Errorf("окно: отличие от base − %s + Z %.1f дБ, want ≤ −60 (часть не вычтена или кусок не на месте)", part, r)
+			}
+			for _, w := range [][2]float64{{0, from - engFade - 0.01}, {to + engFade + 0.01, dur}} {
+				if r := relResidualDb(out, base, nil, base, w[0], w[1]); r > -60 {
+					t.Errorf("вне окна %.2f–%.2f с: отличие от базы %.1f дБ, want ≤ −60", w[0], w[1], r)
+				}
+			}
+		})
+	}
+}
+
+// Часть не из списка (xyz) — пропуск, как у неизменяемых: на воркер не уходит, не
+// скачивается, трек на её месте не меняется; соседняя часть kick в той же записи — применяется.
+func TestRebuildSectionsEngineUnknownPartSkipped(t *testing.T) {
+	f, base, sub, z := drumSetup(t, "kick", 10)
+	f.files[key(parentID, "stem-xyz.flac")] = f.files[key(parentID, "stem-kick.flac")]
+	spec := SectionSpec{ChildID: 0, From: 2, To: 6.5, Stems: []string{"xyz", "kick"}, Engine: samplerChain("kick")}
+	if _, err := RebuildSections(context.Background(), f, parentID, []SectionSpec{spec}); err != nil {
+		t.Fatalf("RebuildSections: %v", err)
+	}
+	var srcs []string
+	for _, c := range f.calls {
+		srcs = append(srcs, c.Source)
+	}
+	if !reflect.DeepEqual(srcs, []string{"kick"}) {
+		t.Errorf("ApplyFx по дорожкам %v, want [kick] (xyz не из списка)", srcs)
+	}
+	if contains(f.fetched, key(parentID, "stem-xyz.flac")) {
+		t.Errorf("stem-xyz.flac скачивался: %v", f.fetched)
+	}
+	var out []float32
+	for _, data := range f.uploads {
+		out = decodeHi(t, data)
+	}
+	// xyz = тот же шум, что kick: если бы её тоже вычли, в окне осталось бы base − 2·kick + Z
+	want := make([]float32, len(base))
+	for i := range want {
+		want[i] = base[i] - sub[i] + z[i]
+	}
+	if r := relResidualDb(out, want, nil, z, 2.01, 6.49); r > -60 {
+		t.Errorf("окно: отличие от base − kick + Z %.1f дБ, want ≤ −60 (xyz не должна трогаться)", r)
+	}
+}
+
+// Регрессия кросс-ревью (условие 14): у родителя нет дорожки-части барабанов, и MakeStems
+// её не дал (демиксер без частей барабанов, например Demucs) — пересборка падает с
+// подсказкой «нужен RoFormer», ничего не загружено, MakeStems вызван (ровно один раз).
+func TestRebuildSectionsEngineDrumPartMissingHintsRoFormer(t *testing.T) {
+	for _, part := range []string{"kick", "snare", "crash"} {
+		t.Run(part, func(t *testing.T) {
+			f, _, _, _ := drumSetup(t, part, 10)
+			delete(f.files, key(parentID, "stem-"+part+".flac"))
+			spec := SectionSpec{ChildID: 0, From: 2, To: 6.5, Stems: []string{part}, Engine: samplerChain(part)}
+			_, err := RebuildSections(context.Background(), f, parentID, []SectionSpec{spec})
+			if err == nil {
+				t.Fatalf("части %s нет и после MakeStems: want ошибку, got nil", part)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "roformer") {
+				t.Errorf("ошибка %q — want подсказку про RoFormer", err)
+			}
+			if n := f.stemsCalls[parentID]; n != 1 {
+				t.Errorf("MakeStems(родитель) вызван %d раз, want ровно 1", n)
+			}
+			if len(f.uploads) != 0 {
+				t.Errorf("при ошибке загружено: %v", keys(f.uploads))
+			}
+		})
 	}
 }

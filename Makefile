@@ -18,7 +18,7 @@ test-front: ## тесты фронтенда (vitest)
 
 test-worker: ## тесты воркера (unittest)
 	cd worker && python3 -m unittest test_pure test_plancheck test_voice test_loudness test_grid test_vocal_leak test_roformer_stems \
-		test_fx_engine test_fx_api test_fx_preview
+		test_fx_engine test_fx_api test_fx_preview test_fx_kits
 
 ## lint: все линтеры (go vet + golangci-lint, eslint, ruff)
 lint: lint-go lint-front lint-worker

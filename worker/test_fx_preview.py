@@ -43,7 +43,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 BLOCKS_JSON = Path(__file__).resolve().with_name("fx_blocks.json")
-TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain")
+TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler")
 PREVIEW_RE = re.compile(r"^preview-fx-[0-9a-f]{8}\.flac$")
 TAIL = 3.0
 MAX_PREVIEWS = 8
@@ -775,6 +775,137 @@ class TestPreviewPad(_FadeCase):
         self.assertAlmostEqual(len(y) / SR, 1.0 + FADE, delta=2 / SR)
 
 
+# ---------- Условие 14 (internal-studio-engine, этап 5а): превью с sampler ----------
+#
+# Регрессия кросс-ревью. Контракт: превью с sampler — хвост FX_SAMPLER_TAIL_S = 1 с
+# (удар у конца окна не обрывается): end = min(b + F + 1 с, n); кэш превью учитывает
+# файлы набора (<data>/fx/kits/<набор>/<часть>/*.wav): заменили wav — пересчёт.
+# Набор — настоящее хранилище воркера (файлы), дорожка-часть kick — щелчки.
+
+SAMPLER_TAIL = 1.0
+KIT = "mykit/kick"
+SAMPLER = [{"type": "sampler", "kit": KIT, "floor_db": -40}]
+HITS_S = (0.7, 1.0, 1.4)
+
+
+def _kit_wav(hz, dur=0.5, peak=0.8, sr=SR):
+    """Сэмпл набора: тон hz с атакой 2 мс и медленным спадом (длиннее хвоста окна)."""
+    import io
+
+    import numpy as np
+    import soundfile as sf
+    k = np.arange(int(dur * sr))
+    att = int(0.002 * sr)
+    env = np.where(k <= att, k / att, np.exp(-(k - att) / (0.15 * sr)))
+    x = (peak * env * np.sin(2 * np.pi * hz * k / sr)).astype(np.float32)
+    buf = io.BytesIO()
+    sf.write(buf, x, sr, format="WAV", subtype="PCM_24")
+    return buf.getvalue()
+
+
+@unittest.skipUnless(fa._OK and _HAS_NP, fa._SKIP)
+class TestPreviewSampler(_PreviewCase):
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(self.w, "fx_resources", self.real_fx_resources)
+        p.start()
+        self.addCleanup(p.stop)
+        self.kit_dir = self.data / "fx" / "kits" / KIT
+        self.kit_dir.mkdir(parents=True)
+
+    def _put(self, name, hz):
+        path = self.kit_dir / name
+        existed = path.exists()
+        old = path.stat().st_mtime_ns if existed else 0
+        path.write_bytes(_kit_wav(hz))
+        if existed:
+            st = path.stat()
+            # mtime явно вперёд — не зависеть от разрешения часов ФС
+            os.utime(path, ns=(st.st_atime_ns, max(st.st_mtime_ns, old) + 10 * 10**9))
+        return path
+
+    def _kick_job(self):
+        from test_fx_engine import _hits
+        n = int(fa.DUR * SR)
+        hits = _hits([int(t * SR) for t in HITS_S], [0.8] * len(HITS_S), n, sr=SR)
+        return self._audio_job(extra={"kick": hits})
+
+    def test_tail_1s(self):
+        self._put("a.wav", 300)
+        jid, d = self._kick_job()
+        for fr, to, fade, want in ((0.5, 1.5, 0.0, 1.0 + SAMPLER_TAIL),
+                                   (0.5, 1.5, 0.05, 1.0 + 0.05 + SAMPLER_TAIL),
+                                   (1.2, 1.7, 0.05, 0.5 + 0.05 + SAMPLER_TAIL)):
+            with self.subTest(fr=fr, to=to, fade=fade):
+                out = self._ok_preview(jid, SAMPLER, fr, to, source="kick", output="solo", fade=fade)
+                y, _ = _read(d / out["file"])
+                self.assertAlmostEqual(len(y) / SR, want, delta=2 / SR)
+                self.assertAlmostEqual(out["duration_sec"], want, delta=0.01)
+
+    def test_tail_keeps_hit_near_window_end(self):
+        # удар на 1,4 с, окно до 1,5 с: сэмпл (0,5 с) звучит и после to + fade
+        import numpy as np
+        self._put("a.wav", 300)
+        jid, d = self._kick_job()
+        out = self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo", fade=0.05)
+        y, _ = _read(d / out["file"])
+        lo, hi = int((1.6 - 0.5) * SR), int((1.8 - 0.5) * SR)
+        self.assertGreater(len(y), hi, "превью без хвоста")
+        tail = float(np.abs(y[lo:hi]).max())
+        self.assertGreater(tail, 0.01 * float(np.abs(y).max()), "удар у конца окна оборван")
+
+    def test_tail_not_past_track_end(self):
+        # трек 4 с, окно 2,5–3,5 с + fade 0,05 + 1 с → обрезано концом трека: 1,5 с
+        self._put("a.wav", 300)
+        jid, d = self._kick_job()
+        for fade in (0.0, 0.05):
+            with self.subTest(fade=fade):
+                out = self._ok_preview(jid, SAMPLER, 2.5, 3.5, source="kick", output="solo", fade=fade)
+                y, _ = _read(d / out["file"])
+                self.assertAlmostEqual(len(y) / SR, fa.DUR - 2.5, delta=2 / SR)
+
+    def test_replaced_kit_wav_recomputed(self):
+        import fx_engine
+        self._put("a.wav", 300)
+        jid, d = self._kick_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            a = self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            calls = proc.call_count
+            y1, _ = _read(d / a["file"])
+            # тот же файл набора, новое содержимое (другой тон) и mtime
+            self._put("a.wav", 2000)
+            b = self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            self.assertGreater(proc.call_count, calls, "файл набора сменился, а превью взято из кэша")
+        y2, _ = _read(d / b["file"])
+        self.assertGreater(_residual_db(y1, y2), -20, "превью посчитано со старым сэмплом")
+        self.assertGreater(fa._amp(y2, 2000, 0.2, 0.4), 3 * fa._amp(y2, 300, 0.2, 0.4),
+                           "в превью старый сэмпл")
+
+    def test_added_kit_wav_recomputed(self):
+        import fx_engine
+        self._put("a.wav", 300)
+        jid, d = self._kick_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            calls = proc.call_count
+            self._put("b.wav", 2000)
+            self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            self.assertGreater(proc.call_count, calls, "в наборе новый файл, а превью взято из кэша")
+
+    def test_same_kit_same_file_from_cache(self):
+        # контроль: набор не менялся — второй раз из кэша, без пересчёта
+        import fx_engine
+        self._put("a.wav", 300)
+        jid, _ = self._kick_job()
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            a = self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            calls = proc.call_count
+            b = self._ok_preview(jid, SAMPLER, 0.5, 1.5, source="kick", output="solo")
+            self.assertEqual(proc.call_count, calls)
+        self.assertEqual(a["file"], b["file"])
+
+
 # ---------- ТК7: один источник описания блоков ----------
 
 def _blocks():
@@ -853,7 +984,7 @@ STAGE2 = {
 
 def _need(t):
     """Обязательные строковые поля блока для проверки parse_chain."""
-    return {"model": "fake"} if t == "amp" else {}
+    return {"amp": {"model": "fake"}, "sampler": {"kit": "fake/kick"}}.get(t, {})
 
 
 @unittest.skipUnless(_HAS_NP, "нужны numpy/scipy (окружение воркера)")
@@ -918,7 +1049,7 @@ class TestSpecFromBlocks(_ParseCase):
         for t, blk in self.blocks.items():
             for s in blk.get("strings", []):
                 with self.subTest(type=t, string=s["id"]):
-                    self.assertIn(s.get("asset"), ("amp", "ir"))
+                    self.assertIn(s.get("asset"), ("amp", "ir", "kit"))
                     if s.get("required"):
                         self.assertIsNone(self.fx.STR_SPEC[t][s["id"]])
                         with self.assertRaises(self.fx.ChainError):

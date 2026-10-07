@@ -36,6 +36,8 @@ type fxFake struct {
 	cfg      map[string]any // ответ /config; nil — воркер с превью движка (fx_preview: true)
 	assets   map[string]any
 	uploads  []fxUploadCall
+	kitNames []string // вызовы InstallFxKit (условие 14)
+	kitErr   error
 }
 
 func (f *fxFake) ApplyFx(ctx context.Context, id int64, req yue.FxRequest) (*yue.DspVariant, error) {
@@ -69,6 +71,14 @@ func (f *fxFake) FxAssets(ctx context.Context) (map[string]any, error) {
 func (f *fxFake) UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error) {
 	f.uploads = append(f.uploads, fxUploadCall{kind, name, append([]byte(nil), data...)})
 	return map[string]any{"name": name, "kind": kind}, nil
+}
+
+func (f *fxFake) InstallFxKit(ctx context.Context, name string) (map[string]any, error) {
+	f.kitNames = append(f.kitNames, name)
+	if f.kitErr != nil {
+		return nil, f.kitErr
+	}
+	return map[string]any{"name": name, "parts": map[string]any{"kick": 22, "snare": 37}, "downloaded": true}, nil
 }
 
 // newFxServer — сервер со всеми инструментами (как newTestServer), воркер — fxFake.
@@ -208,7 +218,7 @@ func TestFxAssetUploadMissingFile(t *testing.T) {
 // preview; fx_blocks — описание блоков из встроенной копии worker/fx_blocks.json;
 // fx_presets — готовые цепочки (встроенный fx_presets.json из frontend/src/fxPresets.js).
 
-var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain"}
+var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler"}
 
 func TestFxApplyPassesPreview(t *testing.T) {
 	s, fake := newFxServer(t)
@@ -397,5 +407,80 @@ func TestFxApplyDescribesFade(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"fade"`) {
 		t.Errorf("в схеме fx_apply нет поля fade: %s", b)
+	}
+}
+
+// internal-studio-engine, условие 14 (этап 5а): fx_kit_install передаёт name в
+// Service.InstallFxKit и возвращает ответ воркера; fx_assets показывает наборы (kits).
+
+func TestFxKitInstallPassesName(t *testing.T) {
+	s, fake := newFxServer(t)
+	out, ok := call(t, s, "fx_kit_install", map[string]any{"name": "osdk"})
+	if !ok {
+		t.Fatalf("fx_kit_install failed: %s", out)
+	}
+	if !reflect.DeepEqual(fake.kitNames, []string{"osdk"}) {
+		t.Errorf("InstallFxKit вызван с %v, want [osdk]", fake.kitNames)
+	}
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`"kick"\s*:\s*22\b`),
+		regexp.MustCompile(`"snare"\s*:\s*37\b`),
+		regexp.MustCompile(`"downloaded"\s*:\s*true\b`),
+	} {
+		if !re.MatchString(out) {
+			t.Errorf("в ответе fx_kit_install нет %s: %s", re, out)
+		}
+	}
+}
+
+// Ошибка воркера (неизвестное имя → 422) — ошибка инструмента с причиной.
+func TestFxKitInstallWorkerErrorIsToolError(t *testing.T) {
+	s, fake := newFxServer(t)
+	fake.kitErr = &yue.StatusError{Code: 422, Msg: "unknown kit: nope"}
+	out, ok := call(t, s, "fx_kit_install", map[string]any{"name": "nope"})
+	if ok {
+		t.Fatalf("ждали ошибку, ответ: %s", out)
+	}
+	if !strings.Contains(out, "nope") {
+		t.Errorf("в ошибке нет причины: %s", out)
+	}
+}
+
+// Схема инструмента называет поле name.
+func TestFxKitInstallDescribesName(t *testing.T) {
+	s, _ := newFxServer(t)
+	s.mu.RLock()
+	tool, ok := s.tools["fx_kit_install"]
+	s.mu.RUnlock()
+	if !ok {
+		t.Fatal("нет инструмента fx_kit_install")
+	}
+	b, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"name"`) {
+		t.Errorf("в схеме fx_kit_install нет поля name: %s", b)
+	}
+}
+
+func TestFxAssetsShowsKits(t *testing.T) {
+	s, fake := newFxServer(t)
+	fake.assets = map[string]any{
+		"amps": []any{},
+		"irs":  []any{},
+		"kits": []any{map[string]any{"name": "osdk/kick", "samples": 22}, map[string]any{"name": "osdk/snare", "samples": 37}},
+	}
+	out, ok := call(t, s, "fx_assets", map[string]any{})
+	if !ok {
+		t.Fatalf("fx_assets failed: %s", out)
+	}
+	for _, w := range []string{"osdk/kick", "osdk/snare"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("в списке нет набора %q: %s", w, out)
+		}
+	}
+	if !regexp.MustCompile(`"samples"\s*:\s*22\b`).MatchString(out) {
+		t.Errorf("в списке нет числа сэмплов набора: %s", out)
 	}
 }

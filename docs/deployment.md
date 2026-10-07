@@ -146,6 +146,12 @@ echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и пере
 - Без `YUE_NAM_DEPS` движок работает, недоступен только блок `amp` (ошибка с причиной).
 - Откат: `YUE_FX_ENGINE=0` в `worker.env` или `config_set fx_engine=false` — эндпоинт отвечает 503,
   эффекты ffmpeg приложения работают как прежде (движок их не заменяет).
+- Наборы сэмплов барабанов (блок `sampler`) воркер качает сам по требованию (`POST /fx/kits/install`, MCP
+  `fx_kit_install`) в `<YUE_DATA_DIR>/fx/kits`, нужен доступ к GitHub. Первый набор — The Open Source Drum Kit
+  (Real Music Media, github.com/crabacus/the-open-source-drumkit): автор объявил сэмплы общественным
+  достоянием — можно в своих треках без указания автора (заявление автора на KVR:
+  https://www.kvraudio.com/forum/viewtopic.php?t=277132; в репозитории файла лицензии нет). Версия набора
+  закреплена за коммитом репозитория. В поставку не входит; приложение качает набор само, когда он нужен цепочке.
 - pedalboard (Spotify) не используется: его лицензия GPL-3, проект — MIT.
 
 ## Разделение на дорожки — BS-Roformer-SW
