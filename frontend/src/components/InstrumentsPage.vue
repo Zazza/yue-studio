@@ -36,7 +36,7 @@ const chain = ref(fromWorkerChain(fxPresets[0].chain, BLOCKS))
 const presetId = ref(fxPresets[0].id)
 const assets = ref({ amps: [], irs: [] })
 const engineOn = ref(true)
-const engineKnown = ref(true)  // воркер знает движок (в /config есть fx_engine)
+const engineKnown = ref(false) // воркер умеет превью движка (в /config есть fx_preview); до ответа — нет
 const busy = ref('')
 const err = ref('')
 const note = ref('')
@@ -110,6 +110,14 @@ watch(jobId, () => { lastPreview.value = null; fitStart(); loadStems() })
 const onKey = (e) => { if (e.key === 'Escape') emit('close') }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+// закрыли страницу во время «было» — остановить: следить за концом куска больше некому
+onBeforeUnmount(() => {
+  if (beforeUntil.value && nowPlayingKey.value === BEFORE_KEY) {
+    beforeUntil.value = null
+    nowPlayingKey.value = ''
+    api.stopAudio().catch(() => { /* плеер уже остановлен */ })
+  }
+})
 
 // захват не выбран, а он один/первый есть — подставить: пресет с amp без захватов иначе молчит
 function fillAmp(c) {
@@ -170,15 +178,22 @@ async function playBefore() {
   await toggleArtifact(BEFORE_KEY, t('instr.before'), async () => {
     await api.playFile(job.value.id, file, job.value.duration_sec)
     await api.seekAudio(from)
-    beforeUntil.value = to
+    beforeArmed = false
+    beforeUntil.value = { from, to }
   })
 }
 
 // «было» играет файл трека целиком — остановить на конце куска (плеер сам этого не знает)
-const beforeUntil = ref(null)
+const beforeUntil = ref(null)    // {from, to} куска «было»
+let beforeArmed = false
 watch(() => playerState.value.position_sec, async (pos) => {
   if (beforeUntil.value == null || nowPlayingKey.value !== BEFORE_KEY) return
-  if (pos >= beforeUntil.value) {
+  const { from, to } = beforeUntil.value
+  if (!beforeArmed) {               // первая позиция может остаться от прошлого проигрывания
+    if (pos >= from && pos < to) beforeArmed = true
+    return
+  }
+  if (pos >= to) {
     beforeUntil.value = null
     await toggleArtifact(BEFORE_KEY, t('instr.before'), async () => {})
   }
@@ -188,10 +203,10 @@ watch(() => playerState.value.position_sec, async (pos) => {
 async function toTrack() {
   busy.value = 'apply'
   err.value = ''
-  const j = job.value               // трек сменят во время расчёта — вариант остаётся у своего
+  const j = job.value               // трек/пресет сменят во время расчёта — вариант и имя остаются свои
+  const title = `${j.title || '#' + j.id} · ${tr(preset.value?.name) || t('instr.title')}`
   try {
     const v = await api.applyFx(j.id, request(false))
-    const title = `${j.title || '#' + j.id} · ${tr(preset.value?.name) || t('instr.title')}`
     await api.variantToTrack(j.id, v.file, title)
     note.value = t('instr.toTrack.done')
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
