@@ -761,3 +761,110 @@ describe('addStemEnvelope — громкость по волне на дорож
     expect(envSpecs(call).length).toBe(1)
   })
 })
+
+// Карточка internal-studio-engine, тест-кейс 9 (условие 4): цепочка звукового движка
+// на дорожку — запись реестра (instId 'engine', engine: chain), в api уходит полем
+// engine; подпись — label записи.
+describe('addStemEngine — цепочка движка на дорожку через пересборку', () => {
+  const chain = [
+    { type: 'amp', model: 'JCM2000.nam', input_db: -6 },
+    { type: 'cab', cutoff_hz: 7000 },
+  ]
+  const eng = (over = {}) => ({ stem: 'other', chain, from: 20, to: 35, label: 'Гитара через JCM2000', ...over })
+  const lastCall = () => apiMock.rebuildSections.mock.calls.at(-1)[1]
+  const engSpecs = specs => specs.filter(s => Array.isArray(s.engine) && s.engine.length)
+
+  it('запись в реестре: childId < 0, instId engine, engine = цепочка, окно, дорожка, label; вклейки на месте', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemEngine('P', eng())
+    await flush()
+    const reg = ins.appliedFor('P')
+    expect(reg.some(x => x.childId === 1)).toBe(true)   // вклейка A не потерялась
+    const recs = reg.filter(x => x.childId < 0)
+    expect(recs.length).toBe(1)
+    expect(recs[0]).toMatchObject({ instId: 'engine', from: 20, to: 35, stems: ['other'], db: 0, label: 'Гитара через JCM2000' })
+    expect(recs[0].engine).toEqual(chain)
+  })
+
+  it('сразу одна пересборка; в api — child_id 0, stems [stem], engine как есть, окно, db 0, без chain/steps', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', eng())
+    await flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    expect(apiMock.rebuildSections.mock.calls.at(-1)[0]).toBe('P')
+    const s = lastCall()[0]
+    expect(s).toMatchObject({ child_id: 0, stems: ['other'], from: 20, to: 35, db: 0 })
+    expect(s.engine).toEqual(chain)
+    expect(s.chain || '').toBe('')
+    expect(s.steps).toBeUndefined()
+  })
+
+  it('окно по умолчанию — весь трек (from 0, to 0), label по умолчанию пустой', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', { stem: 'guitar', chain })
+    await flush()
+    expect(lastCall()[0]).toMatchObject({ child_id: 0, stems: ['guitar'], from: 0, to: 0 })
+    const rec = ins.appliedFor('P').find(x => x.childId < 0)
+    expect(rec.from).toBe(0)
+    expect(rec.to).toBe(0)
+    expect(rec.label || '').toBe('')
+  })
+
+  it('копится: повторная пересборка (addMutes) снова отдаёт engine, заглушка — без engine', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', eng())
+    await flush()
+    await ins.addMutes('P', [{ instId: 'm', from: 0, to: 5, stems: ['drums'], db: -100 }])
+    await flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(2)
+    const call = lastCall()
+    expect(call.length).toBe(2)
+    const specs = engSpecs(call)
+    expect(specs.length).toBe(1)
+    expect(specs[0]).toMatchObject({ child_id: 0, stems: ['other'], from: 20, to: 35 })
+    expect(specs[0].engine).toEqual(chain)
+    const mute = call.find(s => !s.engine)
+    expect(mute.db).toBe(-100)
+  })
+
+  it('вместе с эффектом ffmpeg и вклейкой: в api все три, у каждой своё поле', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemFx('P', { stem: 'vocals', chain: 'soften', params: { strength: 0.6 }, from: 0, to: 0 })
+    await ins.addStemEngine('P', eng())
+    await flush()
+    const call = lastCall()
+    expect(call.length).toBe(3)
+    expect(call.some(s => s.child_id === 1)).toBe(true)
+    expect(call.find(s => s.chain === 'soften').engine).toBeUndefined()
+    expect(engSpecs(call).length).toBe(1)
+  })
+
+  it('две цепочки движка — две записи с уникальными отрицательными childId', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', eng())
+    await ins.addStemEngine('P', eng({ stem: 'vocals', chain: [{ type: 'reverb', wet: 0.2 }], label: '' }))
+    await flush()
+    const ids = ins.appliedFor('P').map(x => x.childId)
+    expect(ids.length).toBe(2)
+    expect(new Set(ids).size).toBe(2)
+    for (const id of ids) expect(id).toBeLessThan(0)
+    expect(engSpecs(lastCall()).map(s => s.stems[0]).sort()).toEqual(['other', 'vocals'])
+  })
+
+  it('реестр сохраняется в localStorage: engine и label на месте', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', eng())
+    await flush()
+    const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+    const rec = saved.P.find(x => x.childId < 0)
+    expect(rec.engine).toEqual(chain)
+    expect(rec.label).toBe('Гитара через JCM2000')
+  })
+
+  it('latestFile не именует файл по записи движка', async () => {
+    const ins = await load({ applied: { P: [{ ...A, childId: 2 }] } })
+    await ins.addStemEngine('P', eng())
+    await flush()
+    expect(ins.latestFile('P')).toBe('overdub-inst-2.flac')
+  })
+})

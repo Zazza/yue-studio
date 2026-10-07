@@ -35,10 +35,10 @@ func registerRevoiceTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to (0 — до конца трека), lead?, beat_sec?, " +
-				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?} — chain/params: эффект на " +
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?} — chain/params: эффект на " +
 				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
 				"steps [{chain, params, off}] вместо chain — цепочка эффектов по порядку (педали, dsp_presets). " +
-				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). " +
+				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне: считается на воркере, звук не сдвигается, хвост реверба/дилея звучит после to. " +
 				"stems: drums/bass/other/vocals; при child_id 0 ещё guitar/piano — гитара и клавиши внутри other " +
 				"(заменить куском их нельзя)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
@@ -448,13 +448,40 @@ func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 		if err != nil {
 			return nil, fmt.Errorf("specs[%d]: %w", i, err)
 		}
+		engine, err := engineArg(m["engine"])
+		if err != nil {
+			return nil, fmt.Errorf("specs[%d]: %w", i, err)
+		}
 		out = append(out, studio.SectionSpec{
 			ChildID: argInt(m, "child_id"), From: argFloat(m, "from"), To: argFloat(m, "to"),
 			Lead: argFloat(m, "lead"), BeatSec: argFloat(m, "beat_sec"), Stems: argStringSlice(m, "stems"),
 			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
 			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
 			Chain: argString(m, "chain"), Params: argNumMap(m, "params"), Steps: steps, Envelope: argEnvelope(m, "envelope"),
+			Engine: engine,
 		})
+	}
+	return out, nil
+}
+
+// engineArg — цепочка звукового движка записи пересборки как есть ([{type, …}]);
+// нет поля — nil; не массив объектов — ошибка (иначе запись тихо стала бы «громкостью»).
+// Сами блоки проверяет воркер.
+func engineArg(raw any) ([]map[string]any, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, errors.New("engine: нужен массив блоков [{type, …}]")
+	}
+	out := make([]map[string]any, 0, len(list))
+	for j, it := range list {
+		m, ok := it.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("engine[%d]: нужен объект {type, …}", j)
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }

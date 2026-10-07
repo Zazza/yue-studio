@@ -2539,6 +2539,7 @@ FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
 FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
 FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
+FX_FADE_MAX_S = 0.5      # край окна превью — не длиннее
 FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
 FX_SOURCES = ("mix",) + MAIN_STEMS + DETAIL_STEMS + DRUM_PARTS
 # имя захвата/IR: буквы (в т.ч. кириллица), цифры, пробел и « .,()+-_»; без путей
@@ -2629,6 +2630,12 @@ class FxIn(BaseModel):
     output: str = "mix"
     label: str = ""
     preview: bool = False   # прослушать кусок (страница «Инструменты»): preview-fx-*.flac, не вариант
+    # превью: вход окна с линейными краями, с (нарастание с from, спад после to) — пересборка
+    # студии кладёт кусок в трек вместо исходной дорожки с теми же фейдами, без щелчка
+    fade: float = 0.0
+    # превью: файл от начала трека (до from — тишина) — пересборка студии кладёт его без
+    # задержки (adelay ffmpeg ошибается на сэмпл), «на место» тем же отсчётом, что дорожку
+    pad: bool = False
 
 
 def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
@@ -2684,6 +2691,8 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
 
     if req.preview and (frm is None or to is None):
         raise HTTPException(422, "preview needs from and to")
+    if not 0 <= req.fade <= FX_FADE_MAX_S:
+        raise HTTPException(422, f"fade must be within 0…{FX_FADE_MAX_S} s")
 
     track, _ = sf.read(str(src), always_2d=True, dtype="float64")
     if req.source == "mix":
@@ -2793,13 +2802,21 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     n = len(track)
     a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
     tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
-    end = min(b + int(tail * sr), n)
-    key = json.dumps({"source": req.source, "chain": chain, "from": req.from_, "to": req.to,
-                      "output": req.output, "files": _fx_stamp(used, chain)}, sort_keys=True)
+    fade = int(round(req.fade * sr))
+    stop = min(b + fade, n)              # вход: до to и спад края после него
+    end = min(stop + int(tail * sr), n)
+    key = {"source": req.source, "chain": chain, "from": req.from_, "to": req.to,
+           "output": req.output, "files": _fx_stamp(used, chain)}
+    if fade:
+        key["fade"] = req.fade           # без края — ключ как у превью этапа 3 (кэш не сбрасывается)
+    if req.pad:
+        key["pad"] = True
+    key = json.dumps(key, sort_keys=True)
     fname = f"preview-fx-{hashlib.sha1(key.encode()).hexdigest()[:8]}.flac"
     target = jdir / fname
     if target.is_file():
         try:
+            os.utime(target)             # попадание — свежее: вытесняются давно не слушанные
             data, fsr = sf.read(str(target), dtype="float32")
             # перегруз в файле уже срезан записью — признак: пик на полной шкале
             return {"file": fname, "duration_sec": round(len(data) / fsr, 3),
@@ -2807,9 +2824,16 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         except (OSError, RuntimeError):
             pass  # файл вытеснили параллельно — считаем заново
     seg = np.zeros((end - a, part.shape[1]))
-    seg[:b - a] = part[a:b]
+    seg[:stop - a] = part[a:stop]
+    if fade:
+        # как dsp.WindowGraph: рост 0→1 за fade с начала окна, спад 1→0 от to до to+fade
+        k = np.arange(stop - a, dtype=np.float64)
+        w = np.minimum(1.0, k / fade) * np.clip((b + fade - (a + k)) / fade, 0.0, 1.0)
+        seg[:stop - a] *= w[:, None]
     wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
     out = wet if (req.output == "solo" and req.source != "mix") else track[a:end] + (wet - seg)
+    if req.pad and a > 0:
+        out = np.concatenate([np.zeros((a, out.shape[1])), out])
     # своё временное имя на запрос (одинаковые превью параллельно не делят файл) и не *.flac —
     # вытеснение ниже его не видит
     tmp = target.with_name(f"{target.name}.{uuid.uuid4().hex[:8]}.part")
@@ -2819,7 +2843,7 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     for old in olds[FX_PREVIEW_KEEP:]:
         old.unlink(missing_ok=True)
     peak = float(np.max(np.abs(out))) if out.size else 0.0
-    return {"file": fname, "duration_sec": round((end - a) / sr, 3), "clipped": peak > 1.0}
+    return {"file": fname, "duration_sec": round(len(out) / sr, 3), "clipped": peak > 1.0}
 
 
 @app.post("/jobs/{job_id}/fx")

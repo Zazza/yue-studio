@@ -33,6 +33,7 @@ type fxFake struct {
 	*fakeService
 	applies  []fxApplyCall
 	applyErr error
+	cfg      map[string]any // ответ /config; nil — воркер с превью движка (fx_preview: true)
 	assets   map[string]any
 	uploads  []fxUploadCall
 }
@@ -42,8 +43,23 @@ func (f *fxFake) ApplyFx(ctx context.Context, id int64, req yue.FxRequest) (*yue
 	if f.applyErr != nil {
 		return nil, f.applyErr
 	}
+	if req.Preview { // превью — не вариант: preview-fx-*, как у воркера
+		// pad (пересборка студии) — файл от начала трека, не короче окна: как у трека в тестах (8 с)
+		dur := 4.0
+		if req.Pad {
+			dur = 8
+		}
+		return &yue.DspVariant{File: "preview-fx-0123abcd.flac", DurationSec: dur}, nil
+	}
 	return &yue.DspVariant{File: "dsp-fx-" + req.Source + "-0123abcd.flac", CreatedAt: "2026-10-06T12:00:00",
 		Metrics: map[string]any{"lufs": -14.2}, Label: req.Label}, nil
+}
+
+func (f *fxFake) WorkerConfig(ctx context.Context) (map[string]any, error) {
+	if f.cfg == nil {
+		return map[string]any{"fx_preview": true}, nil
+	}
+	return f.cfg, nil
 }
 
 func (f *fxFake) FxAssets(ctx context.Context) (map[string]any, error) {
@@ -343,5 +359,43 @@ func TestFxApplyReturnsDurationAndClipped(t *testing.T) {
 		if !re.MatchString(out) {
 			t.Errorf("в ответе fx_apply нет %s: %s", re, out)
 		}
+	}
+}
+
+// internal-studio-engine, Н-2 кросс-ревью (синхронное обновление): fx_apply передаёт
+// fade в FxRequest.Fade; без fade — 0 (поведение этапа 3).
+func TestFxApplyPassesFade(t *testing.T) {
+	s, fake := newFxServer(t)
+	for _, args := range []string{
+		`{"job_id":466,"source":"other","chain":[{"type":"reverb"}],"from":20,"to":35,"output":"solo","preview":true,"fade":0.05}`,
+		`{"job_id":466,"source":"other","chain":[{"type":"reverb"}],"from":20,"to":35,"output":"solo","preview":true}`,
+	} {
+		if out, ok := call(t, s, "fx_apply", jsonArgs(t, args)); !ok {
+			t.Fatalf("fx_apply failed: %s", out)
+		}
+	}
+	if len(fake.applies) != 2 {
+		t.Fatalf("ApplyFx вызван %d раз, want 2", len(fake.applies))
+	}
+	if got := fake.applies[0].req.Fade; got != 0.05 {
+		t.Errorf("fade 0.05 → FxRequest.Fade = %v, want 0.05", got)
+	}
+	if got := fake.applies[1].req.Fade; got != 0 {
+		t.Errorf("без fade → FxRequest.Fade = %v, want 0", got)
+	}
+}
+
+// Описание fx_apply называет поле fade.
+func TestFxApplyDescribesFade(t *testing.T) {
+	s, _ := newFxServer(t)
+	s.mu.RLock()
+	tool := s.tools["fx_apply"]
+	s.mu.RUnlock()
+	b, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"fade"`) {
+		t.Errorf("в схеме fx_apply нет поля fade: %s", b)
 	}
 }

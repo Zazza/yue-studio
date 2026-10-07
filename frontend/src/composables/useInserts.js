@@ -59,6 +59,8 @@ async function doRebuild(parentId) {
     ...(it.steps ? { steps: it.steps } : {}),
     // линия громкости дорожки (по волне): точки {t, db} по всему треку
     ...(it.envelope ? { envelope: it.envelope } : {}),
+    // цепочка звукового движка воркера: JSON-блоки как у fx_apply
+    ...(it.engine ? { engine: it.engine } : {}),
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -135,6 +137,18 @@ async function addStemPedals(parentId, { stem, steps, from = 0, to = 0, label = 
   const item = {
     childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'pedals', from, to, lead: 0, beat: 0, db: 0,
     stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, steps: (steps || []).map((s) => ({ ...s })), label,
+  }
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
+  save()
+  return rebuild(parentId)
+}
+
+// цепочка звукового движка воркера на дорожку в окне: одна запись реестра,
+// считается на воркере при пересборке; label — подпись в списке вставок
+async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = '' }) {
+  const item = {
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'engine', from, to, lead: 0, beat: 0, db: 0,
+    stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, engine: (chain || []).map((b) => ({ ...b })), label,
   }
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
   save()
@@ -236,5 +250,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEnvelope, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEnvelope, carryTo, flush, latestFile }
 }

@@ -17,6 +17,11 @@ type FxRequest struct {
 	Label  string           `json:"label,omitempty"`
 	// Preview — прослушать кусок окна (обязательны From/To): preview-fx-*.flac, не вариант
 	Preview bool `json:"preview,omitempty"`
+	// Fade — у превью: вход окна с линейными краями (нарастание с From, спад после To), с;
+	// пересборка студии берёт ту же форму, что у вычитаемой исходной дорожки
+	Fade float64 `json:"fade,omitempty"`
+	// Pad — у превью: файл от начала трека (до From — тишина), чтобы вставить его без задержки
+	Pad bool `json:"pad,omitempty"`
 }
 
 // ApplyFx — цепочка движка на трек/дорожку → вариант dsp-fx-*.flac (список вариантов).

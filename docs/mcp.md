@@ -99,7 +99,8 @@ gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожк�
 (звук не сдвигается — годится для вклейки нота в ноту) · `fx_assets` — загруженные захваты NAM и IR ·
 `fx_asset_upload` — загрузить свой `.nam`/`.wav` с ПК · `fx_blocks` — описание блоков (умолчания,
 границы, подписи) · `fx_presets` — готовые цепочки страницы «Инструменты» · `fx_apply preview=true` —
-только прослушать кусок `from`–`to` (не вариант). Подробно — docs/effects.md, «Звуковой движок».
+только прослушать кусок `from`–`to` (не вариант). В трек — `rebuild_sections` с записью
+`{child_id: 0, stems, from, to, engine: [блоки]}` (копится со вклейками и эффектами). Подробно — docs/effects.md, «Звуковой движок».
 
 **Настройки**: `config_get` / `config_set` (адрес воркера, Ollama, `stems_model`, `fx_engine` — движок вкл/выкл).
 

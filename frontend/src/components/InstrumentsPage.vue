@@ -6,6 +6,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from '../i18n/index.js'
 import { api } from '../api.js'
+import { useInserts } from '../composables/useInserts.js'
 import { usePlayer } from '../composables/usePlayer.js'
 import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
@@ -19,10 +20,13 @@ const { t, locale } = useI18n()
 const emit = defineEmits(['close'])
 const { toggleArtifact, playBtn, playerState, nowPlayingKey } = usePlayer()
 const BEFORE_KEY = 'instr-before'
+const inserts = useInserts()
 
 const SOURCES = ['mix', 'vocals', 'drums', 'bass', 'other', 'guitar', 'piano',
   'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
 const LEN_MIN = 3
+// дорожки, которые пересборка студии меняет (Go: studio.mutable); части барабанов — нет
+const STUDIO_STEMS = ['vocals', 'drums', 'bass', 'other', 'guitar', 'piano']
 const LEN_MAX = 60
 
 const jobs = ref([])
@@ -212,6 +216,20 @@ async function toTrack() {
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
 }
 
+// та же цепочка на дорожку трека в окне куска — в реестр пересборки студии (копится со
+// вклейками, звучит в треке после пересборки); весь трек — только эффектами студии
+async function toStudio() {
+  busy.value = 'studio'
+  err.value = ''
+  const j = job.value
+  const { from, to } = window_()
+  const label = t('engine.label', { name: tr(preset.value?.name) || t('instr.title') })
+  try {
+    await inserts.addStemEngine(j.id, { stem: source.value, chain: toWorkerChain(chain.value), from, to, label })
+    note.value = t('instr.toStudio.done')
+  } catch (e) { err.value = String(e) } finally { busy.value = '' }
+}
+
 async function upload(kind) {
   err.value = ''
   try {
@@ -319,6 +337,9 @@ async function upload(kind) {
           </button>
           <button class="ghost" :disabled="!job" :title="t('instr.before.tip')" @click="playBefore">{{ playBtn('instr-before') }} {{ t('instr.before') }}</button>
           <span class="spacer"></span>
+          <button class="ghost" :disabled="!ready || !!busy || !STUDIO_STEMS.includes(source)" :title="t('instr.toStudio.tip')" @click="toStudio">
+            {{ busy === 'studio' ? t('instr.busy') : t('instr.toStudio') }}
+          </button>
           <button class="ghost" :disabled="!ready || !!busy" :title="t('instr.toTrack.tip')" @click="toTrack">
             {{ busy === 'apply' ? t('instr.busy') : t('instr.toTrack') }}
           </button>

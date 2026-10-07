@@ -53,6 +53,10 @@ type SectionSpec struct {
 	// (точки время → дБ, между ними линейно в дБ); как у эффекта, в трек
 	// добавляется разница «дорожка с линией − дорожка»
 	Envelope []dsp.EnvPoint `json:"envelope,omitempty"`
+	// Engine при ChildID 0 — цепочка звукового движка воркера (JSON-блоки, как у
+	// fx_apply) на дорожки Stems в окне: считается на воркере, в трек — разница
+	// «обработанная − исходная», как у Chain/Steps
+	Engine []map[string]any `json:"engine,omitempty"`
 }
 
 // RebuildResult — новый вариант трека и отчёт по заменам.
@@ -75,6 +79,8 @@ const (
 	defaultBeatSec = 0.5
 	// gainRate — частота анализа уровня (RMS) дорожек
 	gainRate = 16000
+	// engineGridSec — шаг окна движка: 10 мс = 441 сэмпл при 44,1 кГц и 480 при 48 кГц
+	engineGridSec = 0.01
 	// tmpPattern — файлы конвейера живут в своём temp-каталоге, имя не важно
 	tmpPattern = "*.flac"
 	// опора громкости для «молчащего» окна: уровень старой дорожки перед окном
@@ -148,6 +154,19 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 				rep.Gain = fx[0].Gain // гейн первой обработанной дорожки (выравнивание + дБ)
 			}
 			ins = append(ins, fx...)
+			reports = append(reports, rep)
+			continue
+		}
+		if s.ChildID == 0 && len(s.Engine) > 0 {
+			eng, err := engineInserts(ctx, svc, parentID, s, parent, base, dir, i, &inputs)
+			if err != nil {
+				return nil, err
+			}
+			rep := InsertReport{Aligned: true}
+			if len(eng) > 0 {
+				rep.Gain = eng[0].Gain
+			}
+			ins = append(ins, eng...)
 			reports = append(reports, rep)
 			continue
 		}
@@ -248,6 +267,8 @@ func rebuildLabel(specs []SectionSpec) string {
 		switch {
 		case s.ChildID > 0:
 			what = fmt.Sprintf("вклейка #%d", s.ChildID)
+		case len(s.Engine) > 0:
+			what = EngineLabel(s.Engine)
 		case len(s.Steps) > 0:
 			what = StepsLabel(s.Steps)
 		case s.Chain != "":
@@ -343,6 +364,87 @@ func stemFxInserts(s SectionSpec, parent stemSet, dir string, idx int, inputs *[
 			dsp.Insert{AtSec: from, SkipSec: from, DurSec: dur, Gain: -1, FadeIn: fadeIn, FadeOut: fadeOut})
 	}
 	return out, nil
+}
+
+// engineInserts — цепочка звукового движка на дорожки в окне. Дорожка считается на
+// воркере превью (кусок окна + хвост реверба/дилея): вход окна с линейными краями
+// muteFadeSec — той же формы, что у вычитаемой исходной дорожки (dsp.WindowGraph у
+// ffmpeg-эффекта), поэтому края сходятся без щелчка. В трек: кусок +1·дБ с начала
+// окна и исходная дорожка −1 в окне с фейдами. Громкость не выравнивается: уровни —
+// в блоках движка (усилитель и перегруз сами приводят к входу).
+func engineInserts(ctx context.Context, svc yue.Service, parentID int64, s SectionSpec, parent stemSet,
+	base, dir string, idx int, inputs *[]string) ([]dsp.Insert, error) {
+	// старый воркер (без превью) молча вернул бы дорожку целиком — она легла бы со сдвигом
+	if cfg, err := svc.WorkerConfig(ctx); err != nil {
+		return nil, fmt.Errorf("движок: настройки воркера: %w", err)
+	} else if ok, _ := cfg["fx_preview"].(bool); !ok {
+		return nil, errors.New("движок: воркер не умеет превью движка — обновите воркер (make worker)")
+	}
+	f := muteFadeSec
+	from := math.Max(0, s.From-f)
+	to := s.To
+	if to <= 0 {
+		// длина по звуку, а не по заголовку: у импортированных трек — mp3/wav
+		pcm, err := dsp.DecodeMono(base, gainRate, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("движок: длина трека: %w", err)
+		}
+		if to = float64(len(pcm)) / gainRate; to <= 0 {
+			return nil, errors.New("движок: не узнать длину трека для окна «до конца»")
+		}
+	}
+	// окно — на сетке engineGridSec: там время — целое число сэмплов и при 44,1, и при 48 кГц.
+	// На некруглом времени ffmpeg (atrim округляет к ближайшему сэмплу, adelay отбрасывает
+	// дробь) и воркер (round) ставят кусок и вычитаемую дорожку на разные сэмплы — под
+	// обработанным звуком остаётся сухая дорожка (кросс-ревью: остаток громче оригинала);
+	// конец — вниз, чтобы не выйти за длину трека
+	from = math.Round(from/engineGridSec) * engineGridSec
+	to = math.Floor(to/engineGridSec) * engineGridSec
+	if to <= from {
+		return nil, fmt.Errorf("движок: пустое окно %g–%g", s.From, s.To)
+	}
+	var out []dsp.Insert
+	for _, name := range s.Stems {
+		if !slices.Contains(mutable, name) || parent[name] == "" {
+			continue
+		}
+		fromV, toV := from, to
+		v, err := svc.ApplyFx(ctx, parentID, yue.FxRequest{Source: name, Chain: s.Engine, From: &fromV, To: &toV,
+			Output: "solo", Preview: true, Fade: f, Pad: true})
+		if err != nil {
+			return nil, fmt.Errorf("движок на %s: %w", name, err)
+		}
+		if !strings.HasPrefix(v.File, "preview-fx-") {
+			return nil, fmt.Errorf("движок на %s: воркер вернул %s вместо куска превью — обновите воркер", name, v.File)
+		}
+		// воркер этапа 3 поле pad молча отбрасывает: кусок пришёл бы с начала окна и лёг на 0:00,
+		// а окно дорожки вычлось бы — дыра без ошибки. С pad файл от начала трека — не короче to
+		if v.DurationSec+engineGridSec < to {
+			return nil, fmt.Errorf("движок на %s: воркер вернул кусок без начала трека (%.2f с при окне до %.2f с) — обновите воркер",
+				name, v.DurationSec, to)
+		}
+		wet, err := FetchTemp(ctx, svc, parentID, v.File, dir, fmt.Sprintf("engine-%d-%s-*.flac", idx, name))
+		if err != nil {
+			return nil, fmt.Errorf("движок на %s: кусок %s: %w", name, v.File, err)
+		}
+		*inputs = append(*inputs, wet, parent[name])
+		out = append(out,
+			// кусок от начала трека (Pad): на место без adelay — тем же отсчётом, что дорожка
+			dsp.Insert{Gain: math.Pow(10, s.Db/20)},
+			dsp.Insert{AtSec: from, SkipSec: from, DurSec: to + f - from, Gain: -1, FadeIn: f, FadeOut: f})
+	}
+	return out, nil
+}
+
+// EngineLabel — «Движок: gate → eq → amp» (типы блоков по порядку).
+func EngineLabel(chain []map[string]any) string {
+	names := make([]string, 0, len(chain))
+	for _, b := range chain {
+		if t, ok := b["type"].(string); ok {
+			names = append(names, t)
+		}
+	}
+	return "Движок: " + strings.Join(names, " → ")
 }
 
 // fxPlan — эффект записи пересборки: граф ffmpeg, хвост, голосовой ли

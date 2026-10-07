@@ -256,3 +256,45 @@ func TestApplyFxPreviewKeepsDurationAndClipped(t *testing.T) {
 		t.Errorf("clipped=true потерян: %+v", v)
 	}
 }
+
+// Карточка internal-studio-engine, условие 10: FxRequest.Pad (кусок превью от начала
+// трека) уходит в тело только при true; при false поля нет — старый воркер и запросы
+// этапа 3 его не видят.
+func TestApplyFxPadSentOnlyWhenTrue(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = nil
+		b, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(b, &got); err != nil {
+			t.Errorf("тело не JSON: %v (%s)", err, b)
+		}
+		_, _ = w.Write([]byte(`{"file":"preview-fx-0123abcd.flac","duration_sec":36.0,"clipped":false}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	from, to := 19.95, 35.0
+	req := FxRequest{Source: "other", Chain: []map[string]any{{"type": "cab"}}, From: &from, To: &to,
+		Output: "solo", Preview: true, Fade: 0.05}
+
+	req.Pad = true
+	if _, err := c.ApplyFx(context.Background(), 466, req); err != nil {
+		t.Fatalf("ApplyFx pad: %v", err)
+	}
+	if got["pad"] != true {
+		t.Errorf("pad=true не ушёл в тело: %v", got)
+	}
+	if got["preview"] != true || got["fade"] != 0.05 || got["from"] != 19.95 || got["to"] != 35.0 {
+		t.Errorf("остальные поля превью с pad: %v", got)
+	}
+
+	req.Pad = false
+	if _, err := c.ApplyFx(context.Background(), 466, req); err != nil {
+		t.Fatalf("ApplyFx: %v", err)
+	}
+	if _, ok := got["pad"]; ok {
+		t.Errorf("pad=false ушёл в тело: %v", got)
+	}
+	if got["preview"] != true {
+		t.Errorf("без pad потерялся preview: %v", got)
+	}
+}

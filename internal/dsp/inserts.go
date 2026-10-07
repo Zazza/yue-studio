@@ -2,7 +2,10 @@ package dsp
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -43,12 +46,17 @@ func InsertsGraph(ins []Insert) string {
 	var b strings.Builder
 	labels := "[0:a]"
 	for i, in := range ins {
+		if inPlace(in) {
+			writeInPlace(&b, in, i+1)
+			labels += fmt.Sprintf("[p%d]", i+1)
+			continue
+		}
 		fmt.Fprintf(&b, "[%d:a]", i+1)
 		if in.SkipSec > 0 {
 			// то же значение, что у adelay ниже (%g, без округления до мс): иначе
 			// начало куска и задержка расходились на сэмплы, и «вычитание» на
 			// некруглой секунде делало звук громче (ревью: остаток 0.45 при 0.3)
-			fmt.Fprintf(&b, "atrim=start=%g,asetpts=PTS-STARTPTS,", in.SkipSec)
+			fmt.Fprintf(&b, "atrim=start=%s,asetpts=PTS-STARTPTS,", ffNum(in.SkipSec))
 		}
 		if in.Tempo > 0 && in.Tempo != 1 {
 			t := min(max(in.Tempo, minAtempo), maxAtempo)
@@ -73,12 +81,84 @@ func InsertsGraph(ins []Insert) string {
 			fmt.Fprintf(&b, "afade=t=out:st=%.3f:d=%.3f,", in.DurSec-in.FadeOut, in.FadeOut)
 		}
 		ms := max(in.AtSec, 0) * 1000 // дробные мс: ffmpeg округляет до сэмпла так же, как atrim
-		fmt.Fprintf(&b, "adelay=delays=%g:all=1,volume=%.3f[p%d];", ms, in.Gain, i+1)
+		fmt.Fprintf(&b, "adelay=delays=%s:all=1,volume=%.3f[p%d];", ffNum(ms), in.Gain, i+1)
 		labels += fmt.Sprintf("[p%d]", i+1)
 	}
 	fmt.Fprintf(&b, "%samix=inputs=%d:duration=first:normalize=0[out]", labels, len(ins)+1)
 	return b.String()
 }
+
+// inPlace — вставка той же дорожки на её же место (заглушение, вычитание исходной,
+// эффект на дорожку): кусок с SkipSec берётся и кладётся в AtSec == SkipSec, без растяжения.
+func inPlace(in Insert) bool {
+	return in.SkipSec == in.AtSec && (in.Tempo <= 0 || in.Tempo == 1)
+}
+
+// writeInPlace — вставка «на месте» без atrim/adelay: дорожка целиком, окно — afade прямо
+// на её шкале времени (до начала и после конца afade даёт тишину). atrim округляет время к
+// ближайшему сэмплу, а adelay отбрасывает дробь: на времени с дробным числом сэмплов
+// (44,1 кГц, некруглые мс) кусок вставал на сэмпл раньше базы, и «вычитание» оставляло звук
+// громче исходного (+3 дБ на белом шуме, кросс-ревью internal-studio-engine). afade без
+// сдвига, так же быстр и округляет начало как воркер (round). Окно [AtSec, AtSec+DurSec)
+// (DurSec 0 — до конца), края — FadeIn/FadeOut; край без фейда — спад hardEdgeSec.
+func writeInPlace(b *strings.Builder, in Insert, n int) {
+	at := max(in.AtSec, 0)
+	// частотной маске (afftfilt) весь трек не нужен — она дорогая: кусок от origin (сетка
+	// lowpassGridSec, с запасом под окно FFT). На место он встаёт не через adelay (тот
+	// ошибается на сэмпл: 123200 мс при 44,1 кГц — 5433119 вместо 5433120), а склейкой с
+	// тишиной до origin: оба куска режет atrim по одному времени — стык точен до сэмпла
+	origin := 0.0
+	if in.LowpassHz > 0 {
+		origin = max(0, math.Floor((at-lowpassPadSec)/lowpassGridSec)*lowpassGridSec)
+	}
+	if origin > 0 {
+		fmt.Fprintf(b, "[%[1]d:a]asplit=2[sa%[1]d][sb%[1]d];[sa%[1]d]atrim=end=%[2]s,volume=0[za%[1]d];[sb%[1]d]"+
+			"atrim=start=%[2]s,asetpts=PTS-STARTPTS,", n, ffNum(origin))
+	} else {
+		fmt.Fprintf(b, "[%d:a]", n)
+	}
+	if in.LowpassHz > 0 {
+		if in.DurSec > 0 {
+			fmt.Fprintf(b, "atrim=duration=%s,", ffNum(at+in.DurSec-origin+lowpassPadSec))
+		}
+		fmt.Fprintf(b, "apad=pad_len=%[1]d,afftfilt=real='re*lte(b*sr/%[2]d\\,%.0[3]f)':imag='im*lte(b*sr/%[2]d\\,%.0[3]f)'"+
+			":win_size=%[2]d:overlap=0.75,atrim=start_sample=%[1]d,asetpts=PTS-STARTPTS,",
+			fftLatency, fftWin, in.LowpassHz)
+	}
+	rel := at - origin
+	if fadeIn := cmp.Or(in.FadeIn, hardEdgeSec); rel > 0 || in.FadeIn > 0 {
+		fmt.Fprintf(b, "afade=t=in:st=%s:d=%s,", ffNum(rel), ffNum(fadeIn))
+	}
+	if in.DurSec > 0 {
+		fadeOut := hardEdgeSec
+		if in.FadeOut > 0 && in.DurSec > in.FadeOut {
+			fadeOut = in.FadeOut
+		}
+		fmt.Fprintf(b, "afade=t=out:st=%s:d=%s,", ffNum(max(rel+in.DurSec-fadeOut, 0)), ffNum(fadeOut))
+	}
+	if origin > 0 {
+		fmt.Fprintf(b, "volume=%.3f[wb%[2]d];[za%[2]d][wb%[2]d]concat=n=2:v=0:a=1[p%[2]d];", in.Gain, n)
+		return
+	}
+	fmt.Fprintf(b, "volume=%.3f[p%d];", in.Gain, n)
+}
+
+// ffNum — число для опций ffmpeg без экспоненты: «5e-05» он как время не разбирает
+// (пересборка с коротким окном падала целиком); точность — как у %g, но в записи 0.00005
+func ffNum(x float64) string {
+	return strconv.FormatFloat(x, 'f', -1, 64)
+}
+
+// частотная маска вставки «на месте»: запас до окна под окно FFT (fftWin при 44,1 кГц ≈ 0,09 с)
+// и шаг сетки начала куска (10 мс = 441 и 480 сэмплов)
+const (
+	lowpassPadSec  = 0.2
+	lowpassGridSec = 0.01
+)
+
+// hardEdgeSec — край окна вставки «на месте» без фейда: afade нужна длительность,
+// 0,1 мс (4–5 сэмплов) на слух — резкий край
+const hardEdgeSec = 0.0001
 
 // RunInputs — ffmpeg с несколькими входами (база + партии) через filter_complex.
 func RunInputs(inputs []string, outPath, graph string) error {

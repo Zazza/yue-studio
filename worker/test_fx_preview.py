@@ -196,11 +196,13 @@ class TestPreviewFile(_PreviewCase):
             a = self._ok_preview(jid, ECHO, 1.0, 2.0, source="vocals", output="solo")
             calls = proc.call_count
             self.assertGreaterEqual(calls, 1, "превью посчитано мимо fx_engine.process")
-            mtime = (d / a["file"]).stat().st_mtime_ns
+            # время изменения при попадании в кэш обновляется (вытеснение — давно не слушанных,
+            # решение человека 2026-10-07), поэтому «не перезаписан» — по содержимому
+            before = (d / a["file"]).read_bytes()
             b = self._ok_preview(jid, ECHO, 1.0, 2.0, source="vocals", output="solo")
             self.assertEqual(proc.call_count, calls, "повтор пересчитан")
         self.assertEqual(a["file"], b["file"])
-        self.assertEqual((d / b["file"]).stat().st_mtime_ns, mtime, "файл перезаписан")
+        self.assertEqual((d / b["file"]).read_bytes(), before, "файл перезаписан")
         self.assertEqual(_preview_files(d), [a["file"]])
         self.assertAlmostEqual(a["duration_sec"], b["duration_sec"], delta=1e-6)
 
@@ -301,6 +303,28 @@ class TestPreviewLimit(_PreviewCase):
         self.assertTrue((d / variant).is_file(), "удалён вариант dsp-*")
         self.assertTrue((d / "audio.flac").is_file())
         self.assertTrue((d / "stem-vocals.flac").is_file())
+
+    def test_cache_hit_refreshes_mtime(self):
+        # попадание в кэш обновляет время изменения (os.utime, решение человека 2026-10-07):
+        # вытесняется давно не слушанное, а не давно посчитанное
+        jid, d = self._audio_job()
+        base = time.time() - 1000
+        a = self._ok_preview(jid, CUT_1K, 0.0, 0.5, source="vocals")["file"]
+        os.utime(d / a, (base, base))  # A — самое старое
+        others = []
+        for k in range(1, MAX_PREVIEWS):
+            fr = 0.1 * k
+            name = self._ok_preview(jid, CUT_1K, fr, fr + 0.5, source="vocals")["file"]
+            os.utime(d / name, (base + k, base + k))
+            others.append(name)
+        self.assertEqual(len(_preview_files(d)), MAX_PREVIEWS)
+        again = self._ok_preview(jid, CUT_1K, 0.0, 0.5, source="vocals")["file"]  # повтор A
+        self.assertEqual(again, a)
+        self._ok_preview(jid, CUT_1K, 1.0, 1.5, source="vocals")  # новое — девятое
+        left = _preview_files(d)
+        self.assertEqual(len(left), MAX_PREVIEWS, left)
+        self.assertIn(a, left, "вытеснено превью, которое только что слушали (кэш не обновил mtime)")
+        self.assertNotIn(others[0], left, "вытеснено не самое давно слушанное")
 
     def test_tc6_eight_kept(self):
         jid, d = self._audio_job()
@@ -521,6 +545,234 @@ class TestConfigAdvertisesPreview(_PreviewCase):
         r = self.client.get("/config")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIs(r.json().get("fx_preview"), True, r.json())
+
+
+# ---------- Этап 4 (internal-studio-engine), ТК7: поле fade превью ----------
+#
+# Контракт: fade — секунды, 0 ≤ fade ≤ 0,5 (иначе 422), по умолчанию 0, только при
+# preview. a = round(from·sr), b = round(to·sr), F = round(fade·sr);
+# end = min(b + F + tail, n); seg[k] = part[a+k]·w(k) при a+k < min(b+F, n), иначе 0;
+# w(k) = min(1, k/F)·min(1, (b+F−(a+k))/F) (линейно, как dsp.WindowGraph); F = 0 —
+# поведение этапа 3. fade входит в ключ кэша.
+
+FADE = 0.05
+
+
+class _FadeCase(_PreviewCase):
+
+    def _expected_fade(self, d, source, chain, fr, to, fade):
+        """Ожидаемый файл solo по формуле контракта: обработанный вход с фейдами."""
+        import fx_engine
+        import numpy as np
+        src, _ = _read(d / f"stem-{source}.flac", dtype="float32")
+        n = len(src)
+        a, b, F = int(round(fr * SR)), int(round(to * SR)), int(round(fade * SR))
+        has_tail = any(blk["type"] in ("reverb", "delay") for blk in chain)
+        tail = int(round(TAIL * SR)) if has_tail else 0
+        end = min(b + F + tail, n)
+        seg = np.zeros((end - a, src.shape[1]), dtype=np.float64)
+        stop = min(b + F, n)
+        seg[:stop - a] = src[a:stop]
+        if F > 0:
+            k = np.arange(end - a, dtype=np.float64)
+            w = np.minimum(1.0, k / F) * np.minimum(1.0, (b + F - (a + k)) / F)
+            seg *= np.clip(w, 0.0, 1.0)[:, None]
+        wet = fx_engine.process(seg.astype(np.float32), SR, chain).astype("float64")
+        return wet, seg, end - a
+
+
+class TestPreviewFade(_FadeCase):
+    """ТК7: вход превью с линейными краями fade, длина, ключ кэша, ошибки."""
+
+    def test_tc7_identity_input_has_linear_edges(self):
+        # тождественная цепочка: файл = вход превью; голос — тон 1 кГц
+        import numpy as np
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, IDENTITY, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        y, _ = _read(d / out["file"])
+        src, _ = _read(d / "stem-vocals.flac")
+        F = int(round(FADE * SR))
+        a, b = SR, 2 * SR
+        rms = lambda x: float(np.sqrt(np.mean(np.asarray(x) ** 2)))  # noqa: E731
+        # первые fade — линейный рост 0→1: RMS = 1/√3 от исходного, первая половина тише второй
+        self.assertAlmostEqual(rms(y[:F]) / rms(src[a:a + F]), 1 / np.sqrt(3), delta=0.03)
+        self.assertLess(rms(y[:F // 2]), rms(y[F // 2:F]) * 0.5)
+        self.assertLess(abs(y[0]).max(), 1e-3, "вход начинается не с нуля")
+        # середина окна — как исходная дорожка
+        self.assertLessEqual(_residual_db(y[F:b - a], src[a + F:b]), -60)
+        # после to — линейный спад 1→0 за fade, дальше тишина (+ хвост тождественной цепочки)
+        self.assertAlmostEqual(rms(y[b - a:b - a + F]) / rms(src[b:b + F]), 1 / np.sqrt(3), delta=0.03)
+        self.assertGreater(rms(y[b - a:b - a + F // 2]), rms(y[b - a + F // 2:b - a + F]) * 2)
+        self.assertLess(abs(y[b - a + F:]).max(), 1e-3, "после to + fade вход не тишина")
+
+    def test_tc7_content_matches_contract(self):
+        jid, d = self._audio_job()
+        for chain in (CUT_1K, ECHO, IDENTITY):
+            with self.subTest(chain=chain):
+                out = self._ok_preview(jid, chain, 0.5, 1.5, source="vocals", output="solo", fade=FADE)
+                y, _ = _read(d / out["file"])
+                want, _, _ = self._expected_fade(d, "vocals", chain, 0.5, 1.5, FADE)
+                self.assertEqual(y.shape, want.shape)
+                self.assertLessEqual(_residual_db(y, want), -60)
+
+    def test_tc7_length_without_tail(self):
+        # без reverb/delay: to + fade − from
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(len(y) / SR, 1.0 + FADE, delta=2 / SR)
+        self.assertAlmostEqual(out["duration_sec"], 1.0 + FADE, delta=0.01)
+
+    def test_tc7_length_with_tail(self):
+        # с delay: to + fade + хвост − from (влезает в трек 4 с)
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, ECHO, 0.2, 0.5, source="vocals", output="solo", fade=FADE)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(len(y) / SR, 0.3 + FADE + TAIL, delta=2 / SR)
+
+    def test_tc7_length_capped_by_track_end(self):
+        # to + fade за концом трека: файл до конца трека, не длиннее
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, CUT_1K, 3.0, 3.98, source="vocals", output="solo", fade=FADE)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(len(y) / SR, fa.DUR - 3.0, delta=2 / SR)
+        want, _, _ = self._expected_fade(d, "vocals", CUT_1K, 3.0, 3.98, FADE)
+        self.assertEqual(y.shape, want.shape)
+        self.assertLessEqual(_residual_db(y, want), -60)
+
+    def test_tc7_fade_zero_is_stage3(self):
+        # fade = 0 — как без поля (этап 3): то же содержимое и длина
+        jid, d = self._audio_job()
+        for chain in (CUT_1K, ECHO):
+            with self.subTest(chain=chain):
+                a = self._ok_preview(jid, chain, 0.5, 1.5, source="vocals", output="solo", fade=0)
+                b = self._ok_preview(jid, chain, 0.5, 1.5, source="vocals", output="solo")
+                ya, _ = _read(d / a["file"])
+                yb, _ = _read(d / b["file"])
+                self.assertEqual(ya.shape, yb.shape)
+                self.assertLessEqual(_residual_db(ya, yb), -60)
+                want, _ = self._expected(d, "vocals", chain, 0.5, 1.5, "solo")
+                self.assertEqual(ya.shape, want.shape)
+                self.assertLessEqual(_residual_db(ya, want), -60)
+
+    def test_tc7_max_fade_accepted(self):
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=0.5)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(len(y) / SR, 1.5, delta=2 / SR)
+
+    def test_tc7_different_fade_different_file(self):
+        jid, d = self._audio_job()
+        files = {
+            self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=f)["file"]
+            for f in (0, 0.05, 0.1)
+        }
+        self.assertEqual(len(files), 3, "fade не входит в ключ кэша")
+        self.assertEqual(len(_preview_files(d)), 3)
+
+    def test_tc7_same_fade_same_file(self):
+        jid, d = self._audio_job()
+        a = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        b = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        self.assertEqual(a["file"], b["file"])
+        self.assertEqual(len(_preview_files(d)), 1)
+
+    def test_tc7_bad_fade_422(self):
+        jid, d = self._audio_job()
+        for bad in (0.6, -1, -0.01, 0.51, "abc"):
+            with self.subTest(fade=bad):
+                r = self._preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=bad)
+                self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(_preview_files(d), [])
+
+
+# ---------- Этап 4 (internal-studio-engine), условие 10: поле pad превью ----------
+#
+# Контракт: pad (по умолчанию false, только превью) — файл от начала трека: тишина
+# a = round(from·sr) сэмплов, дальше тот же кусок, что без pad; длина файла = end
+# (отсчёт от 0); duration_sec — длина файла; pad входит в ключ кэша.
+
+
+class TestPreviewPad(_FadeCase):
+    """Условие 10: pad=true — кусок превью от начала трека (для вставки без задержки)."""
+
+    # (цепочка, from, to, fade): некруглый from, хвост delay, хвост до конца трека, fade=0
+    CASES = (
+        (CUT_1K, 1.0, 2.0, FADE),
+        (CUT_1K, 1.2345, 2.3456, FADE),
+        (ECHO, 0.2, 0.5, FADE),
+        (ECHO, 2.0, 3.0, FADE),
+        (CUT_1K, 0.5, 1.5, 0),
+    )
+
+    def _pair(self, jid, d, chain, fr, to, fade):
+        a = self._ok_preview(jid, chain, fr, to, source="vocals", output="solo", fade=fade, pad=True)
+        b = self._ok_preview(jid, chain, fr, to, source="vocals", output="solo", fade=fade, pad=False)
+        ya, sra = _read(d / a["file"])
+        yb, _ = _read(d / b["file"])
+        return a, ya, sra, yb
+
+    def test_pad_silence_then_same_chunk(self):
+        import numpy as np
+        jid, d = self._audio_job()
+        for chain, fr, to, fade in self.CASES:
+            with self.subTest(chain=chain, fr=fr, to=to, fade=fade):
+                _, ya, sr, yb = self._pair(jid, d, chain, fr, to, fade)
+                self.assertEqual(sr, SR)
+                a = int(round(fr * SR))
+                self.assertEqual(len(ya), a + len(yb), "pad: длина ≠ round(from·sr) + длина куска без pad")
+                self.assertEqual(float(np.abs(ya[:a]).max()), 0.0, "до round(from·sr) не тишина")
+                self.assertLessEqual(_residual_db(ya[a:], yb), -60, "после тишины — не тот же кусок, что без pad")
+
+    def test_pad_length_is_end_from_zero(self):
+        jid, d = self._audio_job()
+        n = int(round(fa.DUR * SR))
+        for chain, fr, to, fade in self.CASES:
+            with self.subTest(chain=chain, fr=fr, to=to, fade=fade):
+                out, ya, _, _ = self._pair(jid, d, chain, fr, to, fade)
+                b, F = int(round(to * SR)), int(round(fade * SR))
+                has_tail = any(blk["type"] in ("reverb", "delay") for blk in chain)
+                end = min(b + F + (int(round(TAIL * SR)) if has_tail else 0), n)
+                self.assertEqual(len(ya), end, "pad: длина файла ≠ end (отсчёт от начала трека)")
+                self.assertAlmostEqual(out["duration_sec"], len(ya) / SR, delta=0.001,
+                                       msg="duration_sec ≠ длина файла (с точностью до мс)")
+
+    def test_pad_chunk_matches_contract(self):
+        # содержимое после тишины — формула контракта (вход с фейдами → цепочка)
+        jid, d = self._audio_job()
+        out = self._ok_preview(jid, CUT_1K, 1.2345, 2.3456, source="vocals", output="solo", fade=FADE, pad=True)
+        y, _ = _read(d / out["file"])
+        want, _, _ = self._expected_fade(d, "vocals", CUT_1K, 1.2345, 2.3456, FADE)
+        a = int(round(1.2345 * SR))
+        self.assertEqual(y[a:].shape, want.shape)
+        self.assertLessEqual(_residual_db(y[a:], want), -60)
+
+    def test_pad_from_zero_no_silence(self):
+        # from = 0: тишины спереди нет, файл = кусок без pad
+        jid, d = self._audio_job()
+        _, ya, _, yb = self._pair(jid, d, CUT_1K, 0.0, 1.0, FADE)
+        self.assertEqual(ya.shape, yb.shape)
+        self.assertLessEqual(_residual_db(ya, yb), -60)
+
+    def test_pad_in_cache_key(self):
+        jid, d = self._audio_job()
+        a = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE, pad=True)
+        b = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        a2 = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE, pad=True)
+        self.assertNotEqual(a["file"], b["file"], "pad не входит в ключ кэша")
+        self.assertEqual(a["file"], a2["file"], "тот же запрос с pad — другой файл")
+        self.assertEqual(len(_preview_files(d)), 2)
+        ya, _ = _read(d / a["file"])
+        self.assertEqual(len(ya), int(round(2.0 * SR)) + int(round(FADE * SR)), "из кэша отдан файл без pad")
+
+    def test_pad_default_false(self):
+        # без поля — как pad=false (этап 3/4 без изменений): тот же файл
+        jid, d = self._audio_job()
+        a = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE)
+        b = self._ok_preview(jid, CUT_1K, 1.0, 2.0, source="vocals", output="solo", fade=FADE, pad=False)
+        self.assertEqual(a["file"], b["file"])
+        y, _ = _read(d / a["file"])
+        self.assertAlmostEqual(len(y) / SR, 1.0 + FADE, delta=2 / SR)
 
 
 # ---------- ТК7: один источник описания блоков ----------

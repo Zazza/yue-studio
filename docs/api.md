@@ -67,7 +67,10 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        preview: true (+ обязательные from/to) — только прослушать кусок: файл
                        preview-fx-<хэш>.flac (окно + хвост реверба/дилея до 3 с), без метрик, не в
                        вариантах; тот же запрос — тот же файл без пересчёта; на джобу ≤ 8 таких файлов
-                       → {file, duration_sec, clipped}
+                       → {file, duration_sec, clipped}; fade (0…0,5 с, только превью) — вход окна с
+                       линейными краями: рост с from, спад после to (пересборка студии вклеивает кусок
+                       вместо исходной дорожки с теми же фейдами); pad: true — файл от начала трека (до from —
+                       тишина), чтобы вставить его без задержки (adelay ffmpeg ошибается на сэмпл)
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}]} — захваты NAM и IR
 POST /fx/assets?kind=amp|ir&name=  загрузить .nam / .wav (байты тела, ≤ 50 МБ) → {name, kind}
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным

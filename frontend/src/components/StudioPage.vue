@@ -23,6 +23,7 @@ import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '.
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 import PedalBoard from './PedalBoard.vue'
+import EngineBox from './EngineBox.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -1814,6 +1815,13 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <summary class="studio-box-head"><span><AppIcon name="pedal" /> {{ t('pedals') }}</span> <span class="muted studio-box-hint">{{ t('pedals.sub') }}</span></summary>
             <div class="studio-box-body">
               <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
+            </div>
+          </details>
+
+          <details class="studio-box">
+            <summary class="studio-box-head"><span><AppIcon name="sliders" /> {{ t('engine') }}</span> <span class="muted studio-box-hint">{{ t('engine.sub') }}</span></summary>
+            <div class="studio-box-body">
+              <EngineBox :job="job" :sel="selRange" @applied="reloadVariants" />
             </div>
           </details>
 
