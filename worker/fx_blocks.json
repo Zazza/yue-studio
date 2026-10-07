@@ -414,5 +414,24 @@
     }
    }
   ]
+ },
+ "gain": {
+  "label": {
+   "ru": "Громкость",
+   "en": "Gain"
+  },
+  "params": [
+   {
+    "id": "gain_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "gain, dB"
+    }
+   }
+  ]
  }
 }

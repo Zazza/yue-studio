@@ -397,8 +397,14 @@ def _resource(res, kind: str, name: str):
         raise ChainError(f"{'захват' if kind == 'amp' else 'IR'} {name!r} не найден") from None
 
 
+def _gain(x, sr, p, _res):
+    """Громкость: перегруз и усилитель выравнивают выход по своему входу — после узкой
+    полосы эквалайзера звук тихий, поднять его в цепочке нечем было, кроме компрессора."""
+    return x * _db(p["gain_db"])
+
+
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
-          "cab": _cab, "reverb": _reverb, "delay": _delay}
+          "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

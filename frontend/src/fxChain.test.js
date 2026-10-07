@@ -12,7 +12,7 @@ import {
   toWorkerChain, fromWorkerChain,
 } from './fxChain.js'
 
-const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay']
+const TYPES = ['gate', 'eq', 'comp', 'drive', 'amp', 'cab', 'reverb', 'delay', 'gain']
 
 // deepFreeze — любая мутация входа в строгом режиме модуля бросит исключение.
 function deepFreeze(o) {
@@ -42,7 +42,7 @@ const chain3 = () => deepFreeze([
 const types = (c) => c.map((b) => b.type)
 
 describe('описание блоков (fxBlocks.json)', () => {
-  it('восемь типов в порядке показа', () => {
+  it('девять типов в порядке показа (gain — последним)', () => {
     expect(Object.keys(blocks)).toEqual(TYPES)
   })
 })

@@ -2,7 +2,7 @@
 fx_nam.measure_latency) — тест-кейсы 1–10 карточки.
 
 Контракт (из карточки и контракта задачи):
-- цепочка — список блоков gate|eq|comp|drive|amp|cab|reverb|delay с параметрами,
+- цепочка — список блоков gate|eq|comp|drive|amp|cab|reverb|delay|gain с параметрами,
   parse_chain проверяет и заполняет умолчания, ошибка — ChainError(ValueError);
 - process(audio, sr, chain, resources) — выход той же формы/длины, float32,
   сдвиг 0: импульс на входе → пик |выхода| на том же сэмпле (каждый блок и вся цепочка);
@@ -34,7 +34,7 @@ except ImportError:
 _SKIP = "нужны numpy/scipy (окружение воркера)"
 
 SR = 48000
-BLOCKS = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay")
+BLOCKS = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain")
 
 
 def _fx():
@@ -499,6 +499,82 @@ class TestReverbDelay(unittest.TestCase):
                 np.testing.assert_allclose(y, x, atol=1e-6)
 
 
+# ---------- Условие 12: блок «громкость» (gain) ----------
+
+def _rms(y, t0=0.5, t1=2.5, sr=SR):
+    y = np.asarray(y, dtype=np.float64)
+    return float(np.sqrt(np.mean(np.square(y[int(t0 * sr):int(t1 * sr)]))))
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestGain(unittest.TestCase):
+    """gain_db −24…+24, по умолчанию 0; без сдвига (умножение), длина та же."""
+
+    def _noise(self, ch=None, amp=0.05):
+        rng = np.random.default_rng(12)
+        shape = (2 * SR,) if ch is None else (2 * SR, ch)
+        return (amp * rng.standard_normal(shape)).astype(np.float32)
+
+    def test_default_0db_is_identity(self):
+        for ch in (None, 2):
+            with self.subTest(ch=ch):
+                x = self._noise(ch)
+                y = _fx().process(x, SR, [_block("gain")], None)
+                self.assertEqual(y.shape, x.shape)
+                np.testing.assert_allclose(y, x, atol=1e-6)
+
+    def test_explicit_0db_is_identity(self):
+        x = self._noise()
+        y = _fx().process(x, SR, [_block("gain", gain_db=0)], None)
+        np.testing.assert_allclose(y, x, atol=1e-6)
+
+    def test_plus6db_doubles(self):
+        x = _sine(1000, amp=0.2)
+        y = _fx().process(x, SR, [_block("gain", gain_db=6)], None)
+        self.assertAlmostEqual(_db(_tone_amp(y, 1000) / _tone_amp(x, 1000)), 6, delta=0.05)
+        # ×2 по сэмплам (6 дБ ≈ ×1,995)
+        self.assertAlmostEqual(_db(_rms(y) / _rms(x)), 6, delta=0.05)
+
+    def test_bounds_minus24_plus24(self):
+        x = _sine(1000, amp=0.01)
+        for g in (-24, 24):
+            with self.subTest(gain_db=g):
+                self.assertEqual(_fx().parse_chain([_block("gain", gain_db=g)])[0]["gain_db"], g)
+                y = _fx().process(x, SR, [_block("gain", gain_db=g)], None)
+                self.assertAlmostEqual(_db(_rms(y) / _rms(x)), g, delta=0.05)
+
+    def test_out_of_range_is_chain_error(self):
+        fx = _fx()
+        for g in (-24.5, 24.5, -100, 100):
+            with self.subTest(gain_db=g):
+                with self.assertRaises(fx.ChainError):
+                    fx.parse_chain([_block("gain", gain_db=g)])
+                with self.assertRaises(fx.ChainError):
+                    fx.process(_sine(1000, dur=0.1), SR, [_block("gain", gain_db=g)], None)
+
+    def test_no_shift_same_length(self):
+        for ch in (None, 2):
+            for g in (-24, -6, 6, 24):
+                with self.subTest(ch=ch, gain_db=g):
+                    x, pos = _impulse(n=SR + 7, pos=1234, ch=ch)
+                    x *= 0.01
+                    y = _fx().process(x, SR, [_block("gain", gain_db=g)], None)
+                    self.assertEqual(y.shape, x.shape)
+                    self.assertEqual(y.dtype, np.float32)
+                    self.assertEqual(_peak(y), pos)
+
+    def test_after_narrow_eq_and_drive_raises_by_gain(self):
+        # опыт #617: после узкой полосы и перегруза звук тихий — gain поднимает на заданные дБ
+        x = self._noise(amp=0.1)
+        base = [_block("eq", highpass_hz=800, lowpass_hz=1500), _block("drive")]
+        quiet = _fx().process(x, SR, base, None)
+        for g in (6, 12):
+            with self.subTest(gain_db=g):
+                loud = _fx().process(x, SR, base + [_block("gain", gain_db=g)], None)
+                self.assertEqual(loud.shape, x.shape)
+                self.assertAlmostEqual(_db(_rms(loud) / _rms(quiet)), g, delta=0.05)
+
+
 # ---------- ТК10: проверка цепочки ----------
 
 DEFAULTS = {
@@ -510,6 +586,7 @@ DEFAULTS = {
     "cab": {"ir": "", "cutoff_hz": 7000, "mix": 1},
     "reverb": {"ir": "", "decay_s": 1.5, "predelay_ms": 10, "lowpass_hz": 8000, "wet": 0.3},
     "delay": {"time_ms": 375, "feedback": 0.35, "lowpass_hz": 6000, "wet": 0.3},
+    "gain": {"gain_db": 0},
 }
 
 

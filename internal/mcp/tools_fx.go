@@ -29,7 +29,8 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"amp {model — имя захвата NAM из fx_assets, input_db 0 (от −20 дБFS RMS), output_db 0}; " +
 	"cab {ir — IR из fx_assets, пусто — «лёгкий кабинет» срезом на cutoff_hz 7000; mix 1}; " +
 	"reverb {ir пусто — встроенный зал, decay_s 1.5, predelay_ms 10, lowpass_hz 8000, wet 0.3}; " +
-	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}. " +
+	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}; " +
+	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу). " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."
 
 // registerFxTools — звуковой движок воркера (POST /jobs/{id}/fx, /fx/assets).

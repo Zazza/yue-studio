@@ -43,7 +43,7 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 BLOCKS_JSON = Path(__file__).resolve().with_name("fx_blocks.json")
-TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay")
+TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain")
 PREVIEW_RE = re.compile(r"^preview-fx-[0-9a-f]{8}\.flac$")
 TAIL = 3.0
 MAX_PREVIEWS = 8
@@ -788,6 +788,15 @@ class TestBlocksCopies(unittest.TestCase):
         self.assertTrue(BLOCKS_JSON.is_file(), BLOCKS_JSON)
         b = _blocks()
         self.assertEqual(tuple(b), TYPES, "типы блоков и их порядок показа")
+
+    def test_gain_block_described(self):
+        # условие 12: блок «громкость» — один параметр gain_db, −24…+24, по умолчанию 0
+        g = _blocks()["gain"]
+        self.assertEqual([p["id"] for p in g["params"]], ["gain_db"])
+        p = g["params"][0]
+        self.assertEqual((p["default"], p["min"], p["max"]), (0, -24, 24))
+        self.assertFalse(p.get("zero_off"))
+        self.assertFalse(g.get("strings"))
 
     def test_tc7_copies_identical(self):
         src = BLOCKS_JSON.read_bytes()
