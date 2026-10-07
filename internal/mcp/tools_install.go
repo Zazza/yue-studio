@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os/exec"
@@ -50,16 +51,20 @@ func RegisterInstallTools(s *Server) {
 			"whisper — распознавание текстов треков (~" + gbStr(sizeWhisperGB) + " ГБ), " +
 			"Seed-VC — «голос альбома», ЭКСПЕРИМЕНТ (~" + gbStr(sizeSeedvcGB) + " ГБ после установки, больше во время). " +
 			"RoFormer — более чистое разделение дорожек (~" + gbStr(sizeSepGB) + " ГБ, веса некоммерческие). " +
-			"Сначала сухой прогон (по умолчанию) — покажи пользователю план и СПРОСИ, нужны ли whisper, Seed-VC и RoFormer; " +
-			"установка — dry_run=false, confirm=true и явные whisper/seedvc/roformer (true или false). " +
+			"Сначала сухой прогон (по умолчанию) — покажи пользователю план и СПРОСИ, нужны ли whisper, Seed-VC и RoFormer, " +
+			"а при RoFormer — какой моделью делать дорожки по умолчанию (stems_model: htdemucs — быстрее, roformer — чище; " +
+			"потом меняется в настройках приложения); " +
+			"установка — dry_run=false, confirm=true и явные whisper/seedvc/roformer (true или false), при roformer=true — stems_model. " +
 			"Перед установкой проверяются GPU и место на диске — при нехватке установка не начинается.",
 		InputSchema: props(map[string]any{
-			"host":       prop("user@gpu-host (пусто = локально на этой машине)", "string"),
-			"dry_run":    prop("только показать план, ничего не выполняя (по умолчанию true)", "boolean"),
-			"confirm":    prop("выполнить установку (спроси пользователя)", "boolean"),
-			"whisper":    prop("ставить whisper — тексты треков, ~"+gbStr(sizeWhisperGB)+" ГБ (спроси пользователя)", "boolean"),
-			"seedvc":     prop("ставить Seed-VC — «голос альбома», эксперимент, ~"+gbStr(sizeSeedvcGB)+" ГБ (спроси пользователя)", "boolean"),
-			"roformer":   prop("ставить RoFormer — заметно более чистые дорожки (~4,5× дольше demucs), ~"+gbStr(sizeSepGB)+" ГБ, веса некоммерческие (спроси пользователя)", "boolean"),
+			"host":     prop("user@gpu-host (пусто = локально на этой машине)", "string"),
+			"dry_run":  prop("только показать план, ничего не выполняя (по умолчанию true)", "boolean"),
+			"confirm":  prop("выполнить установку (спроси пользователя)", "boolean"),
+			"whisper":  prop("ставить whisper — тексты треков, ~"+gbStr(sizeWhisperGB)+" ГБ (спроси пользователя)", "boolean"),
+			"seedvc":   prop("ставить Seed-VC — «голос альбома», эксперимент, ~"+gbStr(sizeSeedvcGB)+" ГБ (спроси пользователя)", "boolean"),
+			"roformer": prop("ставить RoFormer — заметно более чистые дорожки (~4,5× дольше demucs), ~"+gbStr(sizeSepGB)+" ГБ, веса некоммерческие (спроси пользователя)", "boolean"),
+			"stems_model": prop("модель дорожек по умолчанию: htdemucs (быстро) | roformer (чище, только при roformer=true); "+
+				"при roformer=true обязательна — спроси пользователя; без RoFormer и без выбора — настройка не меняется", "string"),
 			"sep_dir":    prop("каталог RoFormer: окружение <dir>/venv и веса <dir>/models, можно на другом диске (пусто — ~/sep-venv и ~/sep-models)", "string"),
 			"seedvc_dir": prop("каталог Seed-VC (по умолчанию ~/yue-studio/seedvc; можно на другом диске)", "string"),
 			"hf_home":    prop("каталог кеша весов HF (по умолчанию ~/yue/hf-cache)", "string"),
@@ -79,6 +84,18 @@ func RegisterInstallTools(s *Server) {
 				return "", fmt.Errorf("перед установкой спроси пользователя, нужны ли необязательные компоненты, " +
 					"и передай явно whisper=true|false, seedvc=true|false и roformer=true|false")
 			}
+			stemsModel := argString(args, "stems_model")
+			switch {
+			case stemsModel != "" && stemsModel != "htdemucs" && stemsModel != "roformer":
+				return "", fmt.Errorf("stems_model: htdemucs или roformer (получено %q)", stemsModel)
+			case stemsModel == "roformer" && !roformer:
+				return "", errors.New("stems_model=roformer без roformer=true: по умолчанию нельзя выбрать неустановленную модель")
+			case stemsModel == "" && roformer && !dryRun:
+				return "", errors.New("спроси пользователя, чем делать дорожки по умолчанию, и передай stems_model=htdemucs|roformer " +
+					"(htdemucs — быстрее, roformer — чище; потом меняется в настройках приложения)")
+			}
+			// без RoFormer и без явного выбора настройка не меняется: переустановка ради whisper
+			// не сбрасывает выбранный раньше RoFormer (воркер без настройки и так делает Demucs)
 			hfHome := argString(args, "hf_home")
 			if hfHome == "" {
 				hfHome = "~/yue/hf-cache"
@@ -95,7 +112,7 @@ func RegisterInstallTools(s *Server) {
 					return "", fmt.Errorf("%s: путь не может содержать перевод строки или нулевой байт (получено %q)", name, v)
 				}
 			}
-			plan, steps := workerInstallPlanSep(argString(args, "host") == "", whisper, seedvc, roformer, hfHome, seedvcDir, sepDir)
+			plan, steps := workerInstallPlanFull(argString(args, "host") == "", whisper, seedvc, roformer, hfHome, seedvcDir, sepDir, stemsModel)
 			out, err := runSteps(argString(args, "host"), steps, !dryRun)
 			out = plan + "\n" + out + workerAddress(s)
 			if dryRun {
@@ -202,10 +219,43 @@ func workerInstallPlanRF(local, whisper, seedvc, roformer bool, hfHome, seedvcDi
 // (пути по умолчанию воркера); иначе <sepDir>/venv и <sepDir>/models, пути — в worker.env,
 // а место RoFormer на домашнем диске не считается (он на другом).
 func workerInstallPlanSep(local, whisper, seedvc, roformer bool, hfHome, seedvcDir, sepDir string) (string, []step) {
-	need := diskNeedGB(whisper, seedvc, roformer && sepDir == "")
-	return planText(whisper, seedvc, roformer, need, hfHome, seedvcDir),
-		installSteps(local, whisper, seedvc, roformer, need, hfHome, seedvcDir, sepDir)
+	return workerInstallPlanFull(local, whisper, seedvc, roformer, hfHome, seedvcDir, sepDir, "")
 }
+
+// workerInstallPlanFull — то же с моделью дорожек по умолчанию stemsModel (htdemucs | roformer;
+// "" — не задавать, остаётся прежняя настройка воркера): записывается в настройки воркера,
+// при roformer — после установки проверяется, что RoFormer доступен (иначе молча был бы demucs)
+func workerInstallPlanFull(local, whisper, seedvc, roformer bool, hfHome, seedvcDir, sepDir, stemsModel string) (string, []step) {
+	need := diskNeedGB(whisper, seedvc, roformer && sepDir == "")
+	plan := planText(whisper, seedvc, roformer, need, hfHome, seedvcDir)
+	if stemsModel != "" {
+		plan += fmt.Sprintf("Дорожки по умолчанию: %s (меняется в настройках приложения).\n", stemsLabel[stemsModel])
+	}
+	steps := installSteps(local, whisper, seedvc, roformer, need, hfHome, seedvcDir, sepDir)
+	if stemsModel == "" {
+		return plan, steps
+	}
+	// настройка — до запуска юнита (воркер читает settings.json на каждый запрос, но так проще проверить);
+	// слияние с существующим файлом: прочие настройки пользователя не теряются
+	set := step{name: "настройка: дорожки по умолчанию — " + stemsLabel[stemsModel], cmd: fmt.Sprintf(
+		`~/yue/.venv/bin/python -c 'import json,pathlib; p=pathlib.Path.home()/"yue-studio/data/settings.json"; `+
+			`p.parent.mkdir(parents=True, exist_ok=True); d=json.loads(p.read_text()) if p.is_file() else {}; d["stems_model"]=%q; p.write_text(json.dumps(d, ensure_ascii=False, indent=1))'`,
+		stemsModel)}
+	last := len(steps) - 2 // перед systemd-юнитом и health
+	steps = append(steps[:last], append([]step{set}, steps[last:]...)...)
+	if stemsModel == "roformer" {
+		// действующая модель, а не «установлен»: выбор мог лечь не туда (YUE_DATA_DIR) или его
+		// перекрывает YUE_STEMS_MODEL=demucs — тогда «доступен» был бы неправдой
+		steps = append(steps, step{name: "проверка: дорожки делает RoFormer", cmd: "sleep 2 && curl -sf --max-time 10 http://localhost:8091/config | " +
+			`grep -q '"stems_model": *"bs-roformer-sw"' && echo 'дорожки делает RoFormer' || ` +
+			`{ echo 'ВНИМАНИЕ: RoFormer выбран по умолчанию, но воркер делает дорожки demucs. ` +
+			`Проверьте шаг установки RoFormer, YUE_SEP_PY, YUE_DATA_DIR и YUE_STEMS_MODEL в ~/yue-studio/worker.env'; exit 1; }`})
+	}
+	return plan, steps
+}
+
+// stemsLabel — модель дорожек для плана установки
+var stemsLabel = map[string]string{"htdemucs": "Demucs (быстро)", "roformer": "RoFormer (чище)"}
 
 func planText(whisper, seedvc, roformer bool, need float64, hfHome, seedvcDir string) string {
 	mark := map[bool]string{true: "[x]", false: "[ ]"}

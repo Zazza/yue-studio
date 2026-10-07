@@ -166,6 +166,9 @@ uv pip install --python ~/sep-venv/bin/python "audio-separator[gpu]" audioread
 
 Окружение ~6,1 ГБ; при нехватке места на домашнем — поставьте на другой диск и укажите
 `YUE_SEP_PY` (и `YUE_SEP_MODELS` для весов) в `worker.env`. Через агента — `install_worker roformer=true
+stems_model=roformer|htdemucs` (агент спрашивает, чем делать дорожки по умолчанию; выбор пишется в
+настройки воркера, после установки проверяется, что дорожки действительно делает RoFormer; без RoFormer и без выбора
+настройка не меняется), например `install_worker roformer=true stems_model=roformer
 sep_dir=/mnt/d/sep`: окружение встанет в `<sep_dir>/venv`, веса — в `<sep_dir>/models`, пути
 допишутся в `worker.env` сами. Нет окружения или оно упало —
 разделяет demucs, ошибки нет; `YUE_STEMS_MODEL=demucs` выключает RoFormer принудительно, что бы ни

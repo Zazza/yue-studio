@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -728,6 +729,7 @@ func TestInstallWorkerAcceptsSpecialCharPaths(t *testing.T) {
 					if !dry {
 						args["dry_run"] = false
 						args["confirm"] = true
+						args["stems_model"] = "htdemucs" // при roformer=true установка требует выбора (условие 11)
 					}
 					out, ok := call(t, s, "install_worker", args)
 					if !ok {
@@ -750,6 +752,8 @@ func TestInstallWorkerRejectsNewlineAndNUL(t *testing.T) {
 					if !dry {
 						args["dry_run"] = false
 						args["confirm"] = true
+						// stems_model задан: ошибка должна быть именно из-за пути, а не из-за выбора модели
+						args["stems_model"] = "roformer"
 					}
 					out, ok := call(t, s, "install_worker", args)
 					if ok {
@@ -849,5 +853,436 @@ func TestInstallPlanLocalCopiesFxBlocks(t *testing.T) {
 	}
 	if !strings.Contains(st.cmd, "fx_blocks.json") && !strings.Contains(st.cmd, "*.json") {
 		t.Errorf("copy-files step does not copy fx_blocks.json: %s", st.cmd)
+	}
+}
+
+// --- internal-studio-engine, условие 11: модель дорожек по умолчанию при установке ---
+//
+// stems_model (htdemucs | roformer): при roformer=true и установке обязателен —
+// агент спрашивает пользователя; roformer без roformer=true — ошибка; без
+// RoFormer и без выбора — настройка не меняется (переустановка не сбрасывает
+// выбранный ранее RoFormer). Выбор пишется в ~/yue-studio/data/settings.json
+// слиянием до запуска юнита; план показывает выбор; при roformer после
+// установки — проверка действующей модели (/config stems_model = bs-roformer-sw)
+// с понятным предупреждением.
+
+// installRunArgs — аргументы настоящей установки (не сухой прогон).
+func installRunArgs(extra map[string]any) map[string]any {
+	args := map[string]any{"dry_run": false, "confirm": true, "whisper": false, "seedvc": false}
+	for k, v := range extra {
+		args[k] = v
+	}
+	return args
+}
+
+// assertNothingRan — ни одна команда установки не запускалась (журнал trapShells пуст).
+func assertNothingRan(t *testing.T, log string) {
+	t.Helper()
+	if data, err := os.ReadFile(log); err == nil && len(data) > 0 {
+		t.Errorf("commands were executed:\n%s", data)
+	}
+}
+
+func TestInstallStemsModelRequiredWithRoformer(t *testing.T) {
+	log := trapShells(t)
+	s, _ := newTestServer(t)
+	out, ok := call(t, s, "install_worker", installRunArgs(map[string]any{"roformer": true}))
+	if ok {
+		t.Fatalf("install with roformer=true and no stems_model must be an error, got:\n%s", out)
+	}
+	if !strings.Contains(out, "stems_model") {
+		t.Errorf("error must mention stems_model: %s", out)
+	}
+	if !strings.Contains(strings.ToLower(out), "спрос") {
+		t.Errorf("error must say the user has to be asked: %s", out)
+	}
+	assertNothingRan(t, log)
+}
+
+func TestInstallStemsModelDryRunWithoutChoiceOK(t *testing.T) {
+	log := trapShells(t)
+	s, _ := newTestServer(t)
+	out, ok := call(t, s, "install_worker", map[string]any{"whisper": false, "seedvc": false, "roformer": true})
+	if !ok {
+		t.Fatalf("dry run with roformer=true and no stems_model must succeed, got error: %s", out)
+	}
+	if !strings.Contains(out, "СУХОЙ ПРОГОН") {
+		t.Errorf("expected dry run output:\n%s", out)
+	}
+	assertNothingRan(t, log)
+}
+
+func TestInstallStemsModelRoformerRequiresRoformerInstall(t *testing.T) {
+	for _, dry := range []bool{true, false} {
+		t.Run(map[bool]string{true: "dry", false: "run"}[dry], func(t *testing.T) {
+			log := trapShells(t)
+			s, _ := newTestServer(t)
+			args := map[string]any{"whisper": false, "seedvc": false, "roformer": false, "stems_model": "roformer"}
+			if !dry {
+				args = installRunArgs(args)
+			}
+			out, ok := call(t, s, "install_worker", args)
+			if ok {
+				t.Fatalf("stems_model=roformer with roformer=false must be an error, got:\n%s", out)
+			}
+			if !strings.Contains(out, "roformer") {
+				t.Errorf("error must mention roformer: %s", out)
+			}
+			assertNothingRan(t, log)
+		})
+	}
+}
+
+func TestInstallStemsModelUnknownValue(t *testing.T) {
+	for _, val := range []string{"mdx", "Demucs", " htdemucs"} {
+		for _, dry := range []bool{true, false} {
+			t.Run(val+map[bool]string{true: "/dry", false: "/run"}[dry], func(t *testing.T) {
+				log := trapShells(t)
+				s, _ := newTestServer(t)
+				args := map[string]any{"whisper": false, "seedvc": false, "roformer": true, "stems_model": val}
+				if !dry {
+					args = installRunArgs(args)
+				}
+				out, ok := call(t, s, "install_worker", args)
+				if ok {
+					t.Fatalf("unknown stems_model %q must be an error, got:\n%s", val, out)
+				}
+				if !strings.Contains(out, "stems_model") {
+					t.Errorf("error must mention stems_model: %s", out)
+				}
+				assertNothingRan(t, log)
+			})
+		}
+	}
+}
+
+// Без RoFormer и без stems_model шага записи stems_model в settings.json нет:
+// переустановка (например, ради whisper) не сбрасывает выбранный ранее RoFormer.
+func TestInstallStemsModelUnchangedWithoutChoice(t *testing.T) {
+	for _, c := range []struct{ whisper, seedvc bool }{{false, false}, {true, false}, {false, true}} {
+		_, steps := workerInstallPlanFull(false, c.whisper, c.seedvc, false, "~/h", "~/s", "", "")
+		for _, st := range steps {
+			if strings.Contains(st.cmd, "settings.json") && strings.Contains(st.cmd, "stems_model") {
+				t.Errorf("whisper=%v seedvc=%v, no RoFormer, no stems_model: unexpected settings step %q: %s",
+					c.whisper, c.seedvc, st.name, st.cmd)
+			}
+		}
+	}
+}
+
+// Сухой прогон через MCP без RoFormer и без выбора — успешен, проверки
+// RoFormer после установки в плане нет.
+func TestInstallStemsModelDryRunWithoutRoformerNoChoice(t *testing.T) {
+	s, _ := newTestServer(t)
+	out, ok := call(t, s, "install_worker", map[string]any{"whisper": false, "seedvc": false, "roformer": false})
+	if !ok {
+		t.Fatalf("dry run without roformer must succeed, got error: %s", out)
+	}
+	if strings.Contains(out, "bs-roformer-sw") {
+		t.Errorf("plan without RoFormer must not check bs-roformer-sw:\n%s", out)
+	}
+}
+
+// Полный прогон шагов без RoFormer и без выбора: ранее выбранный RoFormer
+// в settings.json сохраняется, прочие ключи тоже.
+func TestInstallStemsModelReinstallKeepsRoformerSetting(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not found")
+	}
+	home := t.TempDir()
+	fakeWorkerVenv(t, home)
+	dir := filepath.Join(home, "yue-studio", "data")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pre := `{"stems_model": "roformer", "llm_model": "qwen"}`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(pre), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, steps := workerInstallPlanFull(false, true, false, false, "~/h", "~/s", "", "")
+	runInstallSteps(t, home, steps)
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json disappeared after reinstall: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v\n%s", err, data)
+	}
+	if m["stems_model"] != "roformer" || m["llm_model"] != "qwen" {
+		t.Errorf("reinstall without stems_model changed settings: %v", m)
+	}
+}
+
+// Явный stems_model=htdemucs без RoFormer — шаг записи есть, план называет модель.
+func TestInstallStemsModelExplicitHtdemucsWithoutRoformer(t *testing.T) {
+	plan, steps := workerInstallPlanFull(false, false, false, false, "~/h", "~/s", "", "htdemucs")
+	_, st := settingsStep(t, steps)
+	if !strings.Contains(st.cmd, "htdemucs") {
+		t.Errorf("settings step does not contain htdemucs: %s", st.cmd)
+	}
+	if !strings.Contains(strings.ToLower(plan), "demucs") {
+		t.Errorf("plan for explicit htdemucs does not name it:\n%s", plan)
+	}
+	s, _ := newTestServer(t)
+	out, ok := call(t, s, "install_worker", map[string]any{"whisper": false, "seedvc": false, "roformer": false, "stems_model": "htdemucs"})
+	if !ok {
+		t.Fatalf("dry run with explicit htdemucs without roformer must succeed, got error: %s", out)
+	}
+}
+
+// Установка без RoFormer (без stems_model) не требует выбора модели.
+func TestInstallStemsModelNotRequiredWithoutRoformer(t *testing.T) {
+	trapShells(t)
+	s, _ := newTestServer(t)
+	out, ok := call(t, s, "install_worker", installRunArgs(map[string]any{"roformer": false}))
+	if !ok && strings.Contains(out, "stems_model") {
+		t.Fatalf("install without RoFormer must not require stems_model, got error: %s", out)
+	}
+}
+
+func TestInstallStemsModelPlanNamesChoice(t *testing.T) {
+	planH, _ := workerInstallPlanFull(false, false, false, true, "~/h", "~/s", "", "htdemucs")
+	planR, _ := workerInstallPlanFull(false, false, false, true, "~/h", "~/s", "", "roformer")
+	// в плане модель может называться по-человечески («Demucs»)
+	if !strings.Contains(strings.ToLower(planH), "demucs") {
+		t.Errorf("plan for stems_model=htdemucs does not name it:\n%s", planH)
+	}
+	if !strings.Contains(strings.ToLower(planR), "roformer") {
+		t.Errorf("plan for stems_model=roformer does not name it:\n%s", planR)
+	}
+	if planH == planR {
+		t.Errorf("plan text does not depend on stems_model choice:\n%s", planH)
+	}
+}
+
+// settingsStep — шаг, который пишет stems_model в settings.json воркера.
+func settingsStep(t *testing.T, steps []step) (int, step) {
+	t.Helper()
+	for i, st := range steps {
+		if strings.Contains(st.cmd, "settings.json") && strings.Contains(st.cmd, "stems_model") {
+			return i, st
+		}
+	}
+	t.Fatalf("no step writes stems_model to settings.json")
+	return -1, step{}
+}
+
+// fakeWorkerVenv — окружение воркера (~/yue/.venv, его создаёт uv раньше в
+// установке) подменяется системным python3: в тесте uv не запускается.
+func fakeWorkerVenv(t *testing.T, home string) {
+	t.Helper()
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not found")
+	}
+	bin := filepath.Join(home, "yue", ".venv", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"python", "python3"} {
+		if err := os.Symlink(py, filepath.Join(bin, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// runSettingsStep выполняет шаг с HOME во временном каталоге и возвращает
+// разобранный ~/yue-studio/data/settings.json.
+func runSettingsStep(t *testing.T, home string, st step) map[string]any {
+	t.Helper()
+	fakeWorkerVenv(t, home)
+	cmd := exec.Command("bash", "-c", st.cmd)
+	cmd.Dir = home
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("settings step failed: %v\n%s\ncmd: %s", err, out, st.cmd)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "yue-studio", "data", "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json not written under $HOME/yue-studio/data: %v (cmd %s)", err, st.cmd)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v\n%s", err, data)
+	}
+	return m
+}
+
+func TestInstallStemsModelWritesSettingsMerged(t *testing.T) {
+	for _, model := range []string{"htdemucs", "roformer"} {
+		t.Run(model, func(t *testing.T) {
+			_, steps := workerInstallPlanFull(false, false, false, true, "~/h", "~/s", "", model)
+			_, st := settingsStep(t, steps)
+			if !strings.Contains(st.cmd, model) {
+				t.Errorf("settings step does not contain value %q: %s", model, st.cmd)
+			}
+			home := t.TempDir()
+			dir := filepath.Join(home, "yue-studio", "data")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			other := "htdemucs"
+			if model == "htdemucs" {
+				other = "roformer"
+			}
+			pre := `{"stems_model": "` + other + `", "llm_model": "qwen", "name": "Дорожки", "nested": {"a": 1}}`
+			if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(pre), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m := runSettingsStep(t, home, st)
+			if m["stems_model"] != model {
+				t.Errorf("stems_model = %v, want %q", m["stems_model"], model)
+			}
+			if m["llm_model"] != "qwen" || m["name"] != "Дорожки" {
+				t.Errorf("other settings keys lost or changed: %v", m)
+			}
+			if n, ok := m["nested"].(map[string]any); !ok || n["a"] != float64(1) {
+				t.Errorf("nested settings key lost: %v", m)
+			}
+		})
+	}
+}
+
+// settings.json ещё нет — шаг создаёт его. Каталог data/ на чистой машине
+// создают предыдущие шаги — это проверяет TestInstallStemsModelFullRunWritesSettings.
+func TestInstallStemsModelWritesSettingsFresh(t *testing.T) {
+	_, steps := workerInstallPlanFull(false, false, false, true, "~/h", "~/s", "", "roformer")
+	_, st := settingsStep(t, steps)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "yue-studio", "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := runSettingsStep(t, home, st)
+	if m["stems_model"] != "roformer" {
+		t.Errorf("stems_model = %v, want roformer", m["stems_model"])
+	}
+}
+
+// Полный прогон шагов на чистом HOME (внешние программы — заглушки):
+// settings.json появляется с выбранной моделью.
+func TestInstallStemsModelFullRunWritesSettings(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not found")
+	}
+	home := t.TempDir()
+	fakeWorkerVenv(t, home)
+	_, steps := workerInstallPlanFull(false, false, false, false, "~/h", "~/s", "", "htdemucs")
+	runInstallSteps(t, home, steps)
+	data, err := os.ReadFile(filepath.Join(home, "yue-studio", "data", "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json not written by install steps: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v\n%s", err, data)
+	}
+	if m["stems_model"] != "htdemucs" {
+		t.Errorf("stems_model = %v, want htdemucs", m["stems_model"])
+	}
+}
+
+func TestInstallStemsModelSettingsBeforeSystemd(t *testing.T) {
+	for _, c := range []struct {
+		roformer bool
+		model    string
+	}{{false, "htdemucs"}, {true, "htdemucs"}, {true, "roformer"}} {
+		_, steps := workerInstallPlanFull(false, false, false, c.roformer, "~/h", "~/s", "", c.model)
+		si, _ := settingsStep(t, steps)
+		ui := -1
+		for i, st := range steps {
+			if strings.Contains(strings.ToLower(st.name), "systemd") {
+				ui = i
+				break
+			}
+		}
+		if ui < 0 {
+			t.Fatalf("systemd step missing (roformer=%v model=%s)", c.roformer, c.model)
+		}
+		if si > ui {
+			t.Errorf("roformer=%v model=%s: settings step (#%d) must come before systemd unit (#%d)",
+				c.roformer, c.model, si, ui)
+		}
+	}
+}
+
+// runCheckStep выполняет шаг с curl-заглушкой, отдающей config, и
+// sleep-заглушкой; возвращает вывод и ошибку.
+func runCheckStep(t *testing.T, st step, config string) (string, error) {
+	t.Helper()
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not found")
+	}
+	stubs := t.TempDir()
+	cfg := filepath.Join(stubs, "config.json")
+	if err := os.WriteFile(cfg, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	curl := "#!/bin/sh\ncat " + shellQuoteTest(cfg) + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(stubs, "curl"), []byte(curl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stubs, "sleep"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	cmd := exec.Command(bash, "-c", st.cmd)
+	cmd.Dir = home
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+stubs+":"+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// Проверка после установки — по действующей модели воркера (/config
+// stems_model = bs-roformer-sw), а не по roformer_available: RoFormer может
+// быть установлен, но воркер делать Demucs.
+func TestInstallStemsModelRoformerFinalCheck(t *testing.T) {
+	_, steps := workerInstallPlanFull(false, false, false, true, "~/h", "~/s", "", "roformer")
+	last := steps[len(steps)-1]
+	if last.must {
+		t.Errorf("roformer check step must not be a must-step (warning, not stop)")
+	}
+	t.Run("not-active", func(t *testing.T) {
+		for _, cfg := range []string{
+			`{"roformer_available": true, "stems_model": "htdemucs"}`,
+			`{"roformer_available":true,"stems_model":"htdemucs"}`,
+			`{"roformer_available": false, "stems_model": "htdemucs"}`,
+			`{"roformer_available": true}`,
+			``,
+		} {
+			out, err := runCheckStep(t, last, cfg)
+			if err == nil {
+				t.Errorf("config %q: check must fail when active model is not bs-roformer-sw; output:\n%s", cfg, out)
+			}
+			if strings.TrimSpace(out) == "" || !strings.Contains(strings.ToLower(out), "roformer") {
+				t.Errorf("config %q: check must print a warning mentioning RoFormer, got:\n%s", cfg, out)
+			}
+		}
+	})
+	t.Run("active", func(t *testing.T) {
+		for _, cfg := range []string{
+			`{"roformer_available": true, "stems_model": "bs-roformer-sw"}`,
+			`{"roformer_available":true,"stems_model":"bs-roformer-sw"}`,
+		} {
+			out, err := runCheckStep(t, last, cfg)
+			if err != nil {
+				t.Errorf("config %q: check must pass when active model is bs-roformer-sw: %v\n%s", cfg, err, out)
+			}
+		}
+	})
+}
+
+func TestInstallStemsModelNoRoformerCheckForHtdemucs(t *testing.T) {
+	for _, c := range []struct {
+		roformer bool
+		model    string
+	}{{false, "htdemucs"}, {true, "htdemucs"}, {false, ""}} {
+		_, steps := workerInstallPlanFull(false, false, false, c.roformer, "~/h", "~/s", "", c.model)
+		for _, st := range steps {
+			if strings.Contains(st.cmd, "bs-roformer-sw") || strings.Contains(st.cmd, "roformer_available") {
+				t.Errorf("roformer=%v stems_model=%q: unexpected RoFormer check %q", c.roformer, c.model, st.name)
+			}
+		}
 	}
 }

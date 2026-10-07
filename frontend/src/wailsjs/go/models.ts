@@ -253,6 +253,7 @@ export namespace studio {
 	    params?: Record<string, number>;
 	    steps?: dsp.Step[];
 	    envelope?: dsp.EnvPoint[];
+	    engine?: any[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SectionSpec(source);
@@ -275,6 +276,7 @@ export namespace studio {
 	        this.params = source["params"];
 	        this.steps = this.convertValues(source["steps"], dsp.Step);
 	        this.envelope = this.convertValues(source["envelope"], dsp.EnvPoint);
+	        this.engine = source["engine"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -415,6 +417,8 @@ export namespace yue {
 	    created_at: string;
 	    metrics: Record<string, any>;
 	    label?: string;
+	    duration_sec?: number;
+	    clipped?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new DspVariant(source);
@@ -426,6 +430,8 @@ export namespace yue {
 	        this.created_at = source["created_at"];
 	        this.metrics = source["metrics"];
 	        this.label = source["label"];
+	        this.duration_sec = source["duration_sec"];
+	        this.clipped = source["clipped"];
 	    }
 	}
 	export class FxRequest {
@@ -436,6 +442,8 @@ export namespace yue {
 	    output?: string;
 	    label?: string;
 	    preview?: boolean;
+	    fade?: number;
+	    pad?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FxRequest(source);
@@ -450,6 +458,8 @@ export namespace yue {
 	        this.output = source["output"];
 	        this.label = source["label"];
 	        this.preview = source["preview"];
+	        this.fade = source["fade"];
+	        this.pad = source["pad"];
 	    }
 	}
 	export class HealthInfo {
