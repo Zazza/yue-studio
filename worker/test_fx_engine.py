@@ -2529,5 +2529,64 @@ class TestSamplerWithoutPitchKitsUnchanged(unittest.TestCase):
         self.assertTrue(np.array_equal(base, empty), "kit_mid/kit_low \"\" меняют выход")
 
 
+# высоты ударов (Гц) дорожки «тамы» трека «Gone» #488 (RoFormer), как их меряет _hit_pitch — 2026-10-08
+GONE_TOM_PITCHES = [
+    134, 103, 89, 155, 88, 161, 87, 159, 95, 160, 85, 157, 94, 153, 88, 107, 163, 159, 193, 164, 92, 151, 90, 158,
+    97, 110, 90, 161, 92, 152, 171, 157, 164, 68, 72, 66, 64, 149, 50, 66, 61, 67, 156, 92, 156, 76, 111, 87, 153,
+    90, 161, 163, 143, 144, 149, 86, 153, 86, 158, 87, 150, 88, 153, 91, 150, 92, 150, 87, 157, 90, 151, 90, 157,
+    89, 156, 88, 150, 90, 156, 92, 169, 96, 155, 91, 168, 152, 165, 93, 166, 91, 160, 101, 155, 95, 164, 93, 150,
+    102, 157, 103, 168, 99, 157, 158, 163, 77, 154, 88, 158, 97, 160, 89, 160, 89, 157, 160, 95, 150, 121, 123,
+    117, 92, 162, 97, 154, 52, 93, 155, 94, 151, 96, 147, 92, 156, 92, 152, 94, 157, 171, 204, 99, 155, 92, 158,
+    90, 163, 94, 161, 93, 151, 92, 159, 96, 163, 93, 164, 187, 151, 156, 93, 95, 90, 89, 86, 88, 88, 89, 92, 89,
+    96, 89, 90, 91, 89, 89, 93, 169, 91, 157, 91, 150, 93, 163, 95, 154, 91, 147, 92, 156, 94, 156, 149, 57, 168,
+    147, 176, 91, 91, 91, 92, 50, 90, 88, 93, 91, 90, 50, 92, 90, 92, 92, 90, 91, 91, 88, 167, 91, 91, 89, 91, 90,
+    89, 90, 91, 90, 91, 89, 90, 91, 91, 90, 89, 91, 90, 91, 90, 89, 89, 89, 91, 91, 88, 93, 92, 93, 90, 164, 93,
+    148, 90, 156, 93, 153, 94, 145, 92, 155, 94, 160, 93, 161, 104, 258, 92, 50, 153, 87, 148, 88, 165, 93, 113,
+    93, 122, 93, 149, 64, 172, 162, 191, 88, 111, 94, 157, 93, 144, 91, 114, 50, 95, 153, 98, 152, 88, 120, 92,
+    113, 166, 153, 97, 153, 94, 110, 90, 108, 97, 148, 95, 152, 91, 146, 144, 160, 139, 88,
+]
+
+
+@unittest.skipUnless(_HAS_DEPS, "нужны numpy/scipy/librosa")
+class TestTomGroupsWithLeak(unittest.TestCase):
+    """Находка на живой дорожке «Gone» (#488): удары с протечкой заполняют промежуток между двумя тамами
+    (~89 и ~157 Гц); раньше группы склеивались цепочкой в одну (314 ударов из 315)."""
+
+    def test_real_toms_two_groups(self):
+        import fx_engine as fe
+        grp, ng = fe._pitch_groups(GONE_TOM_PITCHES, 3)
+        self.assertEqual(ng, 2)
+        low = [p for p, g in zip(GONE_TOM_PITCHES, grp, strict=True) if g == 0]
+        high = [p for p, g in zip(GONE_TOM_PITCHES, grp, strict=True) if g == 1]
+        self.assertGreater(min(len(low), len(high)), 0.3 * len(GONE_TOM_PITCHES))
+        self.assertLess(float(np.median(low)), 100)
+        self.assertGreater(float(np.median(high)), 140)
+
+    def test_short_fill_three_toms_three_groups(self):
+        # кросс-ревью 15а: короткая сбивка — по удару на там — три группы (по 33 %), не одна
+        import fx_engine as fe
+        grp, ng = fe._pitch_groups([220.0, 140.0, 90.0], 3)
+        self.assertEqual((ng, grp), (3, [2, 1, 0]))
+
+    def test_dominant_pitch_keeps_middle_tom(self):
+        # кросс-ревью 15а: 80 % ударов одной высоты — средний там не пропадает (пустой группы нет)
+        import fx_engine as fe
+        p = [90.0] * 80 + [140.0] * 10 + [220.0] * 10
+        grp, ng = fe._pitch_groups(p, 3)
+        self.assertEqual(ng, 3)
+        self.assertEqual({grp[0], grp[80], grp[90]}, {0, 1, 2})
+
+
+    def test_edge_outlier_does_not_eat_middle_tom(self):
+        # ревью 15а круг 2: три тама 90/140/220 и один удар на краю (50 или 480 Гц — граница измерения) —
+        # три группы, выброс не отнимает группу у среднего тама
+        import fx_engine as fe
+        for out in (50.0, 480.0):
+            with self.subTest(out=out):
+                p = [90.0] * 100 + [140.0] * 60 + [220.0] * 60 + [out]
+                grp, ng = fe._pitch_groups(p, 3)
+                self.assertEqual(ng, 3)
+                self.assertEqual({grp[0], grp[100], grp[160]}, {0, 1, 2})
+
 if __name__ == "__main__":
     unittest.main()

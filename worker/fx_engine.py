@@ -490,6 +490,7 @@ def _env5(mono: np.ndarray, sr: int) -> np.ndarray:
 TOM_FMIN, TOM_FMAX = 50.0, 500.0   # sampler: высота удара тамов — максимум спектра в этой полосе
 TOM_WIN_S = 0.06                    # … по первым 60 мс после пика
 TOM_MERGE = 1.12                    # соседние группы ближе ~2 полутонов — один и тот же там
+TOM_MIN_SHARE = 0.05                # группа меньше 5 % ударов — выброс, не отдельный там
 
 
 def _hit_pitch(mono: np.ndarray, t: int, sr: int) -> float:
@@ -505,26 +506,50 @@ def _hit_pitch(mono: np.ndarray, t: int, sr: int) -> float:
     return float(f[band][np.argmax(spec[band])]) if band.any() else 0.0
 
 
+def _best_split(v: np.ndarray, k: int) -> list[int]:
+    """Точное разбиение отсортированных значений v на k подряд идущих групп с наименьшей суммой квадратов
+    отклонений (одномерные k-средних, динамика по префиксным суммам) → индексы начала групп 1…k−1."""
+    n = len(v)
+    s1 = np.concatenate([[0.0], np.cumsum(v)])
+    s2 = np.concatenate([[0.0], np.cumsum(v * v)])
+
+    best = np.full((k + 1, n + 1), np.inf)
+    cut = np.zeros((k + 1, n + 1), dtype=int)
+    best[0][0] = 0.0
+    for g in range(1, k + 1):
+        for j in range(g, n + 1):
+            i = np.arange(g - 1, j)                      # начало последней группы v[i:j]
+            c = best[g - 1][i] + s2[j] - s2[i] - (s1[j] - s1[i]) ** 2 / (j - i)
+            m = int(np.argmin(c))
+            best[g][j], cut[g][j] = c[m], i[m]
+    starts, j = [], n
+    for g in range(k, 0, -1):
+        j = cut[g][j]
+        starts.append(j)
+    return sorted(starts)[1:]
+
+
 def _pitch_groups(pitches: list[float], nkits: int) -> tuple[list[int], int]:
-    """Номер группы каждого удара по высоте (0 — самая низкая): соседние по высоте удары с отношением
-    < TOM_MERGE — одна группа; групп больше, чем наборов, — сливаются ближайшие соседние."""
-    order = np.argsort(pitches)
-    groups: list[list[int]] = []
-    for i in order:
-        if groups and pitches[i] < max(pitches[groups[-1][-1]], 1e-6) * TOM_MERGE:
-            groups[-1].append(int(i))
-        else:
-            groups.append([int(i)])
-    def centre(g):
-        return float(np.exp(np.mean([np.log(max(pitches[k], 1e-6)) for k in g])))
-    while len(groups) > nkits:
-        k = min(range(len(groups) - 1), key=lambda j: centre(groups[j + 1]) / centre(groups[j]))
-        groups[k:k + 2] = [groups[k] + groups[k + 1]]
-    out = [0] * len(pitches)
-    for gi, g in enumerate(groups):
-        for k in g:
-            out[k] = gi
-    return out, len(groups)
+    """Номер группы каждого удара по высоте (0 — самая низкая) и число групп: лучшее разбиение по логарифму
+    высоты (одномерные k-средних, точно — без выбора стартовых центров: от него зависели и пустые группы, и
+    захват центра выбросом), k — от числа наборов вниз, пока центры соседних групп не дальше TOM_MERGE или в
+    группе меньше TOM_MIN_SHARE ударов. Не «цепочкой»: на живой дорожке (протечка, #488) цепочка склеивала
+    всё в одну группу (314 из 315)."""
+    lp = np.log(np.maximum(np.asarray(pitches, dtype=np.float64), 1e-6))
+    n = len(lp)
+    order = np.argsort(lp, kind="stable")
+    v = lp[order]
+    for k in range(min(nkits, len(np.unique(v))), 1, -1):
+        bounds = [0] + _best_split(v, k) + [n]
+        sizes = np.diff(bounds)
+        centres = [float(v[bounds[i]:bounds[i + 1]].mean()) for i in range(k)]
+        if np.all(np.diff(centres) >= np.log(TOM_MERGE)) and sizes.min() >= max(1, TOM_MIN_SHARE * n):
+            out = [0] * n
+            for g in range(k):
+                for idx in order[bounds[g]:bounds[g + 1]]:
+                    out[int(idx)] = g
+            return out, k
+    return [0] * n, 1
 
 
 def _sampler(x, sr, p, res):
