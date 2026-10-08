@@ -82,14 +82,23 @@ async function doRebuild(parentId) {
   save()
   return r
 }
-// перенос вклеек на новую версию трека (пересборка): применённые — с текущей
-// громкостью, ещё рендерящиеся — как есть
+// перенос правок на новую версию трека (пересборка): правки без рендера (эффекты, педали, движок,
+// громкость, линии; childId ≤ 0) — сразу в реестр новой версии как есть (с off): в очереди тик не
+// нашёл бы их джобу и потерял. Вклейки — через очередь: применённые с текущей громкостью,
+// ещё рендерящиеся — как есть
 function carryTo(fromParent, toParent, srcJob) {
-  const done = appliedFor(fromParent).map(({ aligned: _a, score: _s, ...it }) => it)
+  const all = appliedFor(fromParent).map(({ aligned: _a, score: _s, ...it }) => it)
+  const own = all.filter((it) => !(it.childId > 0))
+  if (own.length) {
+    const have = new Set(appliedFor(toParent).map((it) => it.childId))
+    const add = own.filter((it) => !have.has(it.childId)).map((it) => JSON.parse(JSON.stringify(it)))
+    applied.value = { ...applied.value, [toParent]: [...appliedFor(toParent), ...add] }
+  }
+  const done = all.filter((it) => it.childId > 0)
   // вклейка может быть и в реестре, и в очереди (tick ждёт её пересборку):
   // берём одну — из реестра, там актуальная громкость
   const inRegistry = new Set(done.map((it) => it.childId))
-  const waiting = byParent(fromParent).filter((s) => !inRegistry.has(s.childId))
+  const waiting = byParent(fromParent).filter((s) => !inRegistry.has(s.childId) && s.childId > 0)
     .map(({ parent: _p, done: _d, dead: _x, ...it }) => it)
   register([...done, ...waiting].map((it) => ({ ...it, parent: toParent, srcJob })))
 }

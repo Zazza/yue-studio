@@ -25,6 +25,8 @@ import LibraryPage from './components/LibraryPage.vue'
 import CorpusPage from './components/CorpusPage.vue'
 import VoicesPage from './components/VoicesPage.vue'
 import InstrumentsPage from './components/InstrumentsPage.vue'
+import PresetChips from './components/PresetChips.vue'
+import JobPresets from './components/JobPresets.vue'
 import StudioPage from './components/StudioPage.vue'
 import WelcomeModal from './components/WelcomeModal.vue'
 import { WELCOME_KEY, welcomeTab, welcomeClosed } from './welcome.js'
@@ -87,6 +89,15 @@ const slots = ref({
 const styleOverride = ref('')
 const lyrics = ref(`[Verse]\n...\n\n[Chorus]\n...`)
 const seed = ref(null)
+// пресеты звука для нового трека (до 3) и названия пресетов для строк в карточках
+const soundPresetIds = ref([])
+const presetNames = ref({})
+const presetAsked = new Set()   // id, за которыми уже ходили (удалённый пресет не ищем снова)
+async function loadPresetNames() {
+  try {
+    presetNames.value = Object.fromEntries(((await api.soundPresets()) || []).map((p) => [p.id, p.name]))
+  } catch { /* старый воркер — строки покажут номер пресета */ }
+}
 const cot = ref('full')
 const arcKind = ref('')  // драматургия: '' | build | wave | burst
 // характер исполнения: смелость игры (температура) и точность по стилю/нотам (cfg)
@@ -190,6 +201,8 @@ function payload(extra = {}) {
     max_tokens: durTokens[durMode.value] || 0,
     ...characterPayload(temperature.value, cfgScale.value),
     ...(abc ? { abc } : {}),
+    // пресеты звука — только у полного трека (черновик их не получает)
+    ...(soundPresetIds.value.length && !extra.draft ? { sound_preset_ids: [...soundPresetIds.value] } : {}),
     ...extra,
   }
 }
@@ -463,6 +476,11 @@ async function refresh() {
   try {
     const [j, h] = await Promise.all([api.jobs(), api.status()])
     jobs.value = j || []
+    // у трека пресет, которого нет в названиях (создан из MCP / в другой вкладке) — перечитать
+    // (один раз на незнакомый id: удалённый пресет иначе перечитывался бы на каждом опросе)
+    const unknown = jobs.value.flatMap((x) => (x.sound_presets || []).map((sp) => sp.id))
+      .filter((id) => !presetNames.value[id] && !presetAsked.has(id))
+    if (unknown.length) { unknown.forEach((id) => presetAsked.add(id)); loadPresetNames() }
     health.value = h
   } catch {
     health.value = null
@@ -804,6 +822,7 @@ function openMetrics(j, preset) {
   metricsModal.value.openFor(j, preset)
 }
 
+onMounted(loadPresetNames)
 onMounted(async () => {
   onVolume()
   serverURL.value = await api.getServerURL()
@@ -996,6 +1015,7 @@ function onWindowClick(e) {
                 </template>
               </div>
             </div>
+            <JobPresets :job="j" :names="presetNames" @changed="refresh" />
             <!-- один плоский список всех вложений: версии, миксы-вклейки, материал (овердабы).
                  Кнопки-заголовка нет — счётчик уже в строке трека, ширина вся списку -->
             <div v-if="kidCount(j) || (kidMixes[j.id] || []).length || kidMaterial(j.id).length" class="job-kids">
@@ -1237,6 +1257,7 @@ function onWindowClick(e) {
           </div>
         </details>
 
+        <PresetChips v-model="soundPresetIds" />
         <div class="actions">
           <button class="primary" :disabled="submitting || !canSubmit" @click="submit">
             {{ submitting ? t('form.submitting') : t('form.submit') }}
@@ -1270,7 +1291,7 @@ function onWindowClick(e) {
               @close="voicesPage = false; loadVoiceCards()"
               @apply-voice="applyVoice" />
 
-  <InstrumentsPage v-if="instrumentsPage" @close="instrumentsPage = false; refresh()" />
+  <InstrumentsPage v-if="instrumentsPage" @close="instrumentsPage = false; loadPresetNames(); refresh()" />
 
   <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
 

@@ -10,6 +10,7 @@ import {
   YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset, YueInstallFxKit,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
   YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueJobGrid, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
+  YueSoundPresets, YueSoundPresetCreate, YueSoundPresetUpdate, YueSoundPresetDelete, YueApplySoundPreset, YueSoundPresetRetry,
   YuePlayFile, YueToggleAudio, YueStopAudio, YueSeekAudio, YueSetVolume, YuePlayAudio, YueAudioState, YueTranslate, YueDeleteJob,
 } from './wailsjs/go/main/App'
 
@@ -19,6 +20,13 @@ export const api = {
   jobs: () => YueJobs(),
   submit: (p) => YueSubmit(p),
   submitFan: (p, n) => YueSubmitFan(p, n),
+  // пресеты звука: рецепты на воркере; применить вручную → id версии; повтор у трека
+  soundPresets: () => YueSoundPresets(),
+  soundPresetCreate: (p) => YueSoundPresetCreate(p),
+  soundPresetUpdate: (id, p) => YueSoundPresetUpdate(id, p),
+  soundPresetDelete: (id) => YueSoundPresetDelete(id),
+  applySoundPreset: (jobId, presetId) => YueApplySoundPreset(jobId, presetId),
+  soundPresetRetry: (jobId, presetId) => YueSoundPresetRetry(jobId, presetId),
   plan: (p) => YuePlan(p),
   cancel: (id) => YueCancelJob(id),
   deleteJob: (id) => YueDeleteJob(id),

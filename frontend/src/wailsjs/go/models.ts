@@ -478,6 +478,24 @@ export namespace yue {
 	        this.load_error = source["load_error"];
 	    }
 	}
+	export class JobPreset {
+	    id: number;
+	    status: string;
+	    child_id?: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new JobPreset(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.status = source["status"];
+	        this.child_id = source["child_id"];
+	        this.error = source["error"];
+	    }
+	}
 	export class Job {
 	    id: number;
 	    title: string;
@@ -511,6 +529,7 @@ export namespace yue {
 	    tok_per_s?: number;
 	    elapsed_s?: number;
 	    progress_pct?: number;
+	    sound_presets: JobPreset[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Job(source);
@@ -550,8 +569,28 @@ export namespace yue {
 	        this.tok_per_s = source["tok_per_s"];
 	        this.elapsed_s = source["elapsed_s"];
 	        this.progress_pct = source["progress_pct"];
+	        this.sound_presets = this.convertValues(source["sound_presets"], JobPreset);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class LyricsResult {
 	    text: string;
 	    seconds: number;
@@ -680,6 +719,63 @@ export namespace yue {
 	        this.seed = source["seed"];
 	    }
 	}
+	export class PresetStep {
+	    chain: string;
+	    params?: Record<string, number>;
+	    off?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PresetStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.chain = source["chain"];
+	        this.params = source["params"];
+	        this.off = source["off"];
+	    }
+	}
+	export class PresetSpec {
+	    stems: string[];
+	    engine?: any[];
+	    chain?: string;
+	    params?: Record<string, number>;
+	    steps?: PresetStep[];
+	    db?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PresetSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.stems = source["stems"];
+	        this.engine = source["engine"];
+	        this.chain = source["chain"];
+	        this.params = source["params"];
+	        this.steps = this.convertValues(source["steps"], PresetStep);
+	        this.db = source["db"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Reference {
 	    id: string;
 	    created_at: string;
@@ -697,6 +793,50 @@ export namespace yue {
 	        this.size = source["size"];
 	        this.metrics = source["metrics"];
 	    }
+	}
+	export class SoundPreset {
+	    id: number;
+	    slug?: string;
+	    name: string;
+	    note?: string;
+	    specs: PresetSpec[];
+	    final: PresetStep[];
+	    reference_job_id?: number;
+	    builtin?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SoundPreset(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.slug = source["slug"];
+	        this.name = source["name"];
+	        this.note = source["note"];
+	        this.specs = this.convertValues(source["specs"], PresetSpec);
+	        this.final = this.convertValues(source["final"], PresetStep);
+	        this.reference_job_id = source["reference_job_id"];
+	        this.builtin = source["builtin"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class StatsRunning {
 	    job_id: number;
@@ -773,6 +913,7 @@ export namespace yue {
 	    role?: string;
 	    temperature?: number;
 	    cfg?: number;
+	    sound_preset_ids?: number[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SubmitParams(source);
@@ -793,6 +934,7 @@ export namespace yue {
 	        this.role = source["role"];
 	        this.temperature = source["temperature"];
 	        this.cfg = source["cfg"];
+	        this.sound_preset_ids = source["sound_preset_ids"];
 	    }
 	}
 	export class Tone {

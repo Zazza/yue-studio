@@ -118,6 +118,12 @@ type stemSet map[string]string
 // повторная пересборка поверх прошлого микса наслаивала бы замены и не давала
 // менять громкость.
 func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs []SectionSpec) (*RebuildResult, error) {
+	return rebuildSections(ctx, svc, parentID, specs, "")
+}
+
+// rebuildSections — пересборка; fname "" — overdub-inst-<последняя вклейка>.flac (микс студии), иначе
+// свой файл (пресет звука не должен перезаписывать «микс с правками» студии)
+func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs []SectionSpec, fname string) (*RebuildResult, error) {
 	if len(specs) == 0 {
 		return nil, errors.New("нет замен для пересборки")
 	}
@@ -251,7 +257,9 @@ func RebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	if err != nil {
 		return nil, err
 	}
-	fname := fmt.Sprintf("overdub-inst-%d.flac", lastChild(specs))
+	if fname == "" {
+		fname = fmt.Sprintf("overdub-inst-%d.flac", lastChild(specs))
+	}
 	v, err := svc.UploadDsp(ctx, parentID, fname, rebuildLabel(specs), data)
 	if err != nil {
 		return nil, err

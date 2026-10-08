@@ -18,6 +18,7 @@ import (
 func RegisterStudioTools(s *Server) {
 	registerRevoiceTools(s)
 	registerFxTools(s)
+	registerPresetTools(s)
 	s.Register(Tool{
 		Name:        "config_get",
 		Description: "Текущие настройки: адрес воркера, Ollama (url/модель), пути данных воркера.",
@@ -772,54 +773,7 @@ func (s *Server) applySteps(jobID int64, steps []dsp.Step) (*yue.DspVariant, err
 	return s.runGraph(jobID, graph, "dsp-pedals.flac", studio.StepsLabel(steps))
 }
 
-// runGraph — граф ffmpeg на весь трек (как в приложении): скачать flac → ffmpeg →
-// залить вариантом fname с подписью label.
+// runGraph — граф ffmpeg на весь трек (общий конвейер с приложением): вариант fname с подписью label.
 func (s *Server) runGraph(jobID int64, graph, fname, label string) (*yue.DspVariant, error) {
-	jobs, err := s.client.Jobs(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	audio := ""
-	for _, j := range jobs {
-		if j.ID == jobID {
-			audio = j.AudioFile
-			break
-		}
-	}
-	if audio == "" {
-		return nil, fmt.Errorf("job %d has no audio", jobID)
-	}
-	body, _, err := s.client.FetchAudio(context.Background(), jobID, audio)
-	if err != nil {
-		return nil, err
-	}
-	tmpIn, err := os.CreateTemp("", fmt.Sprintf("yue-mcp-dsp-%d-in-*.flac", jobID))
-	if err != nil {
-		_ = body.Close()
-		return nil, err
-	}
-	_, cpErr := tmpIn.ReadFrom(body)
-	_ = body.Close()
-	tmpIn.Close()
-	if cpErr != nil {
-		os.Remove(tmpIn.Name())
-		return nil, cpErr
-	}
-	defer os.Remove(tmpIn.Name())
-
-	tmpOut, err := os.CreateTemp("", fmt.Sprintf("yue-mcp-dsp-%d-out-*.flac", jobID))
-	if err != nil {
-		return nil, err
-	}
-	tmpOut.Close()
-	defer os.Remove(tmpOut.Name())
-
-	if err := dsp.Run(tmpIn.Name(), tmpOut.Name(), graph, nil); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(tmpOut.Name())
-	if err != nil {
-		return nil, err
-	}
-	return s.client.UploadDsp(context.Background(), jobID, fname, label, data)
+	return studio.RunGraph(context.Background(), s.client, jobID, "", graph, fname, label)
 }

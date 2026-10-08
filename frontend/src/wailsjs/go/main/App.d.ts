@@ -15,6 +15,8 @@ export function YueApplyDsp(arg1:number,arg2:string,arg3:Record<string, number>)
 
 export function YueApplyFx(arg1:number,arg2:yue.FxRequest):Promise<yue.DspVariant>;
 
+export function YueApplySoundPreset(arg1:number,arg2:number):Promise<number>;
+
 export function YueApplySteps(arg1:number,arg2:Array<dsp.Step>,arg3:string):Promise<yue.DspVariant>;
 
 export function YueAudioState():Promise<main.YuePlayerState>;
@@ -124,6 +126,16 @@ export function YueSetServerURL(arg1:string):Promise<void>;
 export function YueSetVolume(arg1:number):Promise<void>;
 
 export function YueSetWorkerConfig(arg1:Record<string, any>):Promise<void>;
+
+export function YueSoundPresetCreate(arg1:yue.SoundPreset):Promise<yue.SoundPreset>;
+
+export function YueSoundPresetDelete(arg1:number):Promise<void>;
+
+export function YueSoundPresetRetry(arg1:number,arg2:number):Promise<void>;
+
+export function YueSoundPresetUpdate(arg1:number,arg2:yue.SoundPreset):Promise<yue.SoundPreset>;
+
+export function YueSoundPresets():Promise<Array<yue.SoundPreset>>;
 
 export function YueSplice(arg1:number,arg2:Array<studio.SplicePart>,arg3:number):Promise<yue.DspVariant>;
 

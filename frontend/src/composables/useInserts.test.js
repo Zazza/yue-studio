@@ -1132,13 +1132,15 @@ describe('реестр правок: выключить, удалить, зам�
       expect(specs[0].chain).toBe('dewhistle')
     })
 
+    // этап 1, условие 10: записи без рендера (childId < 0) переносятся сразу в реестр
+    // новой версии, а не в очередь — off проверяется там
     it('carryTo переносит off как есть: выключенная — выключенной, включённая — включённой', async () => {
       const ins = await load({ applied: { P: [{ ...E1, off: true }, E2] } })
       ins.carryTo('P', 'Q', 'P')
       await flush()
-      const forQ = pendingOf(ins).filter(s => s.parent === 'Q')
-      expect(forQ.find(s => s.childId === -11).off).toBe(true)
-      expect(forQ.find(s => s.childId === -12).off || false).toBe(false)
+      const regQ = ins.appliedFor('Q')
+      expect(regQ.find(s => s.childId === -11).off).toBe(true)
+      expect(regQ.find(s => s.childId === -12).off || false).toBe(false)
     })
 
     // находка ревью s0: тик собирал перенесённую вклейку в реестр новой версии без off — включённой
@@ -1193,5 +1195,100 @@ describe('реестр правок: выключить, удалить, зам�
       await flush()
       expect(unref(ins.isBuilding('P'))).toBe(false)
     })
+  })
+})
+
+// Этап 1 «Пресеты звука», условие 10 (ТК26): carryTo кладёт записи без рендера
+// (эффект, педали, движок, громкость, линия; childId < 0) сразу в реестр новой версии —
+// в очереди ожидания тик не находит их джобу и теряет. Вклейки (childId > 0) — через очередь.
+describe('carryTo: правки без рендера — сразу в реестр новой версии (ТК26)', () => {
+  const FX = {
+    childId: -31, instId: 'fx-soften', from: 0, to: 0, lead: 0, beat: 0, db: 0,
+    stems: ['vocals'], fadeIn: 0, fadeOut: 0, keepHighHz: 0, chain: 'soften', params: { strength: 0.6 }, off: true,
+  }
+  const ENG = {
+    childId: -32, instId: 'engine', from: 20, to: 35, lead: 0, beat: 0, db: -4,
+    stems: ['bass'], fadeIn: 0, fadeOut: 0, keepHighHz: 0,
+    engine: [{ type: 'eq', highpass_hz: 80 }], label: 'Бас', off: false,
+  }
+  const PED = {
+    childId: -33, instId: 'pedals', from: 0, to: 0, lead: 0, beat: 0, db: 0,
+    stems: ['other'], fadeIn: 0, fadeOut: 0, keepHighHz: 0, steps: [{ chain: 'soften', params: { strength: 0.3 } }], label: 'Педали',
+  }
+  const MUTE = { childId: -34, instId: 'mute-drums', from: 5, to: 9, lead: 0, beat: 0, db: -100, stems: ['drums'] }
+  const ENV = {
+    childId: -35, instId: 'env', from: 0, to: 0, lead: 0, beat: 0, db: 0,
+    stems: ['vocals'], envelope: [{ t: 0, db: 0 }, { t: 4, db: -6 }],
+  }
+  const recQ = (ins, id) => ins.appliedFor('Q').find(x => x.childId === id)
+
+  it('эффект и движок сразу в реестре новой версии с теми же полями и off', async () => {
+    const ins = await load({ applied: { P: [FX, ENG] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    expect(recQ(ins, -31)).toMatchObject(FX)
+    expect(recQ(ins, -32)).toMatchObject(ENG)
+    expect(recQ(ins, -31).off).toBe(true)
+    expect(recQ(ins, -32).off || false).toBe(false)
+  })
+
+  it('в очередь ожидания записи без рендера не попадают', async () => {
+    const ins = await load({ applied: { P: [FX, ENG, PED, MUTE, ENV] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    const forQ = pendingOf(ins).filter(s => s.parent === 'Q')
+    expect(forQ.filter(s => s.childId <= 0)).toEqual([])
+  })
+
+  it('педали, громкость и линия громкости тоже переносятся сразу', async () => {
+    const ins = await load({ applied: { P: [PED, MUTE, ENV] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    expect(recQ(ins, -33)).toMatchObject(PED)
+    expect(recQ(ins, -34)).toMatchObject(MUTE)
+    expect(recQ(ins, -35)).toMatchObject(ENV)
+  })
+
+  it('тик очереди не теряет перенесённые записи (их джобы нет в списке)', async () => {
+    const ins = await load({ applied: { P: [FX, ENG] }, jobs: [{ id: 99, status: 'done' }] })
+    ins.carryTo('P', 'Q', 'P')
+    await ins.flush()
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush()
+    expect(childIds(ins.appliedFor('Q'))).toEqual([-31, -32].sort())
+  })
+
+  it('вклейка (childId > 0) — по-прежнему через очередь: до готовности её нет в реестре', async () => {
+    const ins = await load({ applied: { P: [A, ENG] }, jobs: [{ id: 1, status: 'running' }] })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    const forQ = pendingOf(ins).filter(s => s.parent === 'Q')
+    expect(forQ.map(s => s.childId)).toEqual([1])
+    expect(recQ(ins, 1)).toBeUndefined()
+    expect(recQ(ins, -32)).toMatchObject(ENG)
+  })
+
+  it('вклейка после готовности рендера попадает в реестр рядом с перенесённым движком', async () => {
+    const ins = await load({ applied: { P: [A, ENG] }, jobs: [{ id: 1, status: 'done' }] })
+    ins.carryTo('P', 'Q', 'P')
+    await ins.flush()
+    await flush()
+    expect(childIds(ins.appliedFor('Q'))).toEqual([-32, 1].sort())
+  })
+
+  it('реестр исходной версии не меняется', async () => {
+    const ins = await load({ applied: { P: [FX, ENG] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    expect(ins.appliedFor('P').map(x => x.childId)).toEqual([-31, -32])
+    expect(ins.appliedFor('P').find(x => x.childId === -31)).toMatchObject(FX)
+  })
+
+  it('перенесённые записи сохранены в localStorage под новой версией', async () => {
+    const ins = await load({ applied: { P: [FX, ENG] } })
+    ins.carryTo('P', 'Q', 'P')
+    await flush()
+    const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+    expect(childIds(saved.Q || [])).toEqual([-31, -32].sort())
   })
 })

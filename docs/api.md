@@ -98,6 +98,21 @@ GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по такт
                        {bars:[{index,start,end,notes[4]}], median_hz, low_hz, high_hz}; ноты по
                        четвертям такта («D4», «·» — нет голоса); to=0 — до конца. 409 — нет стема
                        vocals (сначала stems). Сверка «спето ли по плану» и потолка голоса
+GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, builtin}]:
+                       встроенные (slug transmission, sex-on-fire; досеиваются при старте) первыми
+POST /sound-presets    {name, note?, specs?, final?, reference_job_id?} → пресет с id. specs — до 16 правок
+                       на весь трек: {stems: [vocals|drums|bass|other|guitar|piano|kick|snare|toms|hh|ride|crash],
+                       ровно одно из engine (цепочка движка, проверка как у /fx) | chain+params (dsp-цепочка) |
+                       steps [{chain, params, off}] (до 12), db −24…24}; final — до 12 шагов {chain, params, off}
+                       на весь микс после правок; пустой пресет и прочие ошибки → 422 с причиной
+PUT  /sound-presets/{id}  заменить свой целиком (как POST); DELETE /sound-presets/{id} — удалить;
+                       встроенный → 409, нет такого → 404
+POST /jobs             + sound_preset_ids: [id] (до 3 разных существующих; с draft — 422) — у джобы поле
+                       sound_presets [{id, status: pending|running|done|error, child_id, error}] (у старых — [])
+POST /jobs/{id}/sound-presets/{pid}/state {status, child_id?, error?}  статус пресета у трека (применяет
+                       приложение): pending→running (захват; уже не pending → 409), running→done (child_id —
+                       версия), running→error (error ≤ 500), error|running→pending (повтор); прочее → 409,
+                       нет поля → 422, пресета нет у трека → 404. Ответ — список sound_presets трека
 POST /jobs/{id}/head   {head_id?} — основная версия песни: id — корень, head_id — он сам или его
                        потомок (иначе 422); null/0 — основной снова сам трек. В /jobs — поле head_id
 ```

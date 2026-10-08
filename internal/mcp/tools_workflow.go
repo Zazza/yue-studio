@@ -65,6 +65,9 @@ func RegisterWorkflowTools(s *Server) {
 			"n":           prop("веер: число джоб с сидами base+0..n-1 (1..10)", "integer"),
 			"temperature": prop("смелость игры: 0.5–1.5 (0 — по умолчанию 1.0); выше — оригинальнее, но грязнее", "number"),
 			"cfg":         prop("точность по стилю и нотам: 1–4 (0 — по умолчанию воркера, 1.5); выше — чётче, суше, по нотам", "number"),
+			"sound_preset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
+				"description": "пресеты звука (до 3, sound_presets): применятся после готовности трека, пока открыто " +
+					"приложение (оно их и применяет); без приложения — sound_preset_apply вручную. У черновика — нельзя"},
 		}, "style", "lyrics"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			p := yue.SubmitParams{
@@ -80,6 +83,9 @@ func RegisterWorkflowTools(s *Server) {
 				Role:        argString(args, "role"),
 				Temperature: argFloat(args, "temperature"),
 				Cfg:         argFloat(args, "cfg"),
+			}
+			if err := argJSON(args, "sound_preset_ids", &p.SoundPresetIDs); err != nil {
+				return "", err
 			}
 			if p.Cot == "" {
 				p.Cot = "full"

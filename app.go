@@ -22,6 +22,8 @@ const (
 	maxUploadBytes = 200 << 20
 	// fanLimits — границы веера best-of-N.
 	fanMin, fanMax = 1, 10
+	// presetTick — как часто приложение ищет пресеты звука, выбранные при создании трека
+	presetTick = 10 * time.Second
 )
 
 var audioFileFilter = []runtime.FileFilter{
@@ -49,6 +51,67 @@ func NewApp(client *yue.Client, player Player) *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	go a.presetLoop(ctx)
+}
+
+// presetLoop — авто-применение пресетов звука: тик по одному (пересборка — минуты, тики не
+// наслаиваются), пока приложение открыто.
+func (a *App) presetLoop(ctx context.Context) {
+	r := &studio.PresetRunner{Svc: a.yue}
+	t := time.NewTicker(presetTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.Tick(ctx)
+		}
+	}
+}
+
+// YueSoundPresets — пресеты звука воркера (встроенные первыми).
+func (a *App) YueSoundPresets() ([]yue.SoundPreset, error) {
+	return a.yue.SoundPresets(a.ctx)
+}
+
+// YueSoundPresetCreate — сохранить свой пресет (правки студии «весь трек» + финал).
+func (a *App) YueSoundPresetCreate(p yue.SoundPreset) (*yue.SoundPreset, error) {
+	return a.yue.SoundPresetCreate(a.ctx, p)
+}
+
+// YueSoundPresetUpdate — заменить свой пресет (название, описание, рецепт).
+func (a *App) YueSoundPresetUpdate(id int64, p yue.SoundPreset) (*yue.SoundPreset, error) {
+	return a.yue.SoundPresetUpdate(a.ctx, id, p)
+}
+
+// YueSoundPresetDelete — удалить свой пресет.
+func (a *App) YueSoundPresetDelete(id int64) error {
+	return a.yue.SoundPresetDelete(a.ctx, id)
+}
+
+// YueApplySoundPreset — применить пресет к треку сейчас (вручную, без статуса у трека) → id версии.
+func (a *App) YueApplySoundPreset(jobID, presetID int64) (int64, error) {
+	list, err := a.yue.SoundPresets(a.ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range list {
+		if p.ID == presetID {
+			res, err := studio.ApplySoundPreset(a.ctx, a.yue, jobID, p)
+			if err != nil {
+				return 0, err
+			}
+			return res.ChildID, nil
+		}
+	}
+	return 0, fmt.Errorf("нет пресета %d", presetID)
+}
+
+// YueSoundPresetRetry — повторить пресет у трека (ошибка или застрял «применяется»): снова в ожидание.
+func (a *App) YueSoundPresetRetry(jobID, presetID int64) error {
+	_, err := a.yue.SoundPresetState(a.ctx, jobID, presetID, yue.JobPreset{Status: "pending"})
+	return err
 }
 
 // shutdown — окно закрыто: глушим плеер, иначе он играет сиротой.
@@ -180,43 +243,9 @@ func (a *App) runDsp(jobID int64, chainID string, params map[string]float64) (*y
 	return a.runGraph(jobID, chain.FilterGraph(params), fmt.Sprintf("dsp-%s.flac", chainID), "")
 }
 
-// runGraph — граф ffmpeg на весь трек джобы: скачать звук, прогнать локально,
-// залить вариантом fname с подписью label ("" — по имени файла).
+// runGraph — граф ffmpeg на весь трек джобы: вариант fname с подписью label ("" — по имени файла).
 func (a *App) runGraph(jobID int64, graph, fname, label string) (*yue.DspVariant, error) {
-	jobs, err := a.yue.Jobs(a.ctx)
-	if err != nil {
-		return nil, err
-	}
-	audio := ""
-	for _, j := range jobs {
-		if j.ID == jobID {
-			audio = j.AudioFile
-			break
-		}
-	}
-	if audio == "" {
-		return nil, fmt.Errorf("job %d has no audio", jobID)
-	}
-	tmpIn, err := a.fetchTempFile(jobID, audio, fmt.Sprintf("yue-dsp-%d-in-*.flac", jobID))
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpIn)
-	tmpOut, err := os.CreateTemp("", fmt.Sprintf("yue-dsp-%d-out-*.flac", jobID))
-	if err != nil {
-		return nil, err
-	}
-	tmpOut.Close()
-	defer os.Remove(tmpOut.Name())
-
-	if err := dsp.Run(tmpIn, tmpOut.Name(), graph, nil); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(tmpOut.Name())
-	if err != nil {
-		return nil, err
-	}
-	return a.yue.UploadDsp(a.ctx, jobID, fname, label, data)
+	return studio.RunGraph(a.ctx, a.yue, jobID, "", graph, fname, label)
 }
 
 // YueRebuildSections — пересобрать трек джобы со всеми заменами дорожек:

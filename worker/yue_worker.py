@@ -35,6 +35,7 @@ import urllib.request
 import arc
 import llm
 import media
+import presets as sound_presets
 import waveform
 from pathlib import Path
 
@@ -212,6 +213,29 @@ def _migrate():
             created_at TEXT NOT NULL
         );
         """)
+        # пресеты звука у трека: [{id, status, child_id, error}] — что применить после готовности
+        if "sound_presets" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN sound_presets TEXT DEFAULT ''")
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS sound_presets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT UNIQUE,
+            name TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            specs TEXT NOT NULL DEFAULT '[]',
+            final TEXT NOT NULL DEFAULT '[]',
+            reference_job_id INTEGER,
+            builtin INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        """)
+        # встроенные — по slug: удалить/изменить их нельзя, повторный старт не дублирует
+        for b in sound_presets.BUILTIN:
+            conn.execute(
+                "INSERT OR IGNORE INTO sound_presets(slug,name,note,specs,final,reference_job_id,builtin,created_at) "
+                "VALUES(?,?,?,?,?,?,1,?)",
+                (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
+                 b["reference_job_id"], "2026-10-08T00:00:00"))
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -724,6 +748,8 @@ class JobIn(BaseModel):
     # характер исполнения: 0 — по умолчанию; у производного трека 0 — как у родителя
     temperature: float = 0
     cfg: float = 0
+    # пресеты звука: приложение применит их после готовности трека (до 3, не у черновика)
+    sound_preset_ids: list[int] = Field(default_factory=list)
 
     @field_validator("temperature")
     @classmethod
@@ -1001,6 +1027,11 @@ def submit(req: JobIn):
             # без сида — сид родителя (тот же голос); старый родитель без
             # сида генерировался с сидом библиотеки
             seed = seed or par["seed"] or LIB_DEFAULT_SEED
+        existing = {r["id"] for r in conn.execute("SELECT id FROM sound_presets")}
+        try:
+            preset_ids = sound_presets.check_job_ids(req.sound_preset_ids, existing, req.draft)
+        except sound_presets.PresetError as e:
+            raise HTTPException(422, str(e)) from e
         if not seed:
             # пусто — случайный, и он остаётся в треке: видно и повторяемо
             # (раньше пустое поле давало всегда сид библиотеки — один и тот же трек)
@@ -1013,6 +1044,9 @@ def submit(req: JobIn):
              int(req.max_tokens or 0), req.parent_id, req.role, temperature, cfg,
              time.strftime("%Y-%m-%dT%H:%M:%S")))
         job_id = cur.lastrowid
+        if preset_ids:
+            conn.execute("UPDATE jobs SET sound_presets=? WHERE id=?", (json.dumps(
+                [{"id": i, "status": "pending", "child_id": 0, "error": ""} for i in preset_ids]), job_id))
         if req.abc is not None and req.abc.strip():
             (JOBS_DIR / str(job_id)).mkdir(parents=True, exist_ok=True)
             (JOBS_DIR / str(job_id) / "request.abc").write_text(req.abc, encoding="utf-8")
@@ -1085,6 +1119,107 @@ def set_head(job_id: int, req: HeadIn):
     return {"id": job_id, "head_id": head}
 
 
+# ---------- пресеты звука ----------
+
+def _preset_dict(row) -> dict:
+    return {"id": row["id"], "slug": row["slug"] or "", "name": row["name"], "note": row["note"],
+            "specs": json.loads(row["specs"] or "[]"), "final": json.loads(row["final"] or "[]"),
+            "reference_job_id": row["reference_job_id"], "builtin": bool(row["builtin"])}
+
+
+def _parse_engine(chain):
+    import fx_engine
+    return fx_engine.parse_chain(chain)
+
+
+def _preset_body(body) -> dict:
+    if not isinstance(body, dict):
+        raise HTTPException(422, "пресет — объект {name, note, specs, final, reference_job_id}")
+    try:
+        return sound_presets.validate(body, _parse_engine)
+    except sound_presets.PresetError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.get("/sound-presets")
+def list_sound_presets():
+    """Пресеты звука: встроенные первыми, затем свои по порядку создания."""
+    with db_lock, db() as conn:
+        rows = conn.execute("SELECT * FROM sound_presets ORDER BY builtin DESC, id").fetchall()
+    return [_preset_dict(r) for r in rows]
+
+
+@app.post("/sound-presets")
+async def create_sound_preset(request: Request):
+    p = _preset_body(await request.json())
+    with db_lock, db() as conn:
+        cur = conn.execute(
+            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,created_at) VALUES(?,?,?,?,?,?)",
+            (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]), p["reference_job_id"],
+             time.strftime("%Y-%m-%dT%H:%M:%S")))
+        row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _preset_dict(row)
+
+
+def _own_preset(conn, preset_id: int):
+    row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (preset_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "preset not found")
+    if row["builtin"]:
+        raise HTTPException(409, "встроенный пресет не меняется и не удаляется — сохраните свой")
+    return row
+
+
+@app.put("/sound-presets/{preset_id}")
+async def update_sound_preset(preset_id: int, request: Request):
+    body = await request.json()
+    with db_lock, db() as conn:
+        _own_preset(conn, preset_id)
+    p = _preset_body(body)
+    with db_lock, db() as conn:
+        _own_preset(conn, preset_id)
+        conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=? WHERE id=?",
+                     (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]),
+                      p["reference_job_id"], preset_id))
+        row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (preset_id,)).fetchone()
+    return _preset_dict(row)
+
+
+@app.delete("/sound-presets/{preset_id}")
+def delete_sound_preset(preset_id: int):
+    with db_lock, db() as conn:
+        _own_preset(conn, preset_id)
+        conn.execute("DELETE FROM sound_presets WHERE id=?", (preset_id,))
+    return {"deleted": True}
+
+
+class PresetStateIn(BaseModel):
+    status: str = Field(pattern="^(pending|running|done|error)$")
+    child_id: int | None = None
+    error: str | None = None
+
+
+@app.post("/jobs/{job_id}/sound-presets/{preset_id}/state")
+def job_preset_state(job_id: int, preset_id: int, req: PresetStateIn):
+    """Статус пресета у трека: pending→running — захват (уже не pending → 409), running→done|error,
+    error|running→pending — повтор. Атомарно под db_lock: два приложения не применят пресет дважды."""
+    with db_lock, db() as conn:
+        row = conn.execute("SELECT sound_presets FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "job not found")
+        try:
+            items = sound_presets.apply_state(_job_presets(row["sound_presets"]), preset_id,
+                                              req.status, req.child_id, req.error)
+        except KeyError as e:
+            raise HTTPException(404, "у трека нет этого пресета") from e
+        except sound_presets.TransitionError as e:
+            raise HTTPException(409, str(e)) from e
+        except sound_presets.PresetError as e:
+            raise HTTPException(422, str(e)) from e
+        conn.execute("UPDATE jobs SET sound_presets=? WHERE id=?", (json.dumps(items), job_id))
+    return items
+
+
 JOB_TITLE_MAX = 200
 JOB_FOLDER_MAX = 60
 
@@ -1148,6 +1283,7 @@ def plan(req: PlanIn):
 def _job_dict(row) -> dict:
     d = {k: row[k] for k in row.keys()}
     d["draft"] = bool(d.get("draft"))  # sqlite даёт 0/1, клиент ждёт bool
+    d["sound_presets"] = _job_presets(d.get("sound_presets"))
     # готовые миксы трека (вклейки, эффекты на дорожки): по ним список треков
     # показывает «версии» и у трека без дочерних треков
     d["mixes"] = sum(1 for _ in (JOBS_DIR / str(row["id"])).glob("overdub-inst-*.flac"))
@@ -1155,6 +1291,15 @@ def _job_dict(row) -> dict:
         with _state_lock:
             d.update(_progress.get(row["id"], {}))
     return d
+
+
+def _job_presets(raw) -> list:
+    """Пресеты звука трека из колонки: пусто или битое — нет пресетов."""
+    try:
+        v = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return v if isinstance(v, list) else []
 
 
 JOBS_LIST_LIMIT = 2000

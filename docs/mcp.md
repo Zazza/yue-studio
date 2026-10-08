@@ -102,6 +102,12 @@ gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожк�
 только прослушать кусок `from`–`to` (не вариант). В трек — `rebuild_sections` с записью
 `{child_id: 0, stems, from, to, engine: [блоки]}` (копится со вклейками и эффектами). Подробно — docs/effects.md, «Звуковой движок».
 
+**Пресеты звука** (рецепт обработки трека целиком: правки дорожек + финал на микс → версия «трек · пресет»):
+`sound_presets` · `sound_preset_create` / `sound_preset_update` (specs — правки на весь трек: stems + engine |
+chain+params | steps, db; final — цепочка на микс) · `sound_preset_delete`† · `sound_preset_apply` (сейчас, синхронно:
+разделит, поставит наборы, пересоберёт, финал на результате; ответ — id версии) · `submit` с `sound_preset_ids`
+(до 3; применит открытое приложение, когда трек готов и очередь пуста; у черновика — нельзя).
+
 **Настройки**: `config_get` / `config_set` (адрес воркера, Ollama, `stems_model`, `fx_engine` — движок вкл/выкл).
 
 **Установка и диагностика**: `doctor` (воркер/GPU/ffmpeg/HF-токен) ·

@@ -85,6 +85,12 @@ type Service interface {
 	WorkerConfig(ctx context.Context) (map[string]any, error)
 	SetWorkerConfig(ctx context.Context, cfg map[string]any) error
 	OllamaModels(ctx context.Context, url string) (map[string]any, error)
+	// пресеты звука: рецепты на воркере, статусы — у трека (SoundPresetState: 409 — уже захвачен)
+	SoundPresets(ctx context.Context) ([]SoundPreset, error)
+	SoundPresetCreate(ctx context.Context, p SoundPreset) (*SoundPreset, error)
+	SoundPresetUpdate(ctx context.Context, id int64, p SoundPreset) (*SoundPreset, error)
+	SoundPresetDelete(ctx context.Context, id int64) error
+	SoundPresetState(ctx context.Context, jobID, presetID int64, st JobPreset) ([]JobPreset, error)
 }
 
 type Job struct {
@@ -136,6 +142,8 @@ type Job struct {
 	TokPerSec   *float64 `json:"tok_per_s,omitempty"`
 	ElapsedSec  float64  `json:"elapsed_s,omitempty"`
 	ProgressPct *int     `json:"progress_pct,omitempty"`
+	// пресеты звука трека: что применить после готовности и чем кончилось
+	SoundPresets []JobPreset `json:"sound_presets"`
 }
 
 type HealthInfo struct {
@@ -163,6 +171,45 @@ type StatsInfo struct {
 	GpuWaiting  int            `json:"gpu_waiting"`
 }
 
+// PresetStep — шаг ffmpeg-цепочки пресета (как dsp.Step: цепочка, крутилки, выключен).
+type PresetStep struct {
+	Chain  string             `json:"chain"`
+	Params map[string]float64 `json:"params,omitempty"`
+	Off    bool               `json:"off,omitempty"`
+}
+
+// PresetSpec — правка пресета на дорожки Stems на весь трек: ровно одно из Engine (цепочка движка
+// воркера), Chain+Params (эффект ffmpeg), Steps (педали по порядку); Db — громкость сверху.
+type PresetSpec struct {
+	Stems  []string           `json:"stems"`
+	Engine []map[string]any   `json:"engine,omitempty"`
+	Chain  string             `json:"chain,omitempty"`
+	Params map[string]float64 `json:"params,omitempty"`
+	Steps  []PresetStep       `json:"steps,omitempty"`
+	Db     float64            `json:"db,omitempty"`
+}
+
+// SoundPreset — пресет звука: правки дорожек + финальная цепочка на весь микс. Builtin — встроенный
+// (не меняется и не удаляется), ReferenceJobID — трек, по которому настраивался (0 — нет).
+type SoundPreset struct {
+	ID             int64        `json:"id"`
+	Slug           string       `json:"slug,omitempty"`
+	Name           string       `json:"name"`
+	Note           string       `json:"note,omitempty"`
+	Specs          []PresetSpec `json:"specs"`
+	Final          []PresetStep `json:"final"`
+	ReferenceJobID int64        `json:"reference_job_id,omitempty"`
+	Builtin        bool         `json:"builtin,omitempty"`
+}
+
+// JobPreset — пресет у трека: pending (ждёт) → running (применяется) → done (ChildID — версия) | error.
+type JobPreset struct {
+	ID      int64  `json:"id"`
+	Status  string `json:"status"`
+	ChildID int64  `json:"child_id,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 type SubmitParams struct {
 	Title  string `json:"title"`
 	Style  string `json:"style"`
@@ -184,6 +231,8 @@ type SubmitParams struct {
 	// температура 0.5–1.5 (выше — смелее игра), cfg 1–4 (выше — точнее по стилю и нотам)
 	Temperature float64 `json:"temperature,omitempty"`
 	Cfg         float64 `json:"cfg,omitempty"`
+	// пресеты звука (до 3): приложение применит их после готовности трека; у черновика — нельзя
+	SoundPresetIDs []int64 `json:"sound_preset_ids,omitempty"`
 }
 
 type PlanParams struct {

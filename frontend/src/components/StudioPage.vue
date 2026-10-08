@@ -24,6 +24,7 @@ import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 import PedalBoard from './PedalBoard.vue'
 import TrackDesk from './TrackDesk.vue'
+import StudioPresets from './StudioPresets.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -900,11 +901,33 @@ function editEngine(it) {
 function playMix() {
   const file = mixFile.value
   if (!file) return
-  toggleArtifact(`v${props.job.id}:${file}`, t('studio.edits.mix') + ' · #' + props.job.id,
-    () => api.playFile(props.job.id, file, props.job.duration_sec))
+  toggleArtifact(`v${props.job.id}:${file}`, t('studio.edits.mix') + ' · #' + props.job.id, async () => {
+    try {
+      await api.playFile(props.job.id, file, props.job.duration_sec)
+    } catch {
+      // микса ещё нет (правки перенесены на новую версию, пересборки не было) — собрать сейчас
+      const r = await inserts.rebuild(props.job.id)
+      if (!r || !r.variant) throw new Error(t('studio.edits.none'))
+      await api.playFile(props.job.id, r.variant.file, props.job.duration_sec)
+      reloadVariants()
+    }
+  })
 }
-function mixToTrack() {
-  if (mixFile.value) variantToTrack({ file: mixFile.value })
+// микса может ещё не быть (правки перенесены на новую версию, пересборки не было) — собрать сначала
+async function mixToTrack() {
+  if (!mixFile.value || dspBusy.value) return
+  dspBusy.value = true          // сразу: второй клик до ответа воркера сделал бы вторую версию
+  const vs = (await api.dspVariants(props.job.id).catch(() => [])) || []
+  if (vs.some((v) => v.file === mixFile.value)) { dspBusy.value = false; return variantToTrack({ file: mixFile.value }) }
+  try {
+    const r = await inserts.rebuild(props.job.id)
+    if (!r || !r.variant) throw new Error(t('studio.edits.none'))
+    reloadVariants()
+    dspBusy.value = false
+    await variantToTrack({ file: r.variant.file })
+  } catch (e) {
+    rollErr.value = String(e)
+  } finally { dspBusy.value = false }
 }
 async function reloadStems() {
   try { stemsList.value = (await api.jobStems(props.job.id)) || [] } catch { /* нет дорожек — пульт предложит сделать */ }
@@ -1907,6 +1930,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </details>
 
           <h3 id="st-done" class="studio-step">4 · {{ t('studio.step.done') }} <span class="muted">{{ t('studio.step.done.sub') }}</span></h3>
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('preset.title') }}</span> <span class="muted studio-box-hint">{{ t('preset.sub') }}</span></div>
+            <div class="studio-box-body">
+              <StudioPresets :job="job" @applied="reloadVariants" />
+            </div>
+          </div>
           <!-- готово: мастеринг одним кликом, громкость альбома и все результаты (варианты) с ▶ / ⤓ / → в треки -->
           <div class="studio-box">
             <div class="studio-box-head"><span>{{ t('studio.done') }}</span></div>

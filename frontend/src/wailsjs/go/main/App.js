@@ -22,6 +22,10 @@ export function YueApplyFx(arg1, arg2) {
   return window['go']['main']['App']['YueApplyFx'](arg1, arg2);
 }
 
+export function YueApplySoundPreset(arg1, arg2) {
+  return window['go']['main']['App']['YueApplySoundPreset'](arg1, arg2);
+}
+
 export function YueApplySteps(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueApplySteps'](arg1, arg2, arg3);
 }
@@ -240,6 +244,26 @@ export function YueSetVolume(arg1) {
 
 export function YueSetWorkerConfig(arg1) {
   return window['go']['main']['App']['YueSetWorkerConfig'](arg1);
+}
+
+export function YueSoundPresetCreate(arg1) {
+  return window['go']['main']['App']['YueSoundPresetCreate'](arg1);
+}
+
+export function YueSoundPresetDelete(arg1) {
+  return window['go']['main']['App']['YueSoundPresetDelete'](arg1);
+}
+
+export function YueSoundPresetRetry(arg1, arg2) {
+  return window['go']['main']['App']['YueSoundPresetRetry'](arg1, arg2);
+}
+
+export function YueSoundPresetUpdate(arg1, arg2) {
+  return window['go']['main']['App']['YueSoundPresetUpdate'](arg1, arg2);
+}
+
+export function YueSoundPresets() {
+  return window['go']['main']['App']['YueSoundPresets']();
 }
 
 export function YueSplice(arg1, arg2, arg3) {
