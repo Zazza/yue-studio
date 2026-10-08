@@ -285,6 +285,65 @@
   ]
  },
  {
+  "id": "drums-hh-kit",
+  "name": {
+   "ru": "Хэт: набор",
+   "en": "Hi-hat: kit"
+  },
+  "note": {
+   "ru": "На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Громкость +4 дБ: хэт YuE тихий, на слух лучше заметнее (опыт #663). Набор — fx_kit_install osdk.",
+   "en": "On the \"hi-hat\" stem (RoFormer): hi-hat hits with The Open Source Drum Kit samples. A short hit gets a closed hat, a long-ringing one a half-closed hat; each hit chokes the previous one like the pedal. Output +4 dB: the YuE hi-hat is quiet, a bit more presence sounds better. Kit — fx_kit_install osdk."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "kit": "osdk/hh-closed",
+    "kit_open": "osdk/hh-half",
+    "choke": 1,
+    "floor_db": -24,
+    "output_db": 4
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-kit",
+  "name": {
+   "ru": "Райд: набор",
+   "en": "Ride: kit"
+  },
+  "note": {
+   "ru": "На дорожку «райд» (RoFormer): удары райда — сэмплами набора. Если в дорожке в основном протечка других барабанов, поднимите порог.",
+   "en": "On the \"ride\" stem (RoFormer): ride hits with kit samples. If the stem is mostly bleed from other drums, raise the floor."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "kit": "osdk/ride",
+    "floor_db": -18,
+    "output_db": -2
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-kit",
+  "name": {
+   "ru": "Крэш: набор",
+   "en": "Crash: kit"
+  },
+  "note": {
+   "ru": "На дорожку «крэш» (RoFormer): удары тарелки — сэмплами набора, тарелка звенит до конца.",
+   "en": "On the \"crash\" stem (RoFormer): crash hits with kit samples, the cymbal rings out."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "kit": "osdk/crash",
+    "floor_db": -18,
+    "output_db": -2
+   }
+  ]
+ },
+ {
   "id": "bass-kit",
   "name": {
    "ru": "Бас: бас-гитара (набор)",

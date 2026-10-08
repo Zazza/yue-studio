@@ -1774,5 +1774,265 @@ class TestBassReview(unittest.TestCase):
                                     f"соседние щипки {i - 1} и {i} — один сэмпл (метка {used[i]}); все: {used}")
 
 
+# ---------- Условие 26 (этап 5в): хэт и тарелки — kit_open и choke, ТК27–29 ----------
+#
+# Контракт (из карточки): у sampler необязательные kit_open (строка, "" = нет) и choke (0/1,
+# по умолчанию 0). Вид удара — по тому, сколько он звучит во входе: время спада на −20 дБ
+# от пика, не дольше чем до следующего удара; граница — среднее геометрическое медиан
+# времён спада сэмплов kit и kit_open, замеренных по самим сэмплам. Короткие удары — kit,
+# длинные — kit_open. choke=1: новый удар глушит звучащий сэмпл предыдущего (спад 10 мс к
+# началу нового). kit_open указан, а набора нет — ChainError с именем набора.
+#
+# Фейковые наборы различимы по частоте тона; сэмпл — атака ATT отсчётов, дальше
+# экспоненциальный спад, −20 дБ от пика ровно через t20. Удар во входе — затухающий тон
+# HAT_HZ с пиком |x| на первом отсчёте и спадом −20 дБ через заданное время.
+
+HAT_HZ = 3500          # тон удара во входе
+CLOSED_HZ = 800        # тон сэмплов kit («закрытый»)
+OPEN_HZ = 9000         # тон сэмплов kit_open («открытый»)
+HH_CLOSED, HH_OPEN = "test/hh-closed", "test/hh-open"
+
+
+def _hat_sample(hz, peak, t20, dur, sr=SR):
+    k = np.arange(int(dur * sr))
+    tau = t20 * sr / np.log(10)
+    env = np.where(k <= ATT, k / ATT, np.exp(-(k - ATT) / tau))
+    return (peak * env * np.cos(2 * np.pi * hz * (k - ATT) / sr)).astype(np.float32)
+
+
+def _hat_kit(hz, t20s, dur, sr=SR):
+    peaks = (0.8, 0.6, 1.0)
+    return [_hat_sample(hz, pk, t, dur, sr=sr) for pk, t in zip(peaks, t20s, strict=True)], sr
+
+
+def _hat_res(closed_t20=(0.09, 0.10, 0.11), open_t20=(0.38, 0.40, 0.42), closed_dur=0.4, open_dur=1.2):
+    return FakeResources(kits={HH_CLOSED: _hat_kit(CLOSED_HZ, closed_t20, closed_dur),
+                               HH_OPEN: _hat_kit(OPEN_HZ, open_t20, open_dur)})
+
+
+def _hat_hits(events, n, sr=SR):
+    """Удары: (отсчёт, пик, t20 — время спада на −20 дБ, с); тон HAT_HZ, пик |x| на отсчёте."""
+    x = np.zeros(n, dtype=np.float64)
+    for p, a, t20 in events:
+        k = np.arange(min(int(3 * t20 * sr), n - p))
+        x[p:p + len(k)] += a * np.exp(-k * np.log(10) / (t20 * sr)) * np.cos(2 * np.pi * HAT_HZ * k / sr)
+    return x.astype(np.float32)
+
+
+def _band_amp(y, hz, t0, t1, sr=SR):
+    """Амплитуда тона hz на [t0, t1) с окном Ханна (меньше протечки соседнего тона)."""
+    y = np.asarray(y, dtype=np.float64)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    a, b = int(round(t0 * sr)), int(round(t1 * sr))
+    seg = y[a:b]
+    w = np.hanning(len(seg))
+    t = np.arange(len(seg)) / sr
+    return 2 * abs(np.sum(seg * w * np.exp(-2j * np.pi * hz * t))) / w.sum()
+
+
+def _hh(**params):
+    return _sampler(kit=params.pop("kit", HH_CLOSED), **params)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSamplerOpenChoke(unittest.TestCase):
+
+    def _run(self, x, chain, res=None):
+        out = _fx().process(x, SR, chain, res if res is not None else _hat_res())
+        self.assertEqual(out.shape, x.shape)
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(np.all(np.isfinite(out)))
+        return out
+
+    def _kind(self, y, p, win=0.05):
+        """'closed' / 'open' — какой набор звучит на [p, p+win); None — не различить."""
+        c = _band_amp(y, CLOSED_HZ, p / SR, p / SR + win)
+        o = _band_amp(y, OPEN_HZ, p / SR, p / SR + win)
+        if c > 3 * o:
+            return "closed"
+        if o > 3 * c:
+            return "open"
+        return None
+
+    # --- ТК27 ---
+
+    def test_tc27_short_hits_kit_long_hits_kit_open(self):
+        # граница = √(100 мс · 400 мс) = 200 мс; удары 60 мс — kit, 300 мс — kit_open;
+        # до следующего удара 1 с (хвост открытого сэмпла к нему −50 дБ — не сдвигает пик)
+        kinds = "SLSSLLSL"
+        pos = _positions(len(kinds), start=0.2, step=1.0)
+        ev = [(p, 0.8, 0.06 if k == "S" else 0.3) for p, k in zip(pos, kinds, strict=True)]
+        x = _hat_hits(ev, pos[-1] + int(1.5 * SR))
+        y = self._run(x, [_hh(kit_open=HH_OPEN)])
+        for p, k in zip(pos, kinds, strict=True):
+            with self.subTest(hit=p, sounds_ms=60 if k == "S" else 300):
+                want = "closed" if k == "S" else "open"
+                self.assertEqual(self._kind(y, p), want,
+                                 f"удар звучит {60 if k == 'S' else 300} мс — ждали набор {want}")
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    def test_tc27_long_hit_cut_by_next_hit_is_kit(self):
+        # удар со спадом 300 мс, но следующий через 100 мс → звучал 100 мс < 200 → kit
+        q = int(0.3 * SR) + 23
+        ev = [(q, 0.8, 0.3), (q + int(0.1 * SR), 0.8, 0.06), (q + int(0.8 * SR), 0.8, 0.3)]
+        x = _hat_hits(ev, q + int(2.0 * SR))
+        y = self._run(x, [_hh(kit_open=HH_OPEN)])
+        self.assertEqual(self._kind(y, q), "closed", "удар оборван следующим через 100 мс — ждали kit")
+        # контроль: тот же удар без соседа рядом — kit_open
+        self.assertEqual(self._kind(y, ev[2][0]), "open")
+
+    def test_tc27_threshold_from_kit_samples_not_fixed(self):
+        # ручного порога нет: граница — по сэмплам наборов. Удар 300 мс при наборах
+        # 400 мс / 1600 мс (граница 800 мс) — уже «закрытый»; при 100/400 — «открытый».
+        p = int(0.3 * SR) + 11
+        x = _hat_hits([(p, 0.8, 0.3)], p + int(2.5 * SR))
+        slow = _hat_res(closed_t20=(0.38, 0.40, 0.42), open_t20=(1.5, 1.6, 1.7),
+                        closed_dur=1.5, open_dur=2.4)
+        self.assertEqual(self._kind(self._run(x, [_hh(kit_open=HH_OPEN)], res=slow), p), "closed")
+        self.assertEqual(self._kind(self._run(x, [_hh(kit_open=HH_OPEN)]), p), "open")
+
+    # --- ТК28 ---
+
+    def _tc28(self, choke):
+        # наборы: kit спад 10 мс, kit_open 800 мс (граница ≈ 89 мс); удар 1 звучит 120 мс
+        # (→ kit_open), удар 2 через 150 мс, короткий (→ kit, другой тон)
+        res = _hat_res(closed_t20=(0.01, 0.01, 0.01), open_t20=(0.8, 0.8, 0.8),
+                       closed_dur=0.2, open_dur=2.0)
+        p1 = int(0.3 * SR) + 17
+        p2 = p1 + int(0.15 * SR)
+        x = _hat_hits([(p1, 0.8, 0.12), (p2, 0.4, 0.01)], p2 + int(2.5 * SR))
+        y = self._run(x, [_hh(kit_open=HH_OPEN, choke=choke)], res=res)
+        self.assertEqual(self._kind(y, p1, win=0.01), "open", "первый удар не из kit_open — проверка choke невозможна")
+        ref = _band_amp(y, OPEN_HZ, p1 / SR, p1 / SR + 0.01)
+        before = _band_amp(y, OPEN_HZ, (p2 - int(0.015 * SR)) / SR, (p2 - int(0.010 * SR)) / SR)
+        after = _band_amp(y, OPEN_HZ, p2 / SR, p2 / SR + 0.01)
+        return _db(before / ref), _db(after / ref)
+
+    def test_tc28_choke_1_silences_previous_sample(self):
+        before, after = self._tc28(choke=1)
+        self.assertGreater(before, -12, f"за 10 мс до следующего удара сэмпл уже заглушен ({before:.1f} дБ)")
+        self.assertLessEqual(after, -40, f"к началу следующего удара сэмпл звучит {after:.1f} дБ от пика")
+
+    def test_tc28_choke_0_keeps_ringing(self):
+        _, after = self._tc28(choke=0)
+        self.assertGreater(after, -12, f"choke=0, а сэмпл заглушен ({after:.1f} дБ)")
+
+    def test_tc28_choke_default_is_0(self):
+        res = _hat_res()
+        p1 = int(0.3 * SR) + 17
+        p2 = p1 + int(0.15 * SR)
+        x = _hat_hits([(p1, 0.8, 0.3), (p2, 0.4, 0.06)], p2 + int(2.0 * SR))
+        a = self._run(x, [_hh(kit_open=HH_OPEN)], res=res)
+        b = self._run(x, [_hh(kit_open=HH_OPEN, choke=0)], res=res)
+        np.testing.assert_allclose(a, b, atol=1e-6)
+
+    # --- ТК29 ---
+
+    def test_tc29_missing_kit_open_is_chain_error(self):
+        fx = _fx()
+        x = _hat_hits([(1000, 0.8, 0.06)], SR)
+        with self.assertRaises(fx.ChainError) as cm:
+            fx.process(x, SR, [_hh(kit_open="nope/hh-open")], _hat_res())
+        self.assertIn("nope/hh-open", str(cm.exception), "причина не называет набор kit_open")
+        only_closed = FakeResources(kits={HH_CLOSED: _hat_kit(CLOSED_HZ, (0.09, 0.1, 0.11), 0.4)})
+        with self.assertRaises(fx.ChainError) as cm:
+            fx.process(x, SR, [_hh(kit_open=HH_OPEN)], only_closed)
+        self.assertIn(HH_OPEN, str(cm.exception))
+
+    def test_tc29_empty_kit_open_same_as_without(self):
+        pos = _positions(6, start=0.2, step=0.6)
+        ev = [(p, 0.8, (0.06, 0.3)[i % 2]) for i, p in enumerate(pos)]
+        x = _hat_hits(ev, pos[-1] + SR)
+        res = _hat_res()
+        base = self._run(x, [_hh()], res=res)
+        empty = self._run(x, [_hh(kit_open="")], res=res)
+        np.testing.assert_allclose(empty, base, atol=1e-6)
+        # и kit_open="" не требует второго набора
+        only_closed = FakeResources(kits={HH_CLOSED: _hat_kit(CLOSED_HZ, (0.09, 0.1, 0.11), 0.4)})
+        self._run(x, [_hh(kit_open="")], res=only_closed)
+
+    def test_tc29_without_kit_open_all_hits_from_kit(self):
+        # без kit_open — как этап 5а: и длинные удары получают сэмплы kit
+        pos = _positions(4, start=0.2, step=0.6)
+        ev = [(p, 0.8, 0.3) for p in pos]
+        y = self._run(_hat_hits(ev, pos[-1] + SR), [_hh()])
+        for p in pos:
+            with self.subTest(hit=p):
+                self.assertEqual(self._kind(y, p), "closed")
+
+    def test_parse_kit_open_and_choke(self):
+        fx = _fx()
+        got = fx.parse_chain([{"type": "sampler", "kit": "osdk/hh-closed"}])[0]
+        self.assertEqual(got.get("kit_open", ""), "", "kit_open по умолчанию — не пустая строка")
+        self.assertEqual(float(got["choke"]), 0, "choke по умолчанию не 0")
+        for choke in (0, 1):
+            with self.subTest(choke=choke):
+                ok = fx.parse_chain([{"type": "sampler", "kit": "osdk/hh-closed",
+                                      "kit_open": "osdk/hh-half", "choke": choke}])[0]
+                self.assertEqual(ok["kit_open"], "osdk/hh-half")
+                self.assertEqual(float(ok["choke"]), choke)
+        for bad in ({"choke": 2}, {"choke": -1}, {"choke": "yes"}, {"kit_open": 5}, {"kit_open": ["a/b"]}):
+            with self.subTest(bad=bad), self.assertRaises(fx.ChainError):
+                fx.parse_chain([{"type": "sampler", "kit": "osdk/hh-closed", **bad}])
+
+
+# ---------- Условие 26, ТК34 (кросс-ревью c26): choke глушит к началу атаки сэмпла ----------
+#
+# Сэмплы с атакой 2 мс (пик не в начале) и длинным хвостом. choke=1: к НАЧАЛУ АТАКИ сэмпла
+# следующего удара (не к его пику) звучание предыдущего ≤ −40 дБ от его пика; пик выхода у
+# второго удара — на пике удара (±1). Часть «удары ближе 10 мс» тестом не покрыта: удары ближе
+# 40 мс сэмплер сливает в один (место удара — главный пик в первых 40 мс, ТК19), choke не на что.
+
+ATT2 = int(0.002 * SR)     # атака 2 мс: пик сэмпла на 96-м отсчёте
+
+
+def _att_sample(hz, peak, t20, dur, att=ATT2, sr=SR):
+    k = np.arange(int(dur * sr))
+    tau = t20 * sr / np.log(10)
+    env = np.where(k <= att, k / att, np.exp(-(k - att) / tau))
+    return (peak * env * np.cos(2 * np.pi * hz * (k - att) / sr)).astype(np.float32)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSamplerChokeAttack(unittest.TestCase):
+
+    def _run(self, x, chain, res):
+        out = _fx().process(x, SR, chain, res)
+        self.assertEqual(out.shape, x.shape)
+        self.assertTrue(np.all(np.isfinite(out)))
+        return out
+
+    def _tc34(self, choke):
+        # kit — «закрытый» (спад 5 мс), kit_open — «открытый» (800 мс), граница ≈ 63 мс;
+        # удар 1 (пик 0,8) звучит 100 мс → kit_open, удар 2 через 150 мс (пик 0,08) → kit
+        res = FakeResources(kits={
+            HH_CLOSED: ([_att_sample(CLOSED_HZ, 1.0, 0.005, 0.2)] * 3, SR),
+            HH_OPEN: ([_att_sample(OPEN_HZ, 1.0, 0.8, 2.0)] * 3, SR),
+        })
+        p1 = int(0.3 * SR) + 17
+        p2 = p1 + int(0.15 * SR)
+        x = _hat_hits([(p1, 0.8, 0.10), (p2, 0.08, 0.01)], p2 + int(2.5 * SR))
+        y = self._run(x, [_hh(kit_open=HH_OPEN, choke=choke, floor_db=-40)], res)
+        c = _band_amp(y, CLOSED_HZ, p1 / SR, p1 / SR + 0.01)
+        o = _band_amp(y, OPEN_HZ, p1 / SR, p1 / SR + 0.01)
+        self.assertGreater(o, 3 * c, "первый удар не из kit_open — проверка choke невозможна")
+        return y, p1, p2
+
+    def test_tc34_silenced_by_attack_start_of_next_sample(self):
+        y, p1, p2 = self._tc34(choke=1)
+        ref = _band_amp(y, OPEN_HZ, p1 / SR, p1 / SR + 0.01)
+        a = p2 - ATT2                                   # начало атаки сэмпла второго удара
+        during = _band_amp(y, OPEN_HZ, a / SR, p2 / SR)
+        self.assertLessEqual(_db(during / ref), -40,
+                             f"на атаке сэмпла следующего удара предыдущий звучит {_db(during / ref):.1f} дБ")
+
+    def test_tc34_second_hit_peak_in_place(self):
+        y, _, p2 = self._tc34(choke=1)
+        at, _ = _peak_near(y, p2, before=0.003, after=0.004)
+        self.assertLessEqual(abs(at - p2), 1, f"пик выхода у второго удара на {at - p2} от пика удара")
+
+
 if __name__ == "__main__":
     unittest.main()

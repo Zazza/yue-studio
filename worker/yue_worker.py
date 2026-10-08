@@ -2538,7 +2538,8 @@ FX_KINDS = {"amp": ("amps", ".nam"), "ir": ("irs", ".wav")}
 FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
 FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
-FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler/bass после окна (бочка/малый ~0,3–0,8 с)
+FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler/bass после окна — не короче (бочка/малый ~0,3–0,8 с)
+FX_SAMPLER_TAIL_MAX_S = 4.0  # …и не длиннее: по самому длинному сэмплу цепочки (тарелки звенят 8–12 с)
 FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
 FX_FADE_MAX_S = 0.5      # край окна превью — не длиннее
 FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
@@ -2791,11 +2792,12 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     Пересобрали дорожки или перезалили захват под тем же именем — превью новое, не из кэша."""
     files = list(paths)
     for blk in chain:
-        if blk.get("type") in ("sampler", "bass") and blk.get("kit"):
-            try:
-                files += sorted(_kit_path(blk["kit"]).glob("*.wav"))
-            except KeyError:
-                pass  # неверное имя — process отвергнет
+        for key in ("kit", "kit_open"):
+            if blk.get("type") in ("sampler", "bass") and blk.get(key):
+                try:
+                    files += sorted(_kit_path(blk[key]).glob("*.wav"))
+                except KeyError:
+                    pass  # неверное имя — process отвергнет
         for kind, key in (("amp", "model"), ("ir", "ir")):
             name = blk.get(key)
             if name and (blk["type"] == "amp") == (kind == "amp"):
@@ -2810,6 +2812,27 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
         except OSError:
             out.append([f.name, 0])
     return out
+
+
+def _fx_kit_tail(chain: list) -> float:
+    """Хвост превью для цепочки с наборами: по самому длинному сэмплу sampler, от FX_SAMPLER_TAIL_S до
+    FX_SAMPLER_TAIL_MAX_S (тарелка у конца окна не обрывается, бочка не тянет лишние секунды). У bass —
+    FX_SAMPLER_TAIL_S: нота глохнет вместе со входом, длинный сэмпл после окна не звучит."""
+    import soundfile as sf
+    longest = 0.0
+    for blk in chain:
+        for key in ("kit", "kit_open"):
+            if blk.get("type") == "sampler" and blk.get(key):
+                try:
+                    files = _kit_path(blk[key]).glob("*.wav")
+                except KeyError:
+                    continue
+                for f in files:
+                    try:
+                        longest = max(longest, sf.info(str(f)).duration)
+                    except RuntimeError:
+                        pass  # битый файл — его отвергнет чтение набора
+    return min(max(FX_SAMPLER_TAIL_S, longest), FX_SAMPLER_TAIL_MAX_S)
 
 
 def _mtime_or_zero(p: Path) -> float:
@@ -2831,8 +2854,9 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     n = len(track)
     a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
     tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
-    if not tail and any(blk["type"] in ("sampler", "bass") for blk in chain):
-        tail = FX_SAMPLER_TAIL_S             # удар у конца окна: сэмпл звучит дальше, без обрыва
+    if any(blk["type"] in ("sampler", "bass") for blk in chain):
+        # удар у конца окна: сэмпл звучит дальше, без обрыва; с эхом/ревербом — больший из хвостов
+        tail = max(tail, _fx_kit_tail(chain))
     fade = int(round(req.fade * sr))
     stop = min(b + fade, n)              # вход: до to и спад края после него
     end = min(stop + int(tail * sr), n)
@@ -2916,7 +2940,12 @@ FX_KITS = {
         "repo": "crabacus/the-open-source-drumkit",
         # версия закреплена: файлы набора не подменятся под тем же именем
         "ref": "c58808b2ff5a6cd77c2f47cf45f1a892ce6a1e2c",
-        "parts": {"kick": ("kick", r"kick\d+\.wav"), "snare": ("snare", r"snare-top\d+\.wav")},
+        "parts": {"kick": ("kick", r"kick\d+\.wav"), "snare": ("snare", r"snare-top\d+\.wav"),
+                  # хэт: закрытый / полузакрытый / полуоткрытый (полностью открытого в наборе нет)
+                  "hh-closed": ("hihat/closed-hihat", r"chh\d+\.wav"),
+                  "hh-half": ("hihat/half-closed-hihat", r"hchh\d+\.wav"),
+                  "hh-open": ("hihat/half-open-hihat", r"hohh\d+\.wav"),
+                  "ride": ("ride", r"ride-mid-in\d+\.wav"), "crash": ("crash", r"crash\d+\.wav")},
     },
     "growlybass": {  # Growlybass (Karoryfer Lecolds): Squier Jazz Bass, CC0 — блок bass
         "repo": "sfzinstruments/karoryfer.growlybass",

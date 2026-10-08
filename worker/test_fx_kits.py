@@ -5,7 +5,8 @@ resources.kit(name), sampler по HTTP с настоящим хранилище�
 Контракт (из карточки и контракта задачи):
 - набор `<набор>/<часть>` — файлы `<data>/fx/kits/<набор>/<часть>/*.wav`;
 - GET /fx/assets → добавлено `kits: [{name: "<набор>/<часть>", samples: N}]`;
-- POST /fx/kits/install?name=osdk → `{name, parts: {kick: N, snare: M}, downloaded: bool}`;
+- POST /fx/kits/install?name=osdk → `{name, parts: {kick: N, snare: M, …}, downloaded: bool}`
+  (с условия 26 — ещё hh-closed, hh-half, hh-open, ride, crash, см. ТК30–32);
   воркер сам качает The Open Source Drum Kit (GitHub crabacus/the-open-source-drumkit,
   ветка master): kick/* → kick, snare/snare-top<N>.wav → snare (snare-top-off*,
   snare-top-buttend*, snare-bottom* — нет); загрузка в `<data>/fx/kits/osdk/{kick,snare}/`;
@@ -57,9 +58,38 @@ TREE = {
     "snare/snare-bottom-off2.wav": 0.75,
     "hihat/hihat1.wav": 0.81,
     "toms/tom1.wav": 0.82,
+    # части хэта и тарелок (условие 26): папки и имена — как у настоящего набора,
+    # плюс посторонние файлы рядом (ride-bell, ride-mid-out, crash-bell)
+    "hihat/closed-hihat/chh1.wav": 0.11,
+    "hihat/closed-hihat/chh2.wav": 0.12,
+    "hihat/half-closed-hihat/hchh1.wav": 0.21,
+    "hihat/half-closed-hihat/hchh2.wav": 0.22,
+    "hihat/half-closed-hihat/hchh3.wav": 0.23,
+    "hihat/half-open-hihat/hohh1.wav": 0.31,
+    "hihat/half-open-hihat/hohh2.wav": 0.32,
+    "ride/ride-mid-in1.wav": 0.41,
+    "ride/ride-mid-in2.wav": 0.42,
+    "ride/ride-bell1.wav": 0.91,
+    "ride/ride-mid-out1.wav": 0.92,
+    "crash/crash1.wav": 0.33,
+    "crash/crash2.wav": 0.34,
+    "crash/crash3.wav": 0.35,
+    "crash/crash-bell1.wav": 0.93,
 }
 KICK_PEAKS = {0.51, 0.52, 0.53}
 SNARE_PEAKS = {0.61, 0.62}
+# часть набора osdk → пики файлов, которые в неё попадают (посторонние — нет)
+PART_PEAKS = {
+    "kick": KICK_PEAKS,
+    "snare": SNARE_PEAKS,
+    "hh-closed": {0.11, 0.12},
+    "hh-half": {0.21, 0.22, 0.23},
+    "hh-open": {0.31, 0.32},
+    "ride": {0.41, 0.42},
+    "crash": {0.33, 0.34, 0.35},
+}
+ALL_PARTS = {k: len(v) for k, v in PART_PEAKS.items()}
+ALL_KITS = sorted((f"osdk/{k}", n) for k, n in ALL_PARTS.items())
 KIT_SR = 44100
 
 
@@ -316,17 +346,19 @@ class TestKitInstall(_KitCase):
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertEqual(body.get("name"), "osdk")
-        self.assertEqual(body.get("parts"), {"kick": 3, "snare": 2})
+        self.assertEqual(body.get("parts"), ALL_PARTS)
         self.assertIs(body.get("downloaded"), True)
         self.assertTrue(self.gh.calls, "набор не скачивался")
         self.assertEqual(self.sockets, [], "запрос мимо urllib")
         root = self.kits / "osdk"
-        self.assertEqual(sorted(p.name for p in root.iterdir() if p.is_dir()), ["kick", "snare"])
-        # kick/* → kick (все три), snare-top<N>.wav → snare (только два), прочее не тянется
-        self.assertEqual(set(self._peaks(root / "kick")), KICK_PEAKS)
-        self.assertEqual(len(self._peaks(root / "kick")), 3)
-        self.assertEqual(set(self._peaks(root / "snare")), SNARE_PEAKS)
-        self.assertEqual(len(self._peaks(root / "snare")), 2)
+        self.assertEqual(sorted(p.name for p in root.iterdir() if p.is_dir()), sorted(PART_PEAKS))
+        # kick/* → kick (все три), snare-top<N>.wav → snare (только два), части хэта и
+        # тарелок — только свои файлы (ride-bell, ride-mid-out, crash-bell — нет), прочее не тянется
+        for part, peaks in PART_PEAKS.items():
+            with self.subTest(part=part):
+                got = self._peaks(root / part)
+                self.assertEqual(set(got), peaks)
+                self.assertEqual(len(got), len(peaks))
 
     def test_repeat_without_network(self):
         self.assertEqual(self._install().status_code, 200)
@@ -335,7 +367,7 @@ class TestKitInstall(_KitCase):
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertIs(body.get("downloaded"), False)
-        self.assertEqual(body.get("parts"), {"kick": 3, "snare": 2})
+        self.assertEqual(body.get("parts"), ALL_PARTS)
         self.assertEqual(self.gh.calls, [], "повтор качает заново")
         self.assertEqual(self.sockets, [])
 
@@ -354,7 +386,7 @@ class TestKitInstall(_KitCase):
         kits = self._assets().get("kits")
         self.assertIsInstance(kits, list)
         self.assertEqual(sorted((k["name"], k["samples"]) for k in kits),
-                         [("osdk/kick", 3), ("osdk/snare", 2)])
+                         ALL_KITS)
         # прежние списки на месте
         a = self._assets()
         self.assertIn("amps", a)
@@ -377,9 +409,10 @@ class TestKitInstallRobust(_KitCase):
 
     def _assert_full_kit(self):
         root = self.kits / "osdk"
-        self.assertEqual(sorted(p.name for p in root.iterdir() if p.is_dir()), ["kick", "snare"])
-        self.assertEqual(sorted(self._peaks(root / "kick")), sorted(KICK_PEAKS))
-        self.assertEqual(sorted(self._peaks(root / "snare")), sorted(SNARE_PEAKS))
+        self.assertEqual(sorted(p.name for p in root.iterdir() if p.is_dir()), sorted(PART_PEAKS))
+        for part, peaks in PART_PEAKS.items():
+            with self.subTest(part=part):
+                self.assertEqual(sorted(self._peaks(root / part)), sorted(peaks))
 
     def _no_part_files(self):
         left = [str(p.relative_to(self.data)) for p in self.data.rglob("*") if ".part" in p.name]
@@ -418,13 +451,12 @@ class TestKitInstallRobust(_KitCase):
         for i, r in enumerate(results):
             self.assertIsNotNone(r, f"установка {i} не завершилась")
             self.assertEqual(r.status_code, 200, r.text)
-            self.assertEqual(r.json().get("parts"), {"kick": 3, "snare": 2})
+            self.assertEqual(r.json().get("parts"), ALL_PARTS)
         flags = sorted(r.json().get("downloaded") for r in results)
         self.assertIn(flags, ([False, True], [True, True]), f"downloaded: {flags}")
         self._assert_full_kit()
         self._no_part_files()
-        self.assertEqual(sorted((k["name"], k["samples"]) for k in self._assets()["kits"]),
-                         [("osdk/kick", 3), ("osdk/snare", 2)])
+        self.assertEqual(sorted((k["name"], k["samples"]) for k in self._assets()["kits"]), ALL_KITS)
         self.assertEqual(self.sockets, [])
 
     def _check_failure_then_retry(self, fault):
@@ -446,7 +478,7 @@ class TestKitInstallRobust(_KitCase):
         r = self._install()
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIs(r.json().get("downloaded"), True)
-        self.assertEqual(r.json().get("parts"), {"kick": 3, "snare": 2})
+        self.assertEqual(r.json().get("parts"), ALL_PARTS)
         self._assert_full_kit()
         self._no_part_files()
 
@@ -595,6 +627,119 @@ class TestKitMaxLength(_KitCase):
     def test_tc22_osdk_sample_read_whole(self):
         _long_wav(self.kits / "osdk" / "kick" / "k1.wav")
         self.assertEqual(self._read_len("osdk/kick"), 8 * KIT_SR, "сэмпл osdk 8 с обрезан")
+
+
+# ---------- Условие 26 (этап 5в), ТК30: части хэта и тарелок в наборе osdk ----------
+#
+# Контракт: FX_KITS["osdk"] (та же версия c58808b) получает части hh-closed
+# (hihat/closed-hihat, chh*.wav), hh-half (hihat/half-closed-hihat, hchh*.wav),
+# hh-open (hihat/half-open-hihat, hohh*.wav), ride (ride, ride-mid-in*.wav),
+# crash (crash, crash<N>.wav); шаблон принимает только файлы своей части.
+
+OSDK_NEW_PARTS = {
+    "hh-closed": ("hihat/closed-hihat", ["chh1.wav", "chh12.wav"]),
+    "hh-half": ("hihat/half-closed-hihat", ["hchh1.wav", "hchh7.wav"]),
+    "hh-open": ("hihat/half-open-hihat", ["hohh1.wav", "hohh10.wav"]),
+    "ride": ("ride", ["ride-mid-in1.wav", "ride-mid-in12.wav"]),
+    "crash": ("crash", ["crash1.wav", "crash4.wav"]),
+}
+
+
+class TestOsdkCymbalParts(_KitCase):
+
+    def setUp(self):
+        super().setUp()
+        self.osdk = self.w.FX_KITS["osdk"]
+
+    def test_tc30_same_pinned_version(self):
+        self.assertTrue(self.osdk["ref"].startswith("c58808b"), "версия osdk сменилась")
+        self.assertRegex(self.osdk["ref"], r"^[0-9a-f]{40}$")
+
+    def test_tc30_parts_and_folders(self):
+        parts = self.osdk["parts"]
+        for part in ("kick", "snare"):
+            self.assertIn(part, parts, f"часть {part} этапа 5а пропала")
+        for part, (folder, _) in OSDK_NEW_PARTS.items():
+            with self.subTest(part=part):
+                self.assertIn(part, parts)
+                self.assertEqual(parts[part][0], folder)
+
+    def test_tc30_patterns_accept_only_own_files(self):
+        parts = self.osdk["parts"]
+        for part, (_, own) in OSDK_NEW_PARTS.items():
+            pattern = parts[part][1]
+            for name in own:
+                with self.subTest(part=part, file=name):
+                    self.assertTrue(re.fullmatch(pattern, name), f"{name} не попадает в часть {part}")
+            foreign = [f for p, (_, files) in OSDK_NEW_PARTS.items() if p != part for f in files]
+            foreign += ["kick1.wav", "snare-top1.wav", "readme.txt", f"{own[0]}.bak"]
+            for name in foreign:
+                with self.subTest(part=part, foreign=name):
+                    self.assertFalse(re.fullmatch(pattern, name), f"{name} попал в часть {part}")
+
+    def test_tc30_case_from_card_chh_vs_hchh(self):
+        # пример карточки: chh1.wav — да в hh-closed, hchh1.wav — нет
+        pattern = self.osdk["parts"]["hh-closed"][1]
+        self.assertTrue(re.fullmatch(pattern, "chh1.wav"))
+        self.assertFalse(re.fullmatch(pattern, "hchh1.wav"))
+
+
+# ---------- Условие 26 (этап 5в), ТК32: osdk поверх набора этапа 5а докачивает части ----------
+#
+# На воркере уже есть только osdk/kick и osdk/snare (установка этапа 5а). Повторная установка
+# скачивает лишь недостающие части (hh-closed, hh-half, hh-open, ride, crash), kick/snare не
+# перекачиваются; ответ — downloaded: true, parts — все 7 частей.
+
+LOCAL_KICK = [0.95, 0.96, 0.97]    # пики «старых» файлов: отличаются от файлов GitHub
+LOCAL_SNARE = [0.98, 0.99]
+
+
+class TestOsdkUpgradeAddsParts(_KitCase):
+
+    def setUp(self):
+        super().setUp()
+        self.kick = self._put_kit("osdk", "kick", LOCAL_KICK)
+        self.snare = self._put_kit("osdk", "snare", LOCAL_SNARE)
+        self.before = {str(p.relative_to(self.kits)): p.stat().st_mtime_ns
+                       for p in (self.kits / "osdk").rglob("*.wav")}
+
+    def test_tc32_downloads_only_missing_parts(self):
+        r = self._install()
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertIs(body.get("downloaded"), True, "недостающие части не докачаны")
+        self.assertEqual(body.get("parts"), {**ALL_PARTS, "kick": len(LOCAL_KICK), "snare": len(LOCAL_SNARE)})
+        self.assertEqual(self.sockets, [])
+        root = self.kits / "osdk"
+        for part in ("hh-closed", "hh-half", "hh-open", "ride", "crash"):
+            with self.subTest(part=part):
+                self.assertEqual(sorted(self._peaks(root / part)), sorted(PART_PEAKS[part]))
+
+    def test_tc32_kick_snare_not_redownloaded(self):
+        self.assertEqual(self._install().status_code, 200)
+        # файлы kick/snare — те же («старые» пики, тот же mtime, новых нет)
+        self.assertEqual(sorted(self._peaks(self.kick)), LOCAL_KICK)
+        self.assertEqual(sorted(self._peaks(self.snare)), LOCAL_SNARE)
+        after = {str(p.relative_to(self.kits)): p.stat().st_mtime_ns
+                 for d in (self.kick, self.snare) for p in d.glob("*.wav")}
+        self.assertEqual(after, self.before, "файлы kick/snare перезаписаны")
+        wavs = [urllib.parse.unquote(urllib.parse.urlsplit(u).path) for u in self.gh.calls
+                if u.lower().split("?")[0].endswith(".wav")]
+        self.assertTrue(wavs, "новые части не скачивались")
+        for u in wavs:
+            with self.subTest(url=u):
+                self.assertNotRegex(u, r"/(kick|snare)/", "файл kick/snare скачан заново")
+
+    def test_tc32_then_repeat_without_network(self):
+        self.assertEqual(self._install().status_code, 200)
+        self.gh.calls.clear()
+        r = self._install()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIs(r.json().get("downloaded"), False)
+        self.assertEqual(self.gh.calls, [], "набор полный, а установка снова ходит в сеть")
+        self.assertEqual(sorted((k["name"], k["samples"]) for k in self._assets()["kits"]),
+                         sorted([(n, c) for n, c in ALL_KITS if n not in ("osdk/kick", "osdk/snare")]
+                                + [("osdk/kick", len(LOCAL_KICK)), ("osdk/snare", len(LOCAL_SNARE))]))
 
 
 if __name__ == "__main__":

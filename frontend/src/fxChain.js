@@ -131,9 +131,12 @@ export function missingKits(workerChain, kits) {
   const have = new Set((kits || []).map((k) => k.name))
   const out = []
   for (const b of workerChain || []) {
-    if (!KIT_BLOCKS.includes(b.type) || !b.kit || have.has(b.kit)) continue
-    const kit = String(b.kit).split('/')[0]
-    if (kit && !out.includes(kit)) out.push(kit)
+    if (!KIT_BLOCKS.includes(b.type)) continue
+    for (const name of [b.kit, b.kit_open]) {     // открытые удары (хэт) — тоже набор
+      if (!name || have.has(name)) continue
+      const kit = String(name).split('/')[0]
+      if (kit && !out.includes(kit)) out.push(kit)
+    }
   }
   return out
 }

@@ -31,8 +31,9 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"reverb {ir пусто — встроенный зал, decay_s 1.5, predelay_ms 10, lowpass_hz 8000, wet 0.3}; " +
 	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}; " +
 	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу); " +
-	"sampler {kit «osdk/kick», floor_db −18, output_db 0} — замена ударов части барабанов (source kick/snare) " +
-	"сэмплами набора (fx_kit_install), пик в пик; " +
+	"sampler {kit «osdk/kick», floor_db −18, output_db 0, kit_open «», choke 0} — замена ударов части барабанов " +
+	"(source kick/snare/hh/ride/crash) сэмплами набора (fx_kit_install), пик в пик; kit_open — набор для долго " +
+	"звучащих ударов (хэт: kit osdk/hh-closed, kit_open osdk/hh-half), choke 1 — новый удар глушит предыдущий; " +
 	"bass {kit «growlybass/bass», division 2 (нот на долю), floor_db −20, output_db 0} — замена баса (source bass) " +
 	"сэмплами бас-гитары: ритм — доли дорожки, высота — по басу, громкость и баланс — как у исходного. " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."
@@ -116,10 +117,11 @@ func registerFxTools(s *Server) {
 
 	s.Register(Tool{
 		Name: "fx_kit_install",
-		Description: "Скачать на воркер набор сэмплов: osdk — The Open Source Drum Kit (бочка, малый; " +
-			"общественное достояние) для блока sampler; growlybass — бас-гитара Squier Jazz (Karoryfer, CC0) " +
-			"для блока bass. Повтор — без перекачки. Наборы и их части — в fx_assets (kits: «osdk/kick», " +
-			"«osdk/snare», «growlybass/bass»).",
+		Description: "Скачать на воркер набор сэмплов: osdk — The Open Source Drum Kit (бочка, малый, хэт " +
+			"закрытый/полузакрытый/полуоткрытый, райд, крэш; общественное достояние) для блока sampler; growlybass — " +
+			"бас-гитара Squier Jazz (Karoryfer, CC0) для блока bass. Повтор — без перекачки, недостающие части " +
+			"докачиваются. Наборы и их части — в fx_assets (kits: «osdk/kick», «osdk/snare», «osdk/hh-closed», " +
+			"«osdk/hh-half», «osdk/hh-open», «osdk/ride», «osdk/crash», «growlybass/bass»).",
 		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass", "string")}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			out, err := s.client.InstallFxKit(context.Background(), argString(args, "name"))

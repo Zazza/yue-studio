@@ -461,6 +461,18 @@
      "ru": "громкость, дБ",
      "en": "output, dB"
     }
+   },
+   {
+    "id": "choke",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 1,
+    "integer": true,
+    "label": {
+     "ru": "глушить предыдущий удар (хэт)",
+     "en": "choke previous hit (hi-hat)"
+    }
    }
   ],
   "strings": [
@@ -471,6 +483,16 @@
     "label": {
      "ru": "набор",
      "en": "kit"
+    }
+   },
+   {
+    "id": "kit_open",
+    "asset": "kit",
+    "required": false,
+    "default": "",
+    "label": {
+     "ru": "набор открытых ударов (долго звучащих)",
+     "en": "open-hit kit (long ringing)"
     }
    }
   ]

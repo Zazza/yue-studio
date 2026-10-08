@@ -378,3 +378,33 @@ describe('missingKits: недостающие наборы bass', () => {
     expect(missingKits(deepFreeze([{ type: 'bass' }, { type: 'bass', kit: '' }]), [])).toEqual([])
   })
 })
+
+// Условие 26 (internal-studio-engine, этап 5в), ТК31: автоскачивание набора — и по kit_open
+// блока sampler (второй набор, «открытые» удары хэта).
+describe('missingKits: набор из kit_open', () => {
+  const kits = () => deepFreeze([{ name: 'osdk/hh-closed', samples: 20 }])
+
+  it('kit osdk/hh-closed есть, kit_open osdk/hh-half нет → [\'osdk\']', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/hh-closed', kit_open: 'osdk/hh-half', choke: 1 }])
+    expect(missingKits(chain, kits())).toEqual(['osdk'])
+  })
+
+  it('обе части загружены → []', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/hh-closed', kit_open: 'osdk/hh-half', choke: 1 }])
+    const all = deepFreeze([{ name: 'osdk/hh-closed', samples: 20 }, { name: 'osdk/hh-half', samples: 20 }])
+    expect(missingKits(chain, all)).toEqual([])
+  })
+
+  it('kit_open из другого набора — оба имени, без повторов, в порядке цепочки', () => {
+    const chain = deepFreeze([
+      { type: 'sampler', kit: 'osdk/hh-closed', kit_open: 'other/open' },
+      { type: 'sampler', kit: 'osdk/kick', kit_open: 'osdk/hh-open' },
+    ])
+    expect(missingKits(chain, [])).toEqual(['osdk', 'other'])
+  })
+
+  it('kit_open пустой — как без него', () => {
+    const chain = deepFreeze([{ type: 'sampler', kit: 'osdk/hh-closed', kit_open: '' }])
+    expect(missingKits(chain, kits())).toEqual([])
+  })
+})

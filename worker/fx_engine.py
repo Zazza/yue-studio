@@ -442,36 +442,89 @@ def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
     return [(t, p) for t, p in hits if p >= top * _db(floor_db)]
 
 
-def _sampler(x, sr, p, res):
-    """Замена ударов сэмплами набора: сила удара → слой по рангу (соседние удары — соседние
-    слои по кругу), пик сэмпла — на пик удара (без сдвига); громкость — как у входа."""
-    raw, ksr = _resource(res, "kit", p["kit"])
+def _sampler_layers(res, name: str, sr: int, ch: int) -> list[tuple[float, int, np.ndarray, int]]:
+    """Сэмплы набора как слои (пик, место пика, сэмпл, начало атаки — первый отсчёт ≥ 10 % пика),
+    по возрастанию пика."""
+    raw, ksr = _resource(res, "kit", name)
     layers = []
     for s in raw:
         s = np.asarray(s, dtype=np.float64)
         s = s[:, None] if s.ndim == 1 else s
-        s = _match_channels(_resample(s, int(ksr), sr), x.shape[1])
+        s = _match_channels(_resample(s, int(ksr), sr), ch)
         mono = np.abs(s).sum(axis=1)
         if mono.max() > 0:
-            layers.append((float(np.abs(s).max()), int(np.argmax(mono)), s))
+            layers.append((float(np.abs(s).max()), int(np.argmax(mono)), s,
+                           int(np.argmax(mono >= 0.1 * mono.max()))))
     if not layers:
-        raise ChainError(f"набор {p['kit']!r}: нет сэмплов")
+        raise ChainError(f"набор {name!r}: нет сэмплов")
     layers.sort(key=lambda t: t[0])
-    n = x.shape[0]
+    return layers
+
+
+def _ring(env: np.ndarray, t: int, end: int) -> int:
+    """Сколько звучит удар с пиком на t: до спада огибающей на −20 дБ, не дальше end (следующий удар)."""
+    seg = env[t:max(t + 1, end)]
+    k = np.flatnonzero(seg < seg[0] * 0.1)
+    return int(k[0]) if len(k) else len(seg)
+
+
+def _env5(mono: np.ndarray, sr: int) -> np.ndarray:
+    from scipy.ndimage import uniform_filter1d
+    return np.sqrt(uniform_filter1d(mono * mono, max(1, int(0.005 * sr))))
+
+
+def _sampler(x, sr, p, res):
+    """Замена ударов сэмплами набора: сила удара → слой по рангу (соседние удары — соседние
+    слои по кругу), пик сэмпла — на пик удара (без сдвига); громкость — как у входа.
+    kit_open — второй набор для долго звучащих ударов (открытый хэт): удар звучит во входе (до −20 дБ,
+    не дальше следующего удара) дольше, чем среднее геометрическое типичных времён звучания сэмплов
+    обоих наборов, — берётся kit_open. choke — новый удар глушит предыдущий (педаль хэта)."""
+    n, ch = x.shape
+    sets = [_sampler_layers(res, p["kit"], sr, ch)]
+    if p.get("kit_open"):
+        sets.append(_sampler_layers(res, p["kit_open"], sr, ch))
     y = np.zeros_like(x)
     hits = _hits(x, sr, p["floor_db"])
     if not hits:
         return y
+    kind = [0] * len(hits)
+    if len(sets) > 1:
+        typ = [float(np.median([_ring(_env5(np.abs(s).mean(axis=1), sr), at, len(s)) for _, at, s, _ in L]))
+               for L in sets]
+        edge = np.sqrt(max(typ[0], 1.0) * max(typ[1], 1.0))
+        env = _env5(np.abs(x).mean(axis=1), sr)
+        for i, (t, _) in enumerate(hits):
+            end = hits[i + 1][0] if i + 1 < len(hits) else n
+            kind[i] = int(_ring(env, t, end) >= edge)
     ps = np.array([h[1] for h in hits])
     ranks = np.argsort(np.argsort(ps)) / max(len(ps) - 1, 1)
-    last = len(layers) - 1
-    for i, ((t, pk), r) in enumerate(zip(hits, ranks, strict=True)):
-        k = min(last, max(0, int(round(r * last)) + (i % 3) - 1))   # чередование −1/0/+1 слой
-        peak, at, s = layers[k]
+    fade = max(1, int(0.01 * sr))
+    turn = [0, 0]                                       # чередование слоёв — своё у каждого набора
+    chosen = []
+    for i, r in enumerate(ranks):
+        layers = sets[kind[i]]
+        last = len(layers) - 1
+        chosen.append(layers[min(last, max(0, int(round(r * last)) + (turn[kind[i]] % 3) - 1))])  # −1/0/+1 слой
+        turn[kind[i]] += 1
+    for i, (t, pk) in enumerate(hits):
+        peak, at, s, _ = chosen[i]
         s0 = t - at
         a, b = max(s0, 0), min(s0 + len(s), n)
-        if b > a:
-            y[a:b] += s[a - s0:b - s0] * (pk / peak)
+        if b <= a:
+            continue
+        seg = s[a - s0:b - s0] * (pk / peak)
+        if p.get("choke") and i + 1 < len(hits):
+            # к началу атаки следующего сэмпла — тишина, спад 10 мс; но не раньше собственного пика
+            # (удары ближе 10 мс — глушение не задевает пик текущего)
+            t1, (_, at1, _, att1) = hits[i + 1][0], chosen[i + 1]
+            cut = max(t1 - at1 + att1, t + 1)
+            if cut < b:
+                g = np.ones(b - a)
+                lo = max(a, t, cut - fade)
+                g[lo - a:cut - a] = np.linspace(1, 0, cut - lo, endpoint=False)
+                g[cut - a:] = 0
+                seg = seg * g[:, None]
+        y[a:b] += seg
     rin = _rms(x)
     return y * (rin / max(_rms(y), EPS) if rin > EPS else 1.0) * _db(p["output_db"])
 

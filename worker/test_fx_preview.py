@@ -1023,6 +1023,142 @@ class TestPreviewBass(_PreviewCase):
         self.assertNotEqual(s2, self.w._fx_stamp([], BASS_CHAIN), "новый файл набора bass не меняет штамп")
 
 
+# ---------- Условие 26 (этап 5в), ТК30: хвост превью по длине сэмплов, kit_open в кэше ----------
+#
+# Контракт: превью с sampler — хвост по длине самых длинных сэмплов цепочки (kit и
+# kit_open), от 1 до 4 с: end = min(b + F + хвост, n). _fx_stamp учитывает и файлы
+# набора kit_open. Набор — настоящее хранилище воркера (wav-файлы нужной длины),
+# трек 8 с, чтобы хвост 4 с не упирался в конец трека.
+
+HH_KIT = "mykit/hh-closed"
+HH_KIT_OPEN = "mykit/hh-open"
+LONG_DUR = 8.0
+
+
+def _flat_wav(dur, hz=3000, peak=0.5, sr=SR):
+    """Сэмпл длиной dur: тон без спада (звучит всю длину файла), атака и сход по 2 мс."""
+    import io
+
+    import numpy as np
+    import soundfile as sf
+    n = int(round(dur * sr))
+    k = np.arange(n)
+    r = int(0.002 * sr)
+    env = np.minimum(1.0, np.minimum(k, n - 1 - k) / r)
+    x = (peak * env * np.sin(2 * np.pi * hz * k / sr)).astype(np.float32)
+    buf = io.BytesIO()
+    sf.write(buf, x, sr, format="WAV", subtype="PCM_24")
+    return buf.getvalue()
+
+
+@unittest.skipUnless(fa._OK and _HAS_NP, fa._SKIP)
+class TestPreviewSamplerTailByKit(_PreviewCase):
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(self.w, "fx_resources", self.real_fx_resources)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _put(self, kit, name, dur, hz=3000):
+        d = self.data / "fx" / "kits" / kit
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / name
+        existed = path.exists()
+        old = path.stat().st_mtime_ns if existed else 0
+        path.write_bytes(_flat_wav(dur, hz=hz))
+        if existed:
+            st = path.stat()
+            os.utime(path, ns=(st.st_atime_ns, max(st.st_mtime_ns, old) + 10 * 10**9))
+        return path
+
+    def _hat_job(self):
+        """Джоба 8 с: audio.flac = сумма дорожек, дорожка kick — удары (как _audio_job, длиннее)."""
+        import numpy as np
+        import soundfile as sf
+        from test_fx_engine import _hits
+        jid = self._job(duration=LONG_DUR, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        parts = {k: fa._tone(hz, dur=LONG_DUR) for k, hz in fa.HZ.items()}
+        n = int(LONG_DUR * SR)
+        hits = _hits([int(t * SR) for t in (0.6, 0.9, 1.3)], [0.8] * 3, n, sr=SR)
+        sf.write(str(d / "audio.flac"), np.sum(list(parts.values()), axis=0), SR)
+        for k, x in parts.items():
+            sf.write(str(d / f"stem-{k}.flac"), x, SR)
+        sf.write(str(d / "stem-kick.flac"), hits, SR)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid, d
+
+    def _len(self, chain, fr=0.5, to=1.0, fade=0.0):
+        jid, d = self._hat_job()
+        out = self._ok_preview(jid, chain, fr, to, source="kick", output="solo", fade=fade)
+        y, _ = _read(d / out["file"])
+        self.assertAlmostEqual(out["duration_sec"], len(y) / SR, delta=0.01)
+        return len(y) / SR
+
+    def test_tc30_tail_equals_longest_sample_3s(self):
+        self._put(HH_KIT, "a.wav", 1.0)
+        self._put(HH_KIT, "b.wav", 3.0)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "floor_db": -40}])
+        self.assertAlmostEqual(got, 0.5 + 3.0, delta=2 / SR, msg="сэмплы до 3 с — хвост 3 с")
+
+    def test_tc30_tail_capped_at_4s(self):
+        self._put(HH_KIT, "a.wav", 10.0)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "floor_db": -40}])
+        self.assertAlmostEqual(got, 0.5 + 4.0, delta=2 / SR, msg="сэмпл 10 с — хвост не больше 4 с")
+
+    def test_tc30_tail_at_least_1s(self):
+        self._put(HH_KIT, "a.wav", 0.5)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "floor_db": -40}])
+        self.assertAlmostEqual(got, 0.5 + 1.0, delta=2 / SR, msg="сэмплы 0,5 с — хвост не меньше 1 с")
+
+    def test_tc30_tail_with_fade(self):
+        self._put(HH_KIT, "a.wav", 3.0)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "floor_db": -40}], fade=0.05)
+        self.assertAlmostEqual(got, 0.5 + 0.05 + 3.0, delta=2 / SR)
+
+    def test_tc30_tail_counts_kit_open_samples(self):
+        # самые длинные сэмплы — в kit_open: хвост по ним
+        self._put(HH_KIT, "a.wav", 0.5)
+        self._put(HH_KIT_OPEN, "o.wav", 3.0, hz=6000)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "kit_open": HH_KIT_OPEN, "floor_db": -40}])
+        self.assertAlmostEqual(got, 0.5 + 3.0, delta=2 / SR, msg="хвост не учёл сэмплы kit_open")
+
+    def test_tc30_tail_not_past_track_end(self):
+        # окно 6–6,5 с + хвост 3 с → обрезано концом трека (8 с): 2 с
+        self._put(HH_KIT, "a.wav", 3.0)
+        got = self._len([{"type": "sampler", "kit": HH_KIT, "floor_db": -40}], fr=6.0, to=6.5)
+        self.assertAlmostEqual(got, LONG_DUR - 6.0, delta=2 / SR)
+
+    def test_tc30_fx_stamp_counts_kit_open_files(self):
+        chain = [{"type": "sampler", "kit": HH_KIT, "kit_open": HH_KIT_OPEN}]
+        self._put(HH_KIT, "a.wav", 0.3)
+        self._put(HH_KIT_OPEN, "o.wav", 0.6, hz=6000)
+        s1 = self.w._fx_stamp([], chain)
+        self.assertEqual(s1, self.w._fx_stamp([], chain), "штамп нестабилен")
+        self._put(HH_KIT_OPEN, "o.wav", 0.6, hz=7000)
+        s2 = self.w._fx_stamp([], chain)
+        self.assertNotEqual(s1, s2, "замена файла набора kit_open не меняет штамп")
+        self._put(HH_KIT_OPEN, "extra.wav", 0.6, hz=5000)
+        self.assertNotEqual(s2, self.w._fx_stamp([], chain), "новый файл набора kit_open не меняет штамп")
+
+    # --- ТК35 (кросс-ревью c26): хвост цепочки — больший из хвостов sampler и reverb/delay ---
+
+    def test_tc35_sampler_10s_plus_delay_tail_4s(self):
+        self._put(HH_KIT, "a.wav", 10.0)
+        chain = [{"type": "sampler", "kit": HH_KIT, "floor_db": -40}, *ECHO]
+        got = self._len(chain)
+        self.assertAlmostEqual(got, 0.5 + 4.0, delta=2 / SR, msg="хвост — 3 с эха, а не 4 с сэмплов")
+
+    def test_tc35_sampler_short_plus_reverb_tail_3s(self):
+        self._put(HH_KIT, "a.wav", 0.5)
+        chain = [{"type": "sampler", "kit": HH_KIT, "floor_db": -40}, {"type": "reverb", "wet": 0.3}]
+        got = self._len(chain)
+        self.assertAlmostEqual(got, 0.5 + TAIL, delta=2 / SR, msg="хвост — 1 с сэмплов, а не 3 с реверба")
+
+
 # ---------- ТК7: один источник описания блоков ----------
 
 def _blocks():
@@ -1173,7 +1309,8 @@ class TestSpecFromBlocks(_ParseCase):
                             self.fx.parse_chain([{"type": t}])
                     else:
                         self.assertEqual(self.fx.STR_SPEC[t][s["id"]], s.get("default", ""))
-                        self.assertEqual(self.fx.parse_chain([{"type": t}])[0][s["id"]], s.get("default", ""))
+                        # у блока могут быть и обязательные строки (sampler: kit) — они подставляются
+                        self.assertEqual(self._ok(t)[s["id"]], s.get("default", ""))
 
     def test_tc7_bands_as_in_file(self):
         want = {k: (v["default"], v["min"], v["max"]) for k, v in self.blocks["eq"]["bands"].items()}
