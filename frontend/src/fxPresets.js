@@ -129,6 +129,16 @@ export const fxPresets = [
     chain: [{ type: 'sampler', kit: 'osdk/snare', floor_db: -20, output_db: -2 }],
   },
   {
+    id: 'drums-toms-kit',
+    stems: ['toms'],
+    name: { ru: 'Тамы: набор по высоте', en: 'Toms: kit by pitch' },
+    note: {
+      ru: 'На дорожку «тамы» (RoFormer): удары делятся по высоте — высокие играет малый там, средние — средний, низкие — большой (The Open Source Drum Kit). Близкие по высоте удары (меньше ~2 полутонов) — один там. Набор — fx_kit_install osdk.',
+      en: 'On the "toms" stem (RoFormer): hits are split by pitch — high ones go to the small tom, middle to the medium, low to the large (The Open Source Drum Kit). Hits within ~2 semitones are one tom. Kit — fx_kit_install osdk.',
+    },
+    chain: [{ type: 'sampler', kit: 'osdk/tom-small', kit_mid: 'osdk/tom-medium', kit_low: 'osdk/tom-large', floor_db: -18, output_db: -2 }],
+  },
+  {
     id: 'drums-hh-kit',
     stems: ['hh'],
     name: { ru: 'Хэт: набор', en: 'Hi-hat: kit' },

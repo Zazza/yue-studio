@@ -211,7 +211,7 @@ func ensurePresetKits(ctx context.Context, svc yue.Service, specs []yue.PresetSp
 	var need []string
 	for _, s := range specs {
 		for _, b := range s.Engine {
-			for _, k := range []string{"kit", "kit_open"} {
+			for _, k := range []string{"kit", "kit_open", "kit_mid", "kit_low"} {
 				if v, _ := b[k].(string); v != "" && !slices.Contains(need, v) {
 					need = append(need, v)
 				}

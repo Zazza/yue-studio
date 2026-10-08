@@ -128,6 +128,8 @@ def parse_chain(chain) -> list[dict]:
             norm[k] = v
         if t == "eq":
             norm["bands"] = _parse_bands(where, blk.get("bands", []))
+        if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
+            raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
         out.append(norm)
     return out
 
@@ -485,6 +487,46 @@ def _env5(mono: np.ndarray, sr: int) -> np.ndarray:
     return np.sqrt(np.maximum(uniform_filter1d(mono * mono, max(1, int(0.005 * sr))), 0.0))
 
 
+TOM_FMIN, TOM_FMAX = 50.0, 500.0   # sampler: высота удара тамов — максимум спектра в этой полосе
+TOM_WIN_S = 0.06                    # … по первым 60 мс после пика
+TOM_MERGE = 1.12                    # соседние группы ближе ~2 полутонов — один и тот же там
+
+
+def _hit_pitch(mono: np.ndarray, t: int, sr: int) -> float:
+    """Высота удара: частота максимума спектра 50–500 Гц на TOM_WIN_S после пика (окно Ханна,
+    дополнение нулями до ~1 Гц на бин)."""
+    seg = mono[t:t + int(TOM_WIN_S * sr)]
+    if len(seg) < 16:
+        return 0.0
+    nfft = max(len(seg), sr)
+    spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), nfft))
+    f = np.fft.rfftfreq(nfft, 1.0 / sr)
+    band = (f >= TOM_FMIN) & (f <= TOM_FMAX)
+    return float(f[band][np.argmax(spec[band])]) if band.any() else 0.0
+
+
+def _pitch_groups(pitches: list[float], nkits: int) -> tuple[list[int], int]:
+    """Номер группы каждого удара по высоте (0 — самая низкая): соседние по высоте удары с отношением
+    < TOM_MERGE — одна группа; групп больше, чем наборов, — сливаются ближайшие соседние."""
+    order = np.argsort(pitches)
+    groups: list[list[int]] = []
+    for i in order:
+        if groups and pitches[i] < max(pitches[groups[-1][-1]], 1e-6) * TOM_MERGE:
+            groups[-1].append(int(i))
+        else:
+            groups.append([int(i)])
+    def centre(g):
+        return float(np.exp(np.mean([np.log(max(pitches[k], 1e-6)) for k in g])))
+    while len(groups) > nkits:
+        k = min(range(len(groups) - 1), key=lambda j: centre(groups[j + 1]) / centre(groups[j]))
+        groups[k:k + 2] = [groups[k] + groups[k + 1]]
+    out = [0] * len(pitches)
+    for gi, g in enumerate(groups):
+        for k in g:
+            out[k] = gi
+    return out, len(groups)
+
+
 def _sampler(x, sr, p, res):
     """Замена ударов сэмплами набора: сила удара → слой по рангу (соседние удары — соседние
     слои по кругу), пик сэмпла — на пик удара (без сдвига); громкость — как у входа.
@@ -492,15 +534,37 @@ def _sampler(x, sr, p, res):
     не дальше следующего удара) дольше, чем среднее геометрическое типичных времён звучания сэмплов
     обоих наборов, — берётся kit_open. choke — новый удар глушит предыдущий (педаль хэта)."""
     n, ch = x.shape
+    pitched = bool(p.get("kit_mid") or p.get("kit_low"))
+    if pitched and p.get("kit_open"):
+        raise ChainError("sampler: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
     sets = [_sampler_layers(res, p["kit"], sr, ch)]
-    if p.get("kit_open"):
+    if pitched:
+        # тамы по высоте: наборы от высокого к низкому (kit — малый, kit_mid — средний, kit_low — большой)
+        names = [p["kit"]] + [p[k] for k in ("kit_mid", "kit_low") if p.get(k)]
+        sets = [_sampler_layers(res, nm, sr, ch) for nm in names]
+    elif p.get("kit_open"):
         sets.append(_sampler_layers(res, p["kit_open"], sr, ch))
     y = np.zeros_like(x)
     hits = _hits(x, sr, p["floor_db"])
     if not hits:
         return y
     kind = [0] * len(hits)
-    if len(sets) > 1:
+    if pitched:
+        mono = x.mean(axis=1)
+        grp, ng = _pitch_groups([_hit_pitch(mono, t, sr) for t, _ in hits], len(sets))
+        low = len(sets) - 1                              # индекс набора kit_low (или kit_mid, если low нет)
+        mid = 1 if p.get("kit_mid") else 0
+        for i, g in enumerate(grp):
+            top = ng - 1 - g                             # 0 — самая высокая группа
+            if ng == 1:
+                kind[i] = mid
+            elif top == 0:
+                kind[i] = 0
+            elif g == 0:
+                kind[i] = low
+            else:
+                kind[i] = mid                            # средняя группа — бывает только при трёх наборах
+    elif len(sets) > 1:
         typ = [float(np.median([_ring(_env5(np.abs(s).mean(axis=1), sr), at, len(s)) for _, at, s, _ in L]))
                for L in sets]
         edge = np.sqrt(max(typ[0], 1.0) * max(typ[1], 1.0))
@@ -511,7 +575,7 @@ def _sampler(x, sr, p, res):
     ps = np.array([h[1] for h in hits])
     ranks = np.argsort(np.argsort(ps)) / max(len(ps) - 1, 1)
     fade = max(1, int(0.01 * sr))
-    turn = [0, 0]                                       # чередование слоёв — своё у каждого набора
+    turn = [0] * len(sets)                              # чередование слоёв — своё у каждого набора
     chosen = []
     for i, r in enumerate(ranks):
         layers = sets[kind[i]]

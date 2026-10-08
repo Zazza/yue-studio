@@ -40,3 +40,25 @@ export function applyWindow(sel) {
 export function presetsFor(stem, presets) {
   return (presets || []).filter((p) => !(p.stems && p.stems.length) || p.stems.includes(stem))
 }
+
+// ритм-секция набором: часть → готовая цепочка «набором» (fxPresets), порядок — как в кнопке пульта
+const RHYTHM = [['kick', 'drums-kick-kit'], ['snare', 'drums-snare-kit'], ['toms', 'drums-toms-kit'],
+  ['hh', 'drums-hh-kit'], ['ride', 'drums-ride-kit'], ['crash', 'drums-crash-kit'], ['bass', 'bass-kit']]
+// «комната» — короткое помещение вокруг сухих сэмплов барабанов (то же, что у пресета «Живая ритм-секция»)
+export const ROOM = { type: 'reverb', decay_s: 0.5, predelay_ms: 5, lowpass_hz: 7000, wet: 0.12 }
+
+/** Ритм-секция одной записью: для частей барабанов и баса, которые есть у трека, — {stem, chain, label};
+ *  room — к частям барабанов (не к басу) в конец комната; locale — язык подписи. Нет ни одной — []. */
+export function rhythmSection(stemNames, presets, room, locale = 'ru') {
+  const have = new Set(stemNames || [])
+  const out = []
+  for (const [stem, id] of RHYTHM) {
+    const p = (presets || []).find((x) => x.id === id)
+    if (!have.has(stem) || !p) continue
+    const chain = JSON.parse(JSON.stringify(p.chain))
+    if (room && stem !== 'bass') chain.push({ ...ROOM })
+    const name = p.name[locale] || p.name.ru
+    out.push({ stem, chain, label: name + (room && stem !== 'bass' ? (locale === 'en' ? ' + room' : ' + комната') : '') })
+  }
+  return out
+}

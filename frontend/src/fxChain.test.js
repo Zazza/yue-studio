@@ -408,3 +408,15 @@ describe('missingKits: набор из kit_open', () => {
     expect(missingKits(chain, kits())).toEqual([])
   })
 })
+
+// Кросс-ревью этапа 2: тамы по высоте — kit_mid/kit_low тоже наборы, которые воркер должен скачать.
+describe('missingKits: тамы по высоте', () => {
+  it('kit_mid и kit_low из другого пакета — пакет в списке на скачивание', () => {
+    const chain = [{ type: 'sampler', kit: 'osdk/tom-small', kit_mid: 'other/tom-m', kit_low: 'third/tom-l' }]
+    expect(missingKits(chain, [{ name: 'osdk/tom-small' }])).toEqual(['other', 'third'])
+  })
+  it('все наборы есть — пусто', () => {
+    const chain = [{ type: 'sampler', kit: 'osdk/tom-small', kit_mid: 'osdk/tom-medium', kit_low: 'osdk/tom-large' }]
+    expect(missingKits(chain, [{ name: 'osdk/tom-small' }, { name: 'osdk/tom-medium' }, { name: 'osdk/tom-large' }])).toEqual([])
+  })
+})

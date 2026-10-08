@@ -178,6 +178,18 @@ async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = 
   return rebuild(parentId)
 }
 
+// несколько цепочек движка разом («ритм-секция набором») — одна пересборка
+async function addStemEngines(parentId, items) {
+  if (!(items || []).length) return null
+  const added = items.map(({ stem, chain, from = 0, to = 0, label = '' }) => ({
+    childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'engine', from, to, lead: 0, beat: 0, db: 0,
+    stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, engine: (chain || []).map((b) => ({ ...b })), label,
+  }))
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), ...added] }
+  save()
+  return rebuild(parentId)
+}
+
 // линия громкости дорожки (по волне): одна запись на дорожку — повторная
 // заменяет прежнюю, пустая — убирает; эффекты и вклейки не трогаются
 async function addStemEnvelope(parentId, { stem, envelope }) {
@@ -314,5 +326,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, setOff, remove, replaceEngine, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEnvelope, carryTo, flush, latestFile, mixFile, isBuilding }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, setOff, remove, replaceEngine, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEngines, addStemEnvelope, carryTo, flush, latestFile, mixFile, isBuilding }
 }

@@ -68,7 +68,7 @@ func registerPresetTools(s *Server) {
 			"note":             prop("описание: какой звук получается", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
-			"target_lufs":      prop("громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; null — без цели", "number"),
+			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; null — без цели"},
 			"reference_job_id": prop("трек-эталон, по которому настраивался (необязательно)", "integer"),
 		}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -92,7 +92,7 @@ func registerPresetTools(s *Server) {
 			"note":             prop("описание", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
-			"target_lufs":      prop("громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; не передан — прежняя, null — снять", "number"),
+			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; не передан — прежняя, null — снять"},
 			"reference_job_id": prop("трек-эталон (необязательно)", "integer"),
 		}, "preset_id", "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {

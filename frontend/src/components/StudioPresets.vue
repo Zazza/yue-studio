@@ -27,7 +27,7 @@ const levels = ref({})         // громкость записей выбран
 
 const options = computed(() => presets.value.map((p) => ({ value: p.id, label: p.name })))
 const finalOptions = computed(() => [{ value: 0, label: t('preset.final.none') },
-  ...presets.value.filter((p) => (p.final || []).length).map((p) => ({ value: p.id, label: t('preset.final.of', { name: p.name }) }))])
+  ...presets.value.filter((p) => (p.final || []).length || p.target_lufs != null).map((p) => ({ value: p.id, label: t('preset.final.of', { name: p.name }) }))])
 const fromEdits = computed(() => presetFromEdits(inserts.appliedFor(props.job.id)))
 const finalSteps = computed(() => (presets.value.find((p) => p.id === finalFrom.value) || {}).final || [])
 const current = computed(() => presets.value.find((p) => p.id === presetId.value) || null)

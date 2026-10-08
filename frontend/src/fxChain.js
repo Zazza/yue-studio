@@ -132,7 +132,7 @@ export function missingKits(workerChain, kits) {
   const out = []
   for (const b of workerChain || []) {
     if (!KIT_BLOCKS.includes(b.type)) continue
-    for (const name of [b.kit, b.kit_open]) {     // открытые удары (хэт) — тоже набор
+    for (const name of [b.kit, b.kit_open, b.kit_mid, b.kit_low]) {   // открытые удары (хэт) и тамы по высоте — тоже наборы
       if (!name || have.has(name)) continue
       const kit = String(name).split('/')[0]
       if (kit && !out.includes(kit)) out.push(kit)

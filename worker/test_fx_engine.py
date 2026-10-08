@@ -2320,5 +2320,214 @@ class TestBassPausesQuiet(_StrictWarnings, unittest.TestCase):
         self._check_pauses(y, self._pauses([p / SR for p in hits], dur, len(x) / SR))
 
 
+
+# ---------- internal-own-track, этап 2, условие 15: тамы по высоте — kit_mid/kit_low, ТК32–35 ----------
+#
+# Контракт (из карточки): у sampler необязательные строки kit_mid и kit_low (по умолчанию "").
+# Задана хоть одна — удары делятся по высоте: высота удара — частота максимума спектра
+# 50–500 Гц первых 60 мс после пика; группы — по возрастанию высоты, соседние с отношением
+# высот < 1,12 сливаются; групп не больше, чем наборов. Самая высокая группа → kit, самая
+# низкая → kit_low (нет — kit_mid), средняя → kit_mid; одна группа → kit_mid, если задан,
+# иначе kit. kit_open вместе с kit_mid/kit_low → ChainError. Без них — прежнее поведение.
+#
+# Фейковые наборы различимы по частоте тона-маркера: kit — 1 кГц, kit_mid — 2 кГц,
+# kit_low — 3 кГц (по три слоя одной частоты). Удар «тома» во входе — затухающий синус
+# заданной частоты с пиком |x| на первом отсчёте.
+
+TOM_HI, TOM_MID, TOM_LOW = "test/tom-hi", "test/tom-mid", "test/tom-low"
+TOM_MARK = {TOM_HI: 1000, TOM_MID: 2000, TOM_LOW: 3000}
+
+
+def _tom_res():
+    return FakeResources(kits={name: _kit(hz=(hz,) * 3, peaks=(0.5, 0.75, 1.0))
+                               for name, hz in TOM_MARK.items()})
+
+
+def _tom_hits(freqs, step=0.4, amp=0.8, sr=SR):
+    """Удары по очереди: затухающий синус freqs[i] (спад τ 30 мс, 250 мс), пик |x| на отсчёте."""
+    pos = _positions(len(freqs), start=0.2, step=step)
+    n = pos[-1] + SR
+    x = np.zeros(n, dtype=np.float64)
+    k = np.arange(int(0.25 * sr))
+    for p, f in zip(pos, freqs, strict=True):
+        m = min(len(k), n - p)
+        x[p:p + m] += amp * np.exp(-k[:m] / (0.03 * sr)) * np.cos(2 * np.pi * f * k[:m] / sr)
+    return x.astype(np.float32), pos
+
+
+def _toms(**params):
+    return _sampler(kit=params.pop("kit", TOM_HI), **params)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSamplerTomsByPitch(unittest.TestCase):
+
+    def _run(self, x, chain, res=None):
+        out = _fx().process(x, SR, chain, res if res is not None else _tom_res())
+        self.assertEqual(out.shape, x.shape)
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(np.all(np.isfinite(out)))
+        return out
+
+    def _kit_at(self, y, p, win=0.03):
+        """Какой набор звучит на [p, p+win): имя набора с маркером втрое сильнее остальных; иначе None."""
+        amps = {name: _band_amp(y, hz, p / SR, p / SR + win) for name, hz in TOM_MARK.items()}
+        best = max(amps, key=amps.get)
+        if all(amps[best] > 3 * a for name, a in amps.items() if name != best):
+            return best
+        return None
+
+    def _check(self, y, pos, freqs, want):
+        for p, f in zip(pos, freqs, strict=True):
+            with self.subTest(hit=p, hz=f):
+                self.assertEqual(self._kit_at(y, p), want[f], f"удар {f} Гц — ждали набор {want[f]}")
+
+    # --- ТК32 ---
+
+    def test_tc32_three_toms_three_kits(self):
+        freqs = [220, 140, 90] * 3
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_mid=TOM_MID, kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {220: TOM_HI, 140: TOM_MID, 90: TOM_LOW})
+
+    def test_tc32_hit_peak_in_place(self):
+        # деление по высоте не сдвигает удары: пик выхода на пике удара (±1), как у sampler
+        freqs = [220, 140, 90] * 2
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_mid=TOM_MID, kit_low=TOM_LOW)])
+        for p in pos:
+            with self.subTest(hit=p):
+                at, _ = _peak_near(y, p)
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    # --- ТК33 ---
+
+    def test_tc33_two_toms_three_kits_high_and_low(self):
+        freqs = [200, 100] * 4
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_mid=TOM_MID, kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {200: TOM_HI, 100: TOM_LOW})
+
+    def test_tc33_single_pitch_goes_to_kit_mid(self):
+        freqs = [150] * 6
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_mid=TOM_MID, kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {150: TOM_MID})
+
+    def test_tc33_close_pitches_merge_into_one_group(self):
+        # 160/150 ≈ 1,067 < 1,12 (меньше 2 полутонов) — одна группа → kit_mid
+        freqs = [150, 160] * 4
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_mid=TOM_MID, kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {150: TOM_MID, 160: TOM_MID})
+
+    # --- ТК34 ---
+
+    def test_tc34_only_kit_low(self):
+        freqs = [220, 90] * 4
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {220: TOM_HI, 90: TOM_LOW})
+
+    def test_single_pitch_without_kit_mid_goes_to_kit(self):
+        # одна группа, kit_mid не задан → kit
+        freqs = [150] * 6
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_low=TOM_LOW)])
+        self._check(y, pos, freqs, {150: TOM_HI})
+
+    def test_groups_not_more_than_kits(self):
+        # три высоты, два набора (kit, kit_low): крайние — в свои наборы, kit_mid не звучит
+        freqs = [220, 140, 90] * 3
+        x, pos = _tom_hits(freqs)
+        y = self._run(x, [_toms(kit_low=TOM_LOW)])
+        self._check(y, [p for p, f in zip(pos, freqs, strict=True) if f != 140],
+                    [f for f in freqs if f != 140], {220: TOM_HI, 90: TOM_LOW})
+        for p, f in zip(pos, freqs, strict=True):
+            if f == 140:
+                with self.subTest(hit=p, hz=f):
+                    self.assertIn(self._kit_at(y, p), (TOM_HI, TOM_LOW))
+
+    def test_tc34_kit_open_with_kit_mid_or_low_is_chain_error(self):
+        fx = _fx()
+        for extra in ({"kit_mid": TOM_MID}, {"kit_low": TOM_LOW}, {"kit_mid": TOM_MID, "kit_low": TOM_LOW}):
+            with self.subTest(extra=extra):
+                # без kit_open та же цепочка валидна — ошибку даёт именно сочетание
+                fx.parse_chain([_toms(**extra)])
+                with self.assertRaises(fx.ChainError) as cm:
+                    fx.parse_chain([_toms(kit_open="osdk/hh-half", **extra)])
+                self.assertIn("kit_open", str(cm.exception), "причина не называет kit_open")
+                x, _ = _tom_hits([220, 90])
+                res = _tom_res()
+                res.kits["osdk/hh-half"] = _kit(hz=(5000,) * 3, peaks=(0.5, 0.75, 1.0))
+                with self.assertRaises(fx.ChainError):
+                    fx.process(x, SR, [_toms(kit_open="osdk/hh-half", **extra)], res)
+
+    def test_empty_kit_open_with_kit_mid_ok(self):
+        # kit_open "" — «нет набора», с kit_mid не конфликтует
+        fx = _fx()
+        fx.parse_chain([_toms(kit_open="", kit_mid=TOM_MID)])
+
+    # --- проверка блока ---
+
+    def test_parse_kit_mid_kit_low(self):
+        fx = _fx()
+        got = fx.parse_chain([{"type": "sampler", "kit": "osdk/tom-small"}])[0]
+        self.assertEqual(got.get("kit_mid", ""), "", "kit_mid по умолчанию — не пустая строка")
+        self.assertEqual(got.get("kit_low", ""), "", "kit_low по умолчанию — не пустая строка")
+        ok = fx.parse_chain([{"type": "sampler", "kit": "osdk/tom-small",
+                              "kit_mid": "osdk/tom-medium", "kit_low": "osdk/tom-large"}])[0]
+        self.assertEqual(ok["kit_mid"], "osdk/tom-medium")
+        self.assertEqual(ok["kit_low"], "osdk/tom-large")
+        for bad in ({"kit_mid": 5}, {"kit_mid": ["a/b"]}, {"kit_low": 5}, {"kit_low": None}):
+            with self.subTest(bad=bad), self.assertRaises(fx.ChainError):
+                fx.parse_chain([{"type": "sampler", "kit": "osdk/tom-small", **bad}])
+
+    def test_in_blocks_json_kit_mid_kit_low(self):
+        import os
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fx_blocks.json")) as f:
+            spec = json.load(f)["sampler"]
+        strings = {s["id"]: s for s in spec["strings"]}
+        for sid in ("kit_mid", "kit_low"):
+            with self.subTest(string=sid):
+                self.assertIn(sid, strings)
+                self.assertEqual(strings[sid].get("asset"), "kit")
+                self.assertFalse(strings[sid].get("required"))
+                self.assertEqual(strings[sid].get("default", ""), "")
+
+
+# --- ТК35: без kit_mid/kit_low выход sampler прежний ---
+#
+# Отпечаток выхода снят с реализации ДО этапа 2 (коммит 41a1cee) на фиксированных входе и
+# наборе: сумма, сумма квадратов, «центр тяжести» Σ n·y / N и место максимума |y|.
+
+TC35_FINGERPRINT = (9.856788797315026, 497.798102510382, 3.2186065272887605, 9617)
+
+
+def _tc35_input():
+    pos = _positions(8)
+    return _hits(pos, [0.9, 0.5, 0.7, 0.6, 0.9, 0.4, 0.8, 0.7], pos[-1] + SR)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSamplerWithoutPitchKitsUnchanged(unittest.TestCase):
+
+    def test_tc35_same_as_before_stage2(self):
+        y = np.asarray(_fx().process(_tc35_input(), SR, [_sampler(floor_db=-30)], _kit_res()), dtype=np.float64)
+        n = np.arange(len(y))
+        got = (float(y.sum()), float((y * y).sum()), float((n * y).sum() / len(y)))
+        for name, g, w in zip(("сумма", "сумма квадратов", "центр"), got, TC35_FINGERPRINT[:3], strict=True):
+            with self.subTest(part=name):
+                self.assertAlmostEqual(g, w, delta=1e-7 * max(1.0, abs(w)), msg=f"{name}: {g!r}, было {w!r}")
+        self.assertEqual(int(np.argmax(np.abs(y))), TC35_FINGERPRINT[3])
+
+    def test_tc35_empty_strings_bitwise_same_as_absent(self):
+        x = _tc35_input()
+        fx = _fx()
+        base = fx.process(x, SR, [_sampler(floor_db=-30)], _kit_res())
+        empty = fx.process(x, SR, [_sampler(floor_db=-30, kit_mid="", kit_low="")], _kit_res())
+        self.assertTrue(np.array_equal(base, empty), "kit_mid/kit_low \"\" меняют выход")
+
+
 if __name__ == "__main__":
     unittest.main()

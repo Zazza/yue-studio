@@ -869,6 +869,76 @@ describe('addStemEngine — цепочка движка на дорожку че
   })
 })
 
+// Карточка internal-own-track, этап 2, условие 16 (тест-кейс ТК38): addStemEngines(parentId, items) —
+// несколько записей движка (каждая как в addStemEngine) одной пересборкой. Написаны по
+// карточке, без чтения реализации.
+describe('addStemEngines — несколько цепочек движка одной пересборкой (ТК38)', () => {
+  const smp = kit => [{ type: 'sampler', kit }]
+  const items = [
+    { stem: 'kick', chain: smp('osdk/kick'), from: 0, to: 0, label: 'Бочка: набор' },
+    { stem: 'snare', chain: smp('osdk/snare'), from: 0, to: 0, label: 'Малый: набор' },
+    { stem: 'bass', chain: [{ type: 'bass', kit: 'growlybass/bass' }], from: 0, to: 0, label: 'Бас: бас-гитара (набор)' },
+  ]
+  const engSpecs = specs => specs.filter(s => Array.isArray(s.engine) && s.engine.length)
+
+  it('три записи → одна пересборка, в ней все три цепочки', async () => {
+    const ins = await load({})
+    await ins.addStemEngines('P', items)
+    await flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    const [parent, specs] = apiMock.rebuildSections.mock.calls[0]
+    expect(parent).toBe('P')
+    const eng = engSpecs(specs)
+    expect(eng.length).toBe(3)
+    for (const item of items) {
+      const s = eng.find(x => x.stems[0] === item.stem)
+      expect(s).toMatchObject({ child_id: 0, stems: [item.stem], from: 0, to: 0, db: 0 })
+      expect(s.engine).toEqual(item.chain)
+    }
+  })
+
+  it('все три — в реестре: instId engine, уникальные отрицательные childId, label; вклейки на месте', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemEngines('P', items)
+    await flush()
+    const reg = ins.appliedFor('P')
+    expect(reg.some(x => x.childId === 1)).toBe(true)
+    const recs = reg.filter(x => x.childId < 0)
+    expect(recs.length).toBe(3)
+    expect(new Set(recs.map(r => r.childId)).size).toBe(3)
+    for (const item of items) {
+      const r = recs.find(x => x.stems[0] === item.stem)
+      expect(r).toMatchObject({ instId: 'engine', stems: [item.stem], from: 0, to: 0, db: 0, label: item.label })
+      expect(r.engine).toEqual(item.chain)
+    }
+    // вклейка A вошла в ту же пересборку
+    expect(apiMock.rebuildSections.mock.calls[0][1].some(s => s.child_id === 1)).toBe(true)
+  })
+
+  it('окно выделения доходит до каждой записи', async () => {
+    const ins = await load({})
+    await ins.addStemEngines('P', items.map(item => ({ ...item, from: 12, to: 27 })))
+    await flush()
+    for (const s of engSpecs(apiMock.rebuildSections.mock.calls[0][1])) expect(s).toMatchObject({ from: 12, to: 27 })
+  })
+
+  it('пустой список — без пересборки, реестр не меняется', async () => {
+    const ins = await load({ applied: { P: [A] } })
+    await ins.addStemEngines('P', [])
+    await flush()
+    expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    expect(ins.appliedFor('P').map(x => x.childId)).toEqual([1])
+  })
+
+  it('реестр сохраняется в localStorage: все три записи', async () => {
+    const ins = await load({})
+    await ins.addStemEngines('P', items)
+    await flush()
+    const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+    expect(saved.P.filter(x => x.childId < 0).map(x => x.stems[0]).sort()).toEqual(['bass', 'kick', 'snare'])
+  })
+})
+
 // Карточка internal-own-track, этап 0, условие 1 (тест-кейсы ТК1–ТК7): реестр правок —
 // выключить (setOff), удалить (remove), заменить цепочку движка (replaceEngine);
 // пересборка без активных записей не зовёт воркер; latestFile — только по активным;

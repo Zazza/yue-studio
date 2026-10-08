@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -435,5 +436,50 @@ func TestSoundPresetTargetLUFSCreateUpdate(t *testing.T) {
 	}
 	if got := fake.updated[1].p.TargetLUFS; got != nil {
 		t.Fatalf("update с null: %v, want nil", *got)
+	}
+}
+
+// Карточка internal-own-track, этап 2, условие 19 (ТК40): схема target_lufs у sound_preset_create
+// и sound_preset_update допускает null — тип в JSON Schema списком ["number","null"] (иначе
+// клиент MCP отвергает явный null, которым update снимает цель). Схема берётся так, как её
+// отдаёт tools/list: InputSchema инструмента, сериализованная в JSON.
+func TestSoundPresetTargetLUFSSchemaNullable(t *testing.T) {
+	s, _ := newPresetServer(t)
+	for _, name := range []string{"sound_preset_create", "sound_preset_update"} {
+		t.Run(name, func(t *testing.T) {
+			s.mu.RLock()
+			tool, ok := s.tools[name]
+			s.mu.RUnlock()
+			if !ok {
+				t.Fatalf("инструмент %s не зарегистрирован", name)
+			}
+			raw, err := json.Marshal(tool.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sc struct {
+				Properties map[string]struct {
+					Type json.RawMessage `json:"type"`
+				} `json:"properties"`
+			}
+			if err := json.Unmarshal(raw, &sc); err != nil {
+				t.Fatal(err)
+			}
+			prop, ok := sc.Properties["target_lufs"]
+			if !ok {
+				t.Fatalf("в схеме %s нет target_lufs: %s", name, raw)
+			}
+			var types []string
+			if err := json.Unmarshal(prop.Type, &types); err != nil {
+				t.Fatalf("type у target_lufs — не список: %s", prop.Type)
+			}
+			has := map[string]bool{}
+			for _, ty := range types {
+				has[ty] = true
+			}
+			if !has["null"] || !has["number"] || len(types) != 2 {
+				t.Fatalf("type у target_lufs = %v, want [number null]", types)
+			}
+		})
 	}
 }

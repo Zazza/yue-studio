@@ -75,6 +75,17 @@ TREE = {
     "crash/crash2.wav": 0.34,
     "crash/crash3.wav": 0.35,
     "crash/crash-bell1.wav": 0.93,
+    # тамы трёх размеров (internal-own-track, этап 2, условие 15): верхние микрофоны
+    # small-/medium-/large-tom<N>; нижние (*-under*) — посторонние
+    "toms/small-tom1.wav": 0.13,
+    "toms/small-tom12.wav": 0.14,
+    "toms/small-tom-under1.wav": 0.94,
+    "toms/medium-tom1.wav": 0.15,
+    "toms/medium-tom2.wav": 0.16,
+    "toms/medium-tom-under2.wav": 0.95,
+    "toms/large-tom1.wav": 0.17,
+    "toms/large-tom3.wav": 0.18,
+    "toms/large-tom-under-alt3.wav": 0.96,
 }
 KICK_PEAKS = {0.51, 0.52, 0.53}
 SNARE_PEAKS = {0.61, 0.62}
@@ -87,6 +98,10 @@ PART_PEAKS = {
     "hh-open": {0.31, 0.32},
     "ride": {0.41, 0.42},
     "crash": {0.33, 0.34, 0.35},
+    # этап 2, условие 15: тамы по размеру
+    "tom-small": {0.13, 0.14},
+    "tom-medium": {0.15, 0.16},
+    "tom-large": {0.17, 0.18},
 }
 ALL_PARTS = {k: len(v) for k, v in PART_PEAKS.items()}
 ALL_KITS = sorted((f"osdk/{k}", n) for k, n in ALL_PARTS.items())
@@ -740,6 +755,66 @@ class TestOsdkUpgradeAddsParts(_KitCase):
         self.assertEqual(sorted((k["name"], k["samples"]) for k in self._assets()["kits"]),
                          sorted([(n, c) for n, c in ALL_KITS if n not in ("osdk/kick", "osdk/snare")]
                                 + [("osdk/kick", len(LOCAL_KICK)), ("osdk/snare", len(LOCAL_SNARE))]))
+
+
+
+# ---------- internal-own-track, этап 2, условие 15, ТК36: тамы в наборе osdk ----------
+#
+# Контракт (из карточки): FX_KITS["osdk"] получает части tom-small, tom-medium, tom-large —
+# папка toms, файлы small-tom<N>.wav / medium-tom<N>.wav / large-tom<N>.wav; нижние
+# микрофоны (*-under*) не берутся. Шаблон части — re.fullmatch по имени файла.
+
+OSDK_TOM_PARTS = {
+    "tom-small": ("toms", ["small-tom1.wav", "small-tom12.wav"]),
+    "tom-medium": ("toms", ["medium-tom1.wav", "medium-tom7.wav"]),
+    "tom-large": ("toms", ["large-tom1.wav", "large-tom3.wav"]),
+}
+TOM_UNDER = ["small-tom-under1.wav", "medium-tom-under2.wav", "large-tom-under-alt3.wav",
+             "large-tom-under3.wav"]
+
+
+class TestOsdkTomParts(_KitCase):
+
+    def setUp(self):
+        super().setUp()
+        self.parts = self.w.FX_KITS["osdk"]["parts"]
+
+    def test_tc36_parts_and_folder(self):
+        for part, (folder, _) in OSDK_TOM_PARTS.items():
+            with self.subTest(part=part):
+                self.assertIn(part, self.parts)
+                self.assertEqual(self.parts[part][0], folder)
+
+    def test_tc36_patterns_accept_only_own_files(self):
+        for part, (_, own) in OSDK_TOM_PARTS.items():
+            pattern = self.parts[part][1]
+            for name in own:
+                with self.subTest(part=part, file=name):
+                    self.assertTrue(re.fullmatch(pattern, name), f"{name} не попадает в часть {part}")
+            foreign = [f for p, (_, files) in OSDK_TOM_PARTS.items() if p != part for f in files]
+            foreign += TOM_UNDER + ["tom1.wav", "kick1.wav", f"{own[0]}.bak"]
+            for name in foreign:
+                with self.subTest(part=part, foreign=name):
+                    self.assertFalse(re.fullmatch(pattern, name), f"{name} попал в часть {part}")
+
+    def test_tc36_cases_from_card(self):
+        # примеры карточки: «small-tom-under1.wav», «large-tom-under-alt3.wav» — нет; «small-tom12.wav» — да
+        small = self.parts["tom-small"][1]
+        large = self.parts["tom-large"][1]
+        self.assertTrue(re.fullmatch(small, "small-tom12.wav"))
+        self.assertFalse(re.fullmatch(small, "small-tom-under1.wav"))
+        self.assertFalse(re.fullmatch(large, "large-tom-under-alt3.wav"))
+
+    def test_tc36_install_puts_toms_by_size(self):
+        r = self._install()
+        self.assertEqual(r.status_code, 200, r.text)
+        parts = r.json().get("parts") or {}
+        root = self.kits / "osdk"
+        for part in OSDK_TOM_PARTS:
+            with self.subTest(part=part):
+                self.assertEqual(parts.get(part), len(PART_PEAKS[part]))
+                got = self._peaks(root / part)
+                self.assertEqual(sorted(got), sorted(PART_PEAKS[part]), "в часть попали чужие файлы (under?)")
 
 
 if __name__ == "__main__":

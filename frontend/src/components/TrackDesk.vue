@@ -16,7 +16,7 @@ import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain, missingRequired } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { insertTitle, insertWindow } from '../insertLabels.js'
-import { deskRows, previewWindow, applyWindow, presetsFor } from '../trackDesk.js'
+import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection } from '../trackDesk.js'
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -162,6 +162,36 @@ async function apply() {
   } catch (e) { err.value = String(e) } finally { busy.value = ''; loadAssets() }
 }
 
+// ритм-секция набором: все части барабанов и бас, что есть у трека, — одной пересборкой
+const room = ref(true)
+const rhythm = computed(() => rhythmSection(props.stems.map((s) => s.name), fxPresets, room.value, locale.value))
+// окно ритм-секции — всегда выделение (нет — весь трек), не окно открытой на правку записи
+const rhythmWin = computed(() => applyWindow(props.sel))
+const rhythmCaption = computed(() => (rhythmWin.value.to > 0
+  ? t('engine.window', { from: rhythmWin.value.from.toFixed(1), to: rhythmWin.value.to.toFixed(1) })
+  : t('engine.whole')))
+async function applyRhythm() {
+  err.value = ''
+  msg.value = ''
+  const jobId = props.job.id
+  const dur = props.job.duration_sec
+  const items = rhythm.value.map((r) => ({ ...r, ...rhythmWin.value }))   // всё — до первого await
+  busy.value = 'rhythm'
+  try {
+    // каждая цепочка — проверка коротким превью, как у «в трек»: запись, которую воркер не примет
+    // (движок выключен, нет набора, старый воркер), роняла бы каждую следующую пересборку трека
+    const recs = []
+    for (const it of items) {
+      recs.push(await applyEngine(api, { jobId, dur, src: it.stem, from: it.from, to: it.to, chain: it.chain, label: it.label },
+        { oldMsg: t('instr.engine.old'), onKit: () => { busy.value = 'kit' } }))
+      busy.value = 'rhythm'
+    }
+    await inserts.addStemEngines(jobId, recs)
+    msg.value = t('desk.rhythm.done', { n: items.length })
+    emit('applied')
+  } catch (e) { err.value = String(e) } finally { busy.value = ''; loadAssets() }
+}
+
 async function installKit(name) {
   err.value = ''
   busy.value = 'kit'
@@ -186,6 +216,14 @@ async function upload(kind) {
     <button class="ghost small-btn" :disabled="!!busy" :title="t('desk.resplit.tip')" @click="makeStems">
       {{ busy === 'stems' ? t('instr.stems.busy') : t('desk.resplit') }}</button>
   </div>
+  <div v-if="stems.length" class="dsp-row">
+    <button class="primary small" :disabled="!!busy || !rhythm.length" :title="t('desk.rhythm.tip')" @click="applyRhythm">
+      {{ busy === 'rhythm' ? t('instr.busy') : busy === 'kit' ? t('instr.kit.busy') : t('desk.rhythm') }}</button>
+    <label class="muted" :title="t('desk.room.tip')"><input v-model="room" type="checkbox" /> {{ t('desk.room') }}</label>
+    <span v-if="!rhythm.length" class="muted">{{ t('desk.rhythm.none') }}</span>
+    <span v-else class="muted">{{ rhythm.map((r) => stemName(r.stem)).join(', ') }} · {{ rhythmCaption }}</span>
+  </div>
+  <p v-if="msg && !open" class="muted">{{ msg }}</p>
   <div v-for="row in rows" :key="row.stem" class="desk-row" :class="{ open: open === row.stem }">
     <div class="desk-head">
       <button class="ghost play-mini" :class="{ stop: isPlaying(stemKey(row)) }" :disabled="playBusy[stemKey(row)]"

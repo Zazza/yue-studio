@@ -494,6 +494,26 @@
      "ru": "набор открытых ударов (долго звучащих)",
      "en": "open-hit kit (long ringing)"
     }
+   },
+   {
+    "id": "kit_mid",
+    "asset": "kit",
+    "required": false,
+    "default": "",
+    "label": {
+     "ru": "набор средних (тамы по высоте)",
+     "en": "mid kit (toms by pitch)"
+    }
+   },
+   {
+    "id": "kit_low",
+    "asset": "kit",
+    "required": false,
+    "default": "",
+    "label": {
+     "ru": "набор низких (тамы по высоте)",
+     "en": "low kit (toms by pitch)"
+    }
    }
   ]
  },

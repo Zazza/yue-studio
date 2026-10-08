@@ -32,8 +32,10 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"delay {time_ms 375, feedback 0.35, lowpass_hz 6000, wet 0.3}; " +
 	"gain {gain_db 0} — громкость (перегруз и усилитель выравнивают выход по входу); " +
 	"sampler {kit «osdk/kick», floor_db −18, output_db 0, kit_open «», choke 0} — замена ударов части барабанов " +
-	"(source kick/snare/hh/ride/crash) сэмплами набора (fx_kit_install), пик в пик; kit_open — набор для долго " +
+	"(source kick/snare/toms/hh/ride/crash) сэмплами набора (fx_kit_install), пик в пик; kit_open — набор для долго " +
 	"звучащих ударов (хэт: kit osdk/hh-closed, kit_open osdk/hh-half), choke 1 — новый удар глушит предыдущий; " +
+	"kit_mid/kit_low — тамы по высоте (source toms: kit osdk/tom-small, kit_mid osdk/tom-medium, kit_low osdk/tom-large; " +
+	"высокие удары — kit, низкие — kit_low; с kit_open нельзя); " +
 	"bass {kit «growlybass/bass», division 2 (нот на долю), floor_db −20, output_db 0} — замена баса (source bass) " +
 	"сэмплами бас-гитары: ритм — доли дорожки, высота — по басу, громкость и баланс — как у исходного. " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."

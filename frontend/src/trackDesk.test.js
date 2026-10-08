@@ -3,7 +3,8 @@
 // окно записи в трек, готовые цепочки для дорожки. Окна — {from, to} в секундах.
 // Написаны по карточке, без чтения реализации.
 import { describe, it, expect } from 'vitest'
-import { deskRows, previewWindow, applyWindow, presetsFor } from './trackDesk.js'
+import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection } from './trackDesk.js'
+import { fxPresets } from './fxPresets.js'
 
 // запись реестра правок (как в useInserts): нужны childId, stems, off
 const rec = (childId, stems, over = {}) => ({ childId, instId: 'engine', from: 0, to: 0, db: 0, stems, ...over })
@@ -131,5 +132,102 @@ describe('presetsFor — готовые цепочки для дорожки (Т
 
   it('пустой список пресетов → пусто', () => {
     expect(presetsFor('vocals', [])).toEqual([])
+  })
+})
+
+// Карточка internal-own-track, этап 2, условия 15–17 (тест-кейс ТК37): ритм-секция одной
+// записью. rhythmSection(stemNames, presets, room) → [{stem, chain, label}] в порядке kick,
+// snare, toms, hh, ride, crash, bass — только для частей, которые есть у трека; цепочки —
+// готовые «набором» из fxPresets; при room к каждой части барабанов (не баса) в конец —
+// reverb «комната». Написаны по карточке, без чтения реализации.
+describe('rhythmSection — ритм-секция набором (ТК37)', () => {
+  const ROOM = { type: 'reverb', decay_s: 0.5, predelay_ms: 5, lowpass_hz: 7000, wet: 0.12 }
+  // готовые цепочки «набором» по частям (id пресетов fxPresets)
+  const PRESET_OF = {
+    kick: 'drums-kick-kit',
+    snare: 'drums-snare-kit',
+    toms: 'drums-toms-kit',
+    hh: 'drums-hh-kit',
+    ride: 'drums-ride-kit',
+    crash: 'drums-crash-kit',
+    bass: 'bass-kit',
+  }
+  const presetChain = stem => fxPresets.find(p => p.id === PRESET_OF[stem]).chain
+  const stemsOf = list => list.map(x => x.stem)
+  const snapshot = () => JSON.parse(JSON.stringify(fxPresets))
+
+  it('части трека → kick, snare, hh, bass по порядку; «прочее» пропускается', () => {
+    const out = rhythmSection(['kick', 'snare', 'hh', 'bass', 'other'], fxPresets, true)
+    expect(stemsOf(out)).toEqual(['kick', 'snare', 'hh', 'bass'])
+  })
+
+  it('порядок карточки не зависит от порядка дорожек трека', () => {
+    const all = ['bass', 'crash', 'ride', 'hh', 'toms', 'snare', 'kick', 'vocals', 'drums', 'other']
+    expect(stemsOf(rhythmSection(all, fxPresets, false))).toEqual(['kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass'])
+  })
+
+  it('room: у частей барабанов последний блок — комната с параметрами карточки, перед ней — готовая цепочка', () => {
+    const out = rhythmSection(['kick', 'snare', 'hh', 'bass', 'other'], fxPresets, true)
+    for (const r of out.filter(x => x.stem !== 'bass')) {
+      expect(r.chain.at(-1)).toMatchObject(ROOM)
+      expect(r.chain.slice(0, -1)).toEqual(presetChain(r.stem))
+    }
+  })
+
+  it('room: у баса комнаты нет — цепочка «бас-гитара набором» как есть', () => {
+    const bass = rhythmSection(['kick', 'bass'], fxPresets, true).find(x => x.stem === 'bass')
+    expect(bass.chain.some(b => b.type === 'reverb')).toBe(false)
+    expect(bass.chain).toEqual(presetChain('bass'))
+  })
+
+  it('room=false — без комнаты: цепочки готовые как есть', () => {
+    const out = rhythmSection(['kick', 'snare', 'hh', 'bass', 'other'], fxPresets, false)
+    expect(out.length).toBe(4)
+    for (const r of out) {
+      expect(r.chain.some(b => b.type === 'reverb')).toBe(false)
+      expect(r.chain).toEqual(presetChain(r.stem))
+    }
+  })
+
+  it('у каждой записи есть подпись', () => {
+    for (const r of rhythmSection(['kick', 'toms', 'bass'], fxPresets, true)) {
+      expect(typeof r.label).toBe('string')
+      expect(r.label.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('нет ни частей барабанов, ни баса → []', () => {
+    expect(rhythmSection(['vocals', 'drums', 'other', 'guitar'], fxPresets, true)).toEqual([])
+    expect(rhythmSection([], fxPresets, true)).toEqual([])
+  })
+
+  it('только бас (частей барабанов нет) → одна запись баса', () => {
+    expect(stemsOf(rhythmSection(['vocals', 'bass', 'other'], fxPresets, true))).toEqual(['bass'])
+  })
+
+  it('toms есть → цепочка «Тамы: набор по высоте» (+ комната)', () => {
+    const out = rhythmSection(['toms'], fxPresets, true)
+    expect(stemsOf(out)).toEqual(['toms'])
+    expect(out[0].chain.slice(0, -1)).toEqual(presetChain('toms'))
+    expect(out[0].chain.at(-1)).toMatchObject(ROOM)
+  })
+
+  it('готовая цепочка тамов: stems [toms], sampler tom-small / tom-medium / tom-large', () => {
+    const p = fxPresets.find(x => x.id === 'drums-toms-kit')
+    expect(p).toBeTruthy()
+    expect(p.stems).toEqual(['toms'])
+    expect(p.name.ru).toBe('Тамы: набор по высоте')
+    const smp = p.chain.find(b => b.type === 'sampler')
+    expect(smp).toMatchObject({ kit: 'osdk/tom-small', kit_mid: 'osdk/tom-medium', kit_low: 'osdk/tom-large' })
+  })
+
+  it('пресеты не портятся: комната не дописывается в fxPresets, повторный вызов — тот же результат', () => {
+    const before = snapshot()
+    const a = rhythmSection(['kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass'], fxPresets, true)
+    const b = rhythmSection(['kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass'], fxPresets, true)
+    expect(snapshot()).toEqual(before)
+    expect(b).toEqual(a)
+    a[0].chain.push({ type: 'gain', gain_db: 1 })
+    expect(snapshot()).toEqual(before)
   })
 })

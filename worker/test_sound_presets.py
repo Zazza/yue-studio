@@ -37,7 +37,9 @@ from test_pure import _HAS_WORKER_DEPS, _WorkerApiCase
 
 _SKIP = "нужны fastapi/httpx/numpy (окружение воркера)"
 
-BUILTIN_SLUGS = {"transmission", "sex-on-fire"}
+# этап 2, условие 18 (internal-own-track): третий встроенный — live-rhythm
+BUILTIN_SLUGS = {"transmission", "sex-on-fire", "live-rhythm"}
+NB = len(BUILTIN_SLUGS)
 # валидная цепочка движка: блок eq из fx_blocks.json
 ENGINE = [{"type": "eq", "highpass_hz": 80}]
 FINAL = [{"chain": "width", "params": {"width": 1.1, "bass": 120}},
@@ -122,9 +124,9 @@ class _PresetCase(_WorkerApiCase):
 @unittest.skipUnless(_HAS_WORKER_DEPS, _SKIP)
 class TestBuiltinPresets(_PresetCase):
 
-    def test_tc13_empty_db_has_two_builtins(self):
+    def test_tc13_empty_db_has_builtins(self):
         lst = self._list()
-        self.assertEqual(len(lst), 2, lst)
+        self.assertEqual(len(lst), NB, lst)
         self.assertEqual({p.get("slug") for p in lst}, BUILTIN_SLUGS)
         for p in lst:
             self.assertIs(p.get("builtin"), True, p)
@@ -138,16 +140,16 @@ class TestBuiltinPresets(_PresetCase):
         self.w.init_db()
         self.w._migrate()
         after = self._builtins()
-        self.assertEqual(len(after), 2, after)
+        self.assertEqual(len(after), NB, after)
         self.assertEqual(sorted(p["id"] for p in after), sorted(p["id"] for p in before))
 
     def test_tc13_builtins_first_after_own_presets(self):
         own = self._create(name="Свой")
         lst = self._list()
-        self.assertEqual(len(lst), 3, lst)
-        self.assertEqual({p.get("slug") for p in lst[:2]}, BUILTIN_SLUGS)
-        self.assertEqual(lst[2]["id"], own["id"])
-        self.assertFalse(lst[2].get("builtin"))
+        self.assertEqual(len(lst), NB + 1, lst)
+        self.assertEqual({p.get("slug") for p in lst[:NB]}, BUILTIN_SLUGS)
+        self.assertEqual(lst[NB]["id"], own["id"])
+        self.assertFalse(lst[NB].get("builtin"))
 
     def test_cond8_transmission_recipe(self):
         p = next(x for x in self._list() if x.get("slug") == "transmission")
@@ -210,7 +212,7 @@ class TestPresetCrud(_PresetCase):
         self.assertLess(r.status_code, 300, r.text)
         self.assertIsNone(self._by_id(pid))
         # встроенные на месте
-        self.assertEqual(len(self._builtins()), 2)
+        self.assertEqual(len(self._builtins()), NB)
 
     def test_tc14_builtin_put_and_delete_409(self):
         for b in self._builtins():
@@ -379,7 +381,7 @@ class TestJobPresetIds(_PresetCase):
         self.assertFalse(sp[0].get("error"))
 
     def test_tc16_three_presets_ok_and_in_list_endpoint(self):
-        ids = [b["id"] for b in self._builtins()] + [self._create()["id"]]
+        ids = [b["id"] for b in self._builtins()[:2]] + [self._create()["id"]]   # три пресета
         jid = self._submit_ok(sound_preset_ids=ids)
         sp = self._get_job(jid)["sound_presets"]
         self.assertEqual({x["id"] for x in sp}, set(ids))
@@ -399,7 +401,7 @@ class TestJobPresetIds(_PresetCase):
         self.assertEqual(self._job_count(), n, "джоба создана при 422")
 
     def test_tc16_four_ids_422(self):
-        ids = [b["id"] for b in self._builtins()] + [self._create(name="a")["id"], self._create(name="b")["id"]]
+        ids = [b["id"] for b in self._builtins()[:2]] + [self._create(name="a")["id"], self._create(name="b")["id"]]
         self.assertEqual(len(set(ids)), 4)
         self._bad_submit(sound_preset_ids=ids)
 
@@ -697,8 +699,8 @@ class TestBuiltinUpsert(_PresetCase):
         self.assertEqual(after["sex-on-fire"], before["sex-on-fire"])
         # свой пресет не тронут
         self.assertEqual(self._by_id(own["id"]), own_before)
-        # всего: два встроенных + свой, без дублей
-        self.assertEqual(len(self._list()), 3)
+        # всего: встроенные + свой, без дублей
+        self.assertEqual(len(self._list()), NB + 1)
 
     def test_tc28_upsert_does_not_touch_own_preset_with_same_name(self):
         # свой пресет с именем встроенного — не встроенный, upsert его не трогает
@@ -708,7 +710,7 @@ class TestBuiltinUpsert(_PresetCase):
         self._patch_builtin("transmission", lambda b: b.update(note="другое"))
         self._restart()
         self.assertEqual(self._by_id(own["id"]), own_before)
-        self.assertEqual(len(self._builtins()), 2)
+        self.assertEqual(len(self._builtins()), NB)
 
     def test_tc28_repeat_restart_idempotent(self):
         self._patch_builtin("sex-on-fire", lambda b: b.update(target_lufs=-9))
@@ -762,3 +764,83 @@ class TestBuiltinRecipes1b(_PresetCase):
         self.assertEqual(by["sex-on-fire"].get("target_lufs"), -12)
         for b in by.values():
             self.assertNotIn("level", [f["chain"] for f in b["final"]], b["slug"])
+
+
+# ---------- Этап 2. ТК39: встроенный «Живая ритм-секция» (условия 17, 18) ----------
+#
+# Контракт (из карточки): slug live-rhythm; записи kick, snare, toms (по высоте: kit_mid/kit_low),
+# hh (kit_open osdk/hh-half, choke 1), ride, crash — sampler + комната (последний блок reverb:
+# decay_s 0.5, predelay_ms 5, lowpass_hz 7000, wet 0.12); bass — бас-гитара набором (блок bass);
+# без финала, target_lufs null.
+
+LIVE_DRUMS = ("kick", "snare", "toms", "hh", "ride", "crash")
+ROOM = {"type": "reverb", "decay_s": 0.5, "predelay_ms": 5, "lowpass_hz": 7000, "wet": 0.12}
+
+
+@unittest.skipUnless(_HAS_WORKER_DEPS, _SKIP)
+class TestBuiltinLiveRhythm(unittest.TestCase):
+
+    def _live(self):
+        import presets
+        got = [b for b in presets.BUILTIN if b.get("slug") == "live-rhythm"]
+        self.assertEqual(len(got), 1, "встроенного live-rhythm нет (или он не один)")
+        return got[0]
+
+    def _spec(self, b, stem):
+        found = [s for s in b["specs"] if stem in s["stems"]]
+        self.assertEqual(len(found), 1, f"запись для {stem}: {len(found)}")
+        return found[0]
+
+    def _sampler(self, stem):
+        engine = self._spec(self._live(), stem)["engine"]
+        found = [blk for blk in engine if blk.get("type") == "sampler"]
+        self.assertTrue(found, f"у {stem} нет sampler: {engine}")
+        return found[0]
+
+    def test_tc39_valid(self):
+        import fx_engine
+        import presets
+        presets.validate(self._live(), fx_engine.parse_chain)
+
+    def test_tc39_seven_records_one_part_each(self):
+        b = self._live()
+        self.assertEqual(len(b["specs"]), 7)
+        self.assertEqual(sorted(s for spec in b["specs"] for s in spec["stems"]),
+                         sorted(LIVE_DRUMS + ("bass",)))
+        for spec in b["specs"]:
+            with self.subTest(stems=spec["stems"]):
+                self.assertEqual(len(spec["stems"]), 1, "запись на несколько частей")
+                self.assertTrue(spec.get("engine"), "запись не цепочка движка")
+
+    def test_tc39_drums_sampler_and_room(self):
+        b = self._live()
+        for stem in LIVE_DRUMS:
+            with self.subTest(stem=stem):
+                engine = self._spec(b, stem)["engine"]
+                self.assertTrue(any(blk.get("type") == "sampler" for blk in engine), engine)
+                last = engine[-1]
+                self.assertEqual(last.get("type"), "reverb", "комната — не последний блок")
+                for k, v in ROOM.items():
+                    self.assertEqual(last.get(k), v, f"комната: {k}")
+
+    def test_tc39_toms_by_pitch(self):
+        smp = self._sampler("toms")
+        self.assertEqual(smp.get("kit"), "osdk/tom-small")
+        self.assertEqual(smp.get("kit_mid"), "osdk/tom-medium")
+        self.assertEqual(smp.get("kit_low"), "osdk/tom-large")
+
+    def test_tc39_hh_open_and_choke(self):
+        smp = self._sampler("hh")
+        self.assertEqual(smp.get("kit_open"), "osdk/hh-half")
+        self.assertEqual(smp.get("choke"), 1)
+
+    def test_tc39_bass_kit_without_room(self):
+        engine = self._spec(self._live(), "bass")["engine"]
+        self.assertTrue(any(blk.get("type") == "bass" for blk in engine), engine)
+        self.assertFalse(any(blk.get("type") == "reverb" for blk in engine), "у баса комнаты быть не должно")
+
+    def test_tc39_no_final_target_null(self):
+        b = self._live()
+        self.assertEqual(b.get("final") or [], [])
+        self.assertIn("target_lufs", b)
+        self.assertIsNone(b["target_lufs"])

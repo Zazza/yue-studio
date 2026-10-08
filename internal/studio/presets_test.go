@@ -1104,3 +1104,17 @@ func TestApplySoundPresetNoTargetNeedsNoMetrics(t *testing.T) {
 		}
 	})
 }
+
+// Кросс-ревью этапа 2: kit_mid/kit_low тамов — тоже наборы для автоустановки.
+func TestApplySoundPresetInstallsTomKits(t *testing.T) {
+	f := psSetup(t, map[string]string{"kick": "0.5*lt(mod(t\\,0.5)\\,0.02)"})
+	f.kits = []any{map[string]any{"name": "osdk/kick", "samples": 3.0}}
+	p := psPreset(13, []yue.PresetSpec{
+		{Stems: []string{"kick"}, Engine: []map[string]any{{"type": "sampler", "kit": "osdk/kick",
+			"kit_mid": "midkit/tom", "kit_low": "lowkit/tom"}}},
+	}, nil)
+	psApply(t, f, p)
+	if !reflect.DeepEqual(f.installs, []string{"midkit", "lowkit"}) {
+		t.Errorf("InstallFxKit %q, want [midkit lowkit]", f.installs)
+	}
+}

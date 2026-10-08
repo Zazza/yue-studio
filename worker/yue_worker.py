@@ -2957,7 +2957,7 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     Пересобрали дорожки или перезалили захват под тем же именем — превью новое, не из кэша."""
     files = list(paths)
     for blk in chain:
-        for key in ("kit", "kit_open"):
+        for key in ("kit", "kit_open", "kit_mid", "kit_low"):
             if blk.get("type") in ("sampler", "bass") and blk.get(key):
                 try:
                     files += sorted(_kit_path(blk[key]).glob("*.wav"))
@@ -2987,7 +2987,7 @@ def _fx_kit_tail(chain: list) -> float:
     import soundfile as sf
     longest = 0.0
     for blk in chain:
-        for key in ("kit", "kit_open"):
+        for key in ("kit", "kit_open", "kit_mid", "kit_low"):
             if blk.get("type") == "sampler" and blk.get(key):
                 try:
                     files = _kit_path(blk[key]).glob("*.wav")
@@ -3113,7 +3113,10 @@ FX_KITS = {
                   "hh-closed": ("hihat/closed-hihat", r"chh\d+\.wav"),
                   "hh-half": ("hihat/half-closed-hihat", r"hchh\d+\.wav"),
                   "hh-open": ("hihat/half-open-hihat", r"hohh\d+\.wav"),
-                  "ride": ("ride", r"ride-mid-in\d+\.wav"), "crash": ("crash", r"crash\d+\.wav")},
+                  "ride": ("ride", r"ride-mid-in\d+\.wav"), "crash": ("crash", r"crash\d+\.wav"),
+                  # тамы по размеру — верхние микрофоны (small-tom<N>), без «-under» (нижний микрофон)
+                  "tom-small": ("toms", r"small-tom\d+\.wav"), "tom-medium": ("toms", r"medium-tom\d+\.wav"),
+                  "tom-large": ("toms", r"large-tom\d+\.wav")},
     },
     "growlybass": {  # Growlybass (Karoryfer Lecolds): Squier Jazz Bass, CC0 — блок bass
         "repo": "sfzinstruments/karoryfer.growlybass",
