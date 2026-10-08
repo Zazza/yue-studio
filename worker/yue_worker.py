@@ -2539,7 +2539,6 @@ FX_UPLOAD_MAX = 50 * 1024 * 1024
 FX_XFADE_S = 0.01        # кроссфейд на границах окна
 FX_PREVIEW_TAIL_S = 3.0  # превью: хвост реверба/дилея после окна
 FX_SAMPLER_TAIL_S = 1.0  # превью: хвост сэмплов sampler/bass после окна (бочка/малый ~0,3–0,8 с)
-FX_KIT_MAX_S = 6.0       # сэмпл набора читается не дольше (бас: 224 файла по 6 с — долгая нота целиком)
 FX_PREVIEW_KEEP = 8      # превью движка на джобу (старые — временные файлы, удаляются)
 FX_FADE_MAX_S = 0.5      # край окна превью — не длиннее
 FX_CLIP_FULL_SCALE = 0.9999  # превью из кэша: пик на полной шкале = при записи был перегруз
@@ -2614,15 +2613,18 @@ class _FxResources:
         return self._amps[p.name]
 
     def kit(self, name: str):
-        """Сэмплы набора `<набор>/<часть>` и их частота (sampler, bass); не длиннее FX_KIT_MAX_S."""
+        """Сэмплы набора `<набор>/<часть>` и их частота (sampler, bass). Предел длины — max_s из каталога
+        FX_KITS (у баса); у прочих наборов — целиком (тарелки звучат дольше 6 с)."""
         import soundfile as sf
         d = _kit_path(name)
         files = sorted(d.glob("*.wav")) if d.is_dir() else []
         if not files:
             raise KeyError(name)
+        max_s = FX_KITS.get(name.partition("/")[0], {}).get("max_s")
         out, sr = [], None
         for f in files:
-            x, s = sf.read(str(f), dtype="float32", frames=int(sf.info(str(f)).samplerate * FX_KIT_MAX_S))
+            x, s = sf.read(str(f), dtype="float32",
+                           frames=int(sf.info(str(f)).samplerate * max_s) if max_s else -1)
             if sr is None:
                 sr = s
             elif s != sr:                # разная частота в одном наборе — пересчитать к первой
@@ -2920,6 +2922,7 @@ FX_KITS = {
         "repo": "sfzinstruments/karoryfer.growlybass",
         "ref": "4f483268fc66b5a6d5781d421c0d11b8d08d3fc6",
         "parts": {"bass": ("sustain", r"[\w-]+\.wav")},
+        "max_s": 6.0,  # сэмпл читается не дольше: 224 файла по 6 с (долгая нота целиком, память — 240 МБ)
     },
 }
 FX_KIT_PART_RE = re.compile(r"^[a-z0-9-]{1,40}$")

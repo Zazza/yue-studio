@@ -559,27 +559,42 @@ class TestGrowlybassCatalog(_KitCase):
                 self.assertFalse(re.fullmatch(pattern, name), f"{name} попал в часть bass")
 
 
-# ---------- Условие 15, ТК22: сэмпл набора читается до 6 с (FX_KIT_MAX_S) ----------
+# ---------- Условие 15, ТК22: предел длины сэмпла — в каталоге набора ----------
+#
+# FX_KITS["growlybass"]["max_s"] = 6: сэмпл баса читается до 6 с; у прочих наборов
+# (osdk) предела нет — файл 8 с читается целиком.
+
+def _long_wav(path, dur=8, sr=KIT_SR):
+    import numpy as np
+    import soundfile as sf
+    path.parent.mkdir(parents=True, exist_ok=True)
+    k = np.arange(dur * sr)
+    x = (0.5 * np.exp(-k / sr / 4.0) * np.sin(2 * np.pi * 55 * k / sr)).astype(np.float32)
+    sf.write(str(path), x, sr, subtype="PCM_24")
+
 
 class TestKitMaxLength(_KitCase):
 
-    def test_tc22_max_len_constant(self):
-        self.assertEqual(self.w.FX_KIT_MAX_S, 6)
+    def test_tc22_max_s_in_kit_catalog(self):
+        self.assertEqual(self.w.FX_KITS["growlybass"].get("max_s"), 6)
+        self.assertNotIn("max_s", self.w.FX_KITS["osdk"], "у osdk предела длины быть не должно")
 
-    def test_tc22_long_sample_read_up_to_6s(self):
+    def _read_len(self, name):
         import numpy as np
-        import soundfile as sf
-        d = self.kits / "growlybass" / "bass"
-        d.mkdir(parents=True)
-        k = np.arange(8 * KIT_SR)
-        x = (0.5 * np.exp(-k / KIT_SR / 4.0) * np.sin(2 * np.pi * 55 * k / KIT_SR)).astype(np.float32)
-        sf.write(str(d / "a1.wav"), x, KIT_SR, subtype="PCM_24")
-        samples, sr = self.real_fx_resources().kit("growlybass/bass")
+        samples, sr = self.real_fx_resources().kit(name)
         self.assertEqual(sr, KIT_SR)
         self.assertEqual(len(samples), 1)
-        n = len(np.asarray(samples[0]))
-        self.assertLessEqual(n, 6 * KIT_SR, "сэмпл длиннее 6 с прочитан целиком")
-        self.assertGreaterEqual(n, 6 * KIT_SR - KIT_SR // 100, "сэмпл обрезан короче 6 с")
+        return len(np.asarray(samples[0]))
+
+    def test_tc22_bass_sample_read_up_to_6s(self):
+        _long_wav(self.kits / "growlybass" / "bass" / "a1.wav")
+        n = self._read_len("growlybass/bass")
+        self.assertLessEqual(n, 6 * KIT_SR, "сэмпл баса длиннее 6 с прочитан целиком")
+        self.assertGreaterEqual(n, 6 * KIT_SR - KIT_SR // 100, "сэмпл баса обрезан короче 6 с")
+
+    def test_tc22_osdk_sample_read_whole(self):
+        _long_wav(self.kits / "osdk" / "kick" / "k1.wav")
+        self.assertEqual(self._read_len("osdk/kick"), 8 * KIT_SR, "сэмпл osdk 8 с обрезан")
 
 
 if __name__ == "__main__":

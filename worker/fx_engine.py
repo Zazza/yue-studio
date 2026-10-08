@@ -554,8 +554,12 @@ def _attack_at(m: np.ndarray, hf: np.ndarray, c: np.ndarray, o: int, sr: int) ->
             low = np.flatnonzero(ef[q0:q1] <= base + 0.2 * (peak - base))
             if len(low):
                 at = b0 + q0 + int(low[-1])
-        k5 = at - b0          # хвост — если за 10 мс до точки огибающая ни разу не падала к нулю (пауза)
-        sounding = k5 > 0 and float(ef[max(0, k5 - int(0.01 * sr)):k5].min()) > 0.1 * peak
+        # хвост — если за 10 мс до точки громкость (RMS 8 мс) не падала к нулю (пауза). Огибающая «2 мс»
+        # для этого не годится: проваливается на нуле низкой волны, и хвост принимался за паузу (−7 мс)
+        from scipy.ndimage import uniform_filter1d
+        k5 = at - b0
+        tail = np.sqrt(np.maximum(uniform_filter1d(m[b0:b1] ** 2, max(1, int(0.008 * sr))), 0))
+        sounding = k5 > 0 and float(tail[max(0, k5 - int(0.01 * sr)):k5].min()) > 0.1 * peak
     hop = SAMPLER_HOP
     # на хвосте ноты щелчок ищется и до 12 мс вперёд: уточнение по огибающей бывает там на полпериода
     # раньше удара (впадина волны), а щелчок струны стоит ровно на ударе. После паузы — нет: вперёд
