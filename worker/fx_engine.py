@@ -506,11 +506,18 @@ def _attack_at(m: np.ndarray, hf: np.ndarray, c: np.ndarray, o: int, sr: int) ->
     # вперёд дальше: на паузе между нотами librosa отмечает её начало, а удар — после паузы. У начала
     # окна «до» короче 25 мс (не меньше 2 мс): иначе нота через 10 мс после начала окна не находилась,
     # и щипок вставал на начало окна — раньше ноты
+    # Короткое «до» — только из тишины: на хвосте низкой ноты громкость за пару мс зависит от фазы
+    # волны, и рост «находился» на 3–8 мс от начала окна — щипок на 7–22 мс раньше ноты; на звуке
+    # «до» не короче 12 мс (полпериода E1)
     t = np.arange(max(int(0.002 * sr), o - int(0.03 * sr)), min(len(m) - w, o + int(0.06 * sr)) + 1)
     if len(t) < 3:
         return None
     lo_t = np.maximum(t - w, 0)
-    ratio = ((c[t + w] - c[t]) / w) / ((c[t] - c[lo_t]) / (t - lo_t) + EPS)
+    after_e = (c[t + w] - c[t]) / w
+    before_e = (c[t] - c[lo_t]) / (t - lo_t)
+    ratio = after_e / (before_e + EPS)
+    short = (t - lo_t) < int(0.012 * sr)
+    ratio[short & (before_e > after_e * _db(-40) ** 2)] = 0.0      # короткое «до» и не тишина — не удар
     k = int(np.argmax(ratio))
     if k == 0 or k == len(t) - 1:
         return None
@@ -520,24 +527,40 @@ def _attack_at(m: np.ndarray, hf: np.ndarray, c: np.ndarray, o: int, sr: int) ->
     g = int(0.01 * sr)
     a0, a1 = min(len(m), at + g), min(len(m), at + g + w)
     b0, b1 = max(0, at - g - w), max(0, at - g)
+    if b1 - b0 < int(0.002 * sr):          # у начала окна отступу нет места — «до» = всё, что до точки
+        b0, b1 = 0, at
     before = (c[b1] - c[b0]) / max(b1 - b0, 1)
     rise = 10 * np.log10(max((c[a1] - c[a0]) / max(a1 - a0, 1) / (before + EPS), EPS))
     # окна по 25 мс ставят точку позже начала плавной атаки (5–10 мс): начало — последняя точка за
     # 20 мс до неё, где огибающая (максимум |звука| на 2 мс вперёд — назад не заглядывает) ещё не
     # выше уровня до удара + 20 % подъёма к пику следующих 20 мс
     from scipy.ndimage import maximum_filter1d
+    sounding = False                       # перед ударом звучит хвост ноты (не пауза)
     b0, b1 = max(0, at - int(0.045 * sr)), min(len(m), at + int(0.02 * sr))
     q = int(0.002 * sr)
     if at - b0 > int(0.02 * sr) + q and b1 > at:
         ef = maximum_filter1d(np.abs(m[b0:b1 + q]), 2 * q + 1, origin=-q)[:b1 - b0]
         q0, q1 = at - int(0.02 * sr) - b0, at - b0 + 1
         base, peak = float(np.median(ef[:q0])), float(ef[q1 - 1:].max())
-        if peak > base:
+        seg = ef[q0:q1]
+        if peak < base * _db(BASS_RISE_DB) and seg.min() <= 0.2 * base:
+            # роста нет (смена ноты легато), но есть глубокий провал стыка — нота начинается на его дне:
+            # по «20 % подъёма» точка уезжала на 15 мс позже. Дно — по RMS 8 мс: огибающая «2 мс вперёд»
+            # проваливается и на нуле волны низкой ноты (дно на 6 мс раньше стыка)
+            from scipy.ndimage import uniform_filter1d
+            rms = np.sqrt(uniform_filter1d(m[b0:b1] ** 2, max(1, int(0.008 * sr))))
+            at = b0 + q0 + int(np.argmin(rms[q0:q1]))
+        elif peak > base:
             low = np.flatnonzero(ef[q0:q1] <= base + 0.2 * (peak - base))
             if len(low):
                 at = b0 + q0 + int(low[-1])
+        k5 = at - b0          # хвост — если за 10 мс до точки огибающая ни разу не падала к нулю (пауза)
+        sounding = k5 > 0 and float(ef[max(0, k5 - int(0.01 * sr)):k5].min()) > 0.1 * peak
     hop = SAMPLER_HOP
-    lo, hi = max(1, at - 2 * hop), min(len(m), at + 2 * hop)
+    # на хвосте ноты щелчок ищется и до 12 мс вперёд: уточнение по огибающей бывает там на полпериода
+    # раньше удара (впадина волны), а щелчок струны стоит ровно на ударе. После паузы — нет: вперёд
+    # нашёлся бы излом конца плавной атаки (+7,6 мс при атаке 10 мс)
+    lo, hi = max(1, at - 2 * hop), min(len(m), at + (int(0.012 * sr) if sounding else 2 * hop))
     seg = np.abs(hf[lo:hi])
     base = np.median(np.abs(hf[max(0, lo - int(0.05 * sr)):lo])) if lo > 1 else 0.0
     if len(seg) and seg.max() > 8 * max(base, EPS):

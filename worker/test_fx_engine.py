@@ -1718,7 +1718,6 @@ class TestBassReview(unittest.TestCase):
 
     # --- ТК21 ---
 
-    @unittest.skip("ТК21 открыт (2026-10-07): щипок легато-смены на октаву +15,8 мс при допуске +15 — доделать")
     def test_tc21_legato_octave_change_plucks_a2(self):
         x, p1, p2, p_ctx = TestBassOnsets._tc18_input(self, A2, 1.0)
         a_end = p1 + int(round(EIGHTH * SR)) - int(0.005 * SR)
