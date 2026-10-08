@@ -94,7 +94,8 @@ func registerFxTools(s *Server) {
 	s.Register(Tool{
 		Name: "fx_presets",
 		Description: "Готовые цепочки звукового движка (те же, что на странице «Инструменты»): " +
-			"{id, name, note, chain} — chain сразу годится в fx_apply. Пустой amp.model — подставь захват из fx_assets.",
+			"{id, name, note, stems, chain} — chain сразу годится в fx_apply; stems — для каких дорожек цепочка (нет поля — для любой). " +
+			"Пустой amp.model — подставь захват из fx_assets.",
 		InputSchema: props(nil),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			return fxPresetsJSON, nil

@@ -868,3 +868,330 @@ describe('addStemEngine — цепочка движка на дорожку че
     expect(ins.latestFile('P')).toBe('overdub-inst-2.flac')
   })
 })
+
+// Карточка internal-own-track, этап 0, условие 1 (тест-кейсы ТК1–ТК7): реестр правок —
+// выключить (setOff), удалить (remove), заменить цепочку движка (replaceEngine);
+// пересборка без активных записей не зовёт воркер; latestFile — только по активным;
+// off переживает перезапуск и переносится carryTo. Написаны по карточке, без реализации.
+describe('реестр правок: выключить, удалить, заменить (internal-own-track)', () => {
+  // записи-эффекты в форме реестра (как их кладёт addStemFx): childId < 0, в api — child_id 0
+  const fxRec = (childId, over = {}) => ({
+    childId, instId: 'fx-soften', from: 0, to: 0, lead: 0, beat: 0, db: 0,
+    stems: ['vocals'], fadeIn: 0, fadeOut: 0, keepHighHz: 0,
+    chain: 'soften', params: { strength: 0.6 }, ...over,
+  })
+  const E1 = fxRec(-11)
+  const E2 = fxRec(-12, { instId: 'fx-dewhistle', from: 10, to: 20, stems: ['drums'], chain: 'dewhistle', params: { freqs: [2638] } })
+  // запись движка в форме реестра (как её кладёт addStemEngine)
+  const oldChain = [{ type: 'amp', model: 'JCM2000.nam', input_db: -6 }, { type: 'cab', cutoff_hz: 7000 }]
+  const newChain = [{ type: 'reverb', wet: 0.3 }]
+  const ENG = {
+    childId: -21, instId: 'engine', from: 20, to: 35, lead: 0, beat: 0, db: 0,
+    stems: ['other'], fadeIn: 0, fadeOut: 0, keepHighHz: 0, engine: oldChain, label: 'Гитара через JCM2000',
+  }
+  const calls = () => apiMock.rebuildSections.mock.calls
+  const lastSpecs = () => calls().at(-1)[1]
+  const recOf = (ins, id) => ins.appliedFor('P').find(x => x.childId === id)
+
+  // перезапуск приложения: модуль импортируется заново, localStorage — прежний
+  async function reload() {
+    vi.resetModules()
+    const mod = await import('./useInserts.js')
+    return mod.useInserts()
+  }
+
+  // ---- ТК1 ----
+  describe('setOff (ТК1)', () => {
+    it('выключенная запись остаётся в реестре с off: true, в пересборку уходит только вторая', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.setOff('P', -11, true)
+      await flush()
+      expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+      expect(calls().at(-1)[0]).toBe('P')
+      const specs = lastSpecs()
+      expect(specs.length).toBe(1)
+      expect(specs[0]).toMatchObject({ child_id: 0, chain: 'dewhistle', stems: ['drums'], from: 10, to: 20 })
+      expect(childIds(ins.appliedFor('P'))).toEqual([-11, -12].sort())
+      expect(recOf(ins, -11).off).toBe(true)
+      expect(recOf(ins, -12).off || false).toBe(false)
+    })
+
+    it('setOff(…, false) возвращает запись: пересборка снова с обеими', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.setOff('P', -11, true)
+      await flush()
+      await ins.setOff('P', -11, false)
+      await flush()
+      expect(apiMock.rebuildSections).toHaveBeenCalledTimes(2)
+      const chains = lastSpecs().map(s => s.chain).sort()
+      expect(chains).toEqual(['dewhistle', 'soften'])
+      expect(recOf(ins, -11).off).toBe(false)
+    })
+
+    it('выключенная вклейка (childId > 0) тоже не уходит в пересборку', async () => {
+      const ins = await load({ applied: { P: [A, B] } })
+      await ins.setOff('P', 1, true)
+      await flush()
+      expect(lastSpecs().map(s => s.child_id)).toEqual([2])
+      expect(recOf(ins, 1).off).toBe(true)
+    })
+  })
+
+  // ---- ТК2 ----
+  describe('все записи выключены (ТК2)', () => {
+    it('setOff единственной → воркер не вызван, результат { empty: true }', async () => {
+      const ins = await load({ applied: { P: [E1] } })
+      const res = await ins.setOff('P', -11, true)
+      await flush()
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+      expect(res).toEqual({ empty: true })
+      expect(recOf(ins, -11).off).toBe(true)
+    })
+
+    it('rebuild при реестре только из выключенных → { empty: true }, воркер не вызван', async () => {
+      const ins = await load({ applied: { P: [{ ...E1, off: true }, { ...A, off: true }] } })
+      const res = await ins.rebuild('P')
+      expect(res).toEqual({ empty: true })
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+
+    it('rebuild трека без записей вовсе → { empty: true }, воркер не вызван', async () => {
+      const ins = await load({})
+      const res = await ins.rebuild('P')
+      expect(res).toEqual({ empty: true })
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---- ТК3 ----
+  describe('remove (ТК3)', () => {
+    it('удалённой записи нет в реестре, пересборка без неё', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.remove('P', -11)
+      await flush()
+      expect(childIds(ins.appliedFor('P'))).toEqual([-12])
+      expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+      const specs = lastSpecs()
+      expect(specs.length).toBe(1)
+      expect(specs[0].chain).toBe('dewhistle')
+    })
+
+    it('удаление сохраняется в localStorage', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.remove('P', -11)
+      await flush()
+      const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+      expect(saved.P.map(x => x.childId)).toEqual([-12])
+    })
+
+    it('повторный remove несуществующей записи — без ошибки и без пересборки', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.remove('P', -11)
+      await flush()
+      await ins.remove('P', -11)   // не бросает и не отклоняется
+      await flush()
+      expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+      expect(childIds(ins.appliedFor('P'))).toEqual([-12])
+    })
+
+    it('remove у трека без реестра — без ошибки и без пересборки', async () => {
+      const ins = await load({})
+      await ins.remove('нет-такого', 5)
+      await flush()
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+
+    it('удаление последней записи → реестр пуст, воркер не зовётся (звучит оригинал)', async () => {
+      const ins = await load({ applied: { P: [E1] } })
+      await ins.remove('P', -11)
+      await flush()
+      expect(ins.appliedFor('P') || []).toEqual([])
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---- ТК4 ----
+  describe('remove вклейки с ожидающей спекой в очереди (ТК4)', () => {
+    it('после remove и тика очереди (рендер done) запись не возвращается в реестр', async () => {
+      const ins = await load({
+        applied: { P: [A, B] },
+        queue: [specB],
+        jobs: [{ id: 2, status: 'done' }],
+      })
+      await ins.remove('P', 2)
+      await flush()
+      expect(childIds(pendingOf(ins))).not.toContain(2)
+
+      // тик очереди: рендер ребёнка 2 готов
+      await vi.advanceTimersByTimeAsync(3000)
+      await flush()
+      expect(childIds(ins.appliedFor('P'))).toEqual([1])
+      for (const [, specs] of calls()) {
+        expect(specs.map(s => s.child_id)).not.toContain(2)
+      }
+    })
+
+    it('спеки других вклеек в очереди не трогаются', async () => {
+      const specC = { parent: 'P', childId: 3, instId: 'i-c', from: 20, to: 30, lead: 0, beat: 0.5, db: -3, srcJob: 'P' }
+      const ins = await load({
+        applied: { P: [A, B] },
+        queue: [specB, specC],
+        jobs: [{ id: 2, status: 'running' }, { id: 3, status: 'running' }],
+      })
+      await ins.remove('P', 2)
+      await flush()
+      expect(childIds(pendingOf(ins))).toEqual([3])
+    })
+  })
+
+  // ---- ТК5 ----
+  describe('replaceEngine (ТК5)', () => {
+    it('у записи движка новая цепочка и подпись; окно и дорожка прежние; пересборка с новой engine', async () => {
+      const ins = await load({ applied: { P: [A, ENG] } })
+      await ins.replaceEngine('P', -21, { chain: newChain, label: 'Реверб' })
+      await flush()
+      const rec = recOf(ins, -21)
+      expect(rec.engine).toEqual(newChain)
+      expect(rec.label).toBe('Реверб')
+      expect(rec).toMatchObject({ from: 20, to: 35, stems: ['other'] })
+      expect(childIds(ins.appliedFor('P'))).toEqual([-21, 1].sort())
+      expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+      const eng = lastSpecs().filter(s => Array.isArray(s.engine))
+      expect(eng.length).toBe(1)
+      expect(eng[0].engine).toEqual(newChain)
+      expect(eng[0]).toMatchObject({ child_id: 0, from: 20, to: 35, stems: ['other'] })
+    })
+
+    it('без label подпись остаётся прежней', async () => {
+      const ins = await load({ applied: { P: [ENG] } })
+      await ins.replaceEngine('P', -21, { chain: newChain })
+      await flush()
+      const rec = recOf(ins, -21)
+      expect(rec.engine).toEqual(newChain)
+      expect(rec.label).toBe('Гитара через JCM2000')
+    })
+
+    it('запись-эффект (не движок) → ошибка, реестр без изменений, пересборки нет', async () => {
+      const ins = await load({ applied: { P: [E1, ENG] } })
+      const before = JSON.parse(JSON.stringify(ins.appliedFor('P')))
+      await expect(ins.replaceEngine('P', -11, { chain: newChain, label: 'X' })).rejects.toThrow()
+      await flush()
+      expect(JSON.parse(JSON.stringify(ins.appliedFor('P')))).toEqual(before)
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+
+    it('вклейка (childId > 0) → ошибка, реестр без изменений, пересборки нет', async () => {
+      const ins = await load({ applied: { P: [A] } })
+      const before = JSON.parse(JSON.stringify(ins.appliedFor('P')))
+      await expect(ins.replaceEngine('P', 1, { chain: newChain })).rejects.toThrow()
+      await flush()
+      expect(JSON.parse(JSON.stringify(ins.appliedFor('P')))).toEqual(before)
+      expect(apiMock.rebuildSections).not.toHaveBeenCalled()
+    })
+  })
+
+  // ---- ТК6 ----
+  describe('latestFile и выключенные вклейки (ТК6)', () => {
+    it('последняя выключена → файл именует последняя активная вклейка', async () => {
+      const ins = await load({ applied: { P: [A, { ...B, off: true }] } })
+      expect(ins.latestFile('P')).toBe('overdub-inst-1.flac')
+    })
+
+    it('после setOff последней вклейки latestFile переходит на предыдущую активную', async () => {
+      const ins = await load({ applied: { P: [A, B] } })
+      await ins.setOff('P', 2, true)
+      await flush()
+      expect(ins.latestFile('P')).toBe('overdub-inst-1.flac')
+    })
+
+    it('все вклейки выключены → null (даже если есть активный эффект)', async () => {
+      const ins = await load({ applied: { P: [{ ...A, off: true }, { ...B, off: true }, E1] } })
+      expect(ins.latestFile('P')).toBeNull()
+    })
+  })
+
+  // ---- ТК7 ----
+  describe('off переживает перезапуск и переносится carryTo (ТК7)', () => {
+    it('выключенная запись сохраняется в localStorage и после перезапуска модуля остаётся выключенной', async () => {
+      const ins = await load({ applied: { P: [E1, E2] } })
+      await ins.setOff('P', -11, true)
+      await flush()
+      const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+      expect(saved.P.find(x => x.childId === -11).off).toBe(true)
+
+      const again = await reload()
+      expect(recOf(again, -11).off).toBe(true)
+      expect(childIds(again.appliedFor('P'))).toEqual([-11, -12].sort())
+
+      // после перезапуска выключенная по-прежнему не уходит в пересборку
+      apiMock.rebuildSections.mockClear()
+      await again.rebuild('P')
+      await flush()
+      const specs = lastSpecs()
+      expect(specs.length).toBe(1)
+      expect(specs[0].chain).toBe('dewhistle')
+    })
+
+    it('carryTo переносит off как есть: выключенная — выключенной, включённая — включённой', async () => {
+      const ins = await load({ applied: { P: [{ ...E1, off: true }, E2] } })
+      ins.carryTo('P', 'Q', 'P')
+      await flush()
+      const forQ = pendingOf(ins).filter(s => s.parent === 'Q')
+      expect(forQ.find(s => s.childId === -11).off).toBe(true)
+      expect(forQ.find(s => s.childId === -12).off || false).toBe(false)
+    })
+
+    // находка ревью s0: тик собирал перенесённую вклейку в реестр новой версии без off — включённой
+    it('выключенная вклейка после carryTo и тика остаётся выключенной в реестре новой версии', async () => {
+      const ins = await load({ applied: { P: [{ ...A, off: true }] }, jobs: [{ id: 1, status: 'done' }] })
+      ins.carryTo('P', 'Q', 'P')
+      await ins.flush()
+      await flush()
+      const rec = ins.appliedFor('Q').find(x => x.childId === 1)
+      expect(rec).toBeTruthy()
+      expect(rec.off).toBe(true)
+    })
+  })
+
+  // ---- кросс-ревью s0, круг 1 ----
+  describe('гонки с тиком очереди и идущей пересборкой (кросс-ревью s0)', () => {
+    it('remove во время тика: удалённая вклейка из очереди не возвращается в реестр', async () => {
+      // тик ждёт пересборку первой вклейки; в это время пользователь удаляет вторую
+      const d = deferred()
+      const specA = { parent: 'P', childId: 1, instId: 'i-a', from: 0, to: 10, lead: 0, beat: 0.5, db: -6, srcJob: 'P' }
+      const ins = await load({
+        queue: [specA, specB], jobs: [{ id: 1, status: 'done' }, { id: 2, status: 'done' }],
+        rebuildSections: vi.fn(() => d.promise),
+      })
+      const tick = ins.flush()
+      await flush()
+      const rm = ins.remove('P', 2)
+      d.resolve(report([]))
+      await tick.catch(() => {})
+      await rm
+      await flush()
+      expect(ins.appliedFor('P').some(x => x.childId === 2)).toBe(false)
+    })
+
+    it('isBuilding: true, пока идёт пересборка трека, затем false', async () => {
+      const d = deferred()
+      const ins = await load({ applied: { P: [E1] }, rebuildSections: vi.fn(() => d.promise) })
+      expect(unref(ins.isBuilding('P'))).toBe(false)
+      const run = ins.rebuild('P')
+      await flush()
+      expect(unref(ins.isBuilding('P'))).toBe(true)
+      expect(unref(ins.isBuilding('Q'))).toBe(false)
+      d.resolve(report([]))
+      await run
+      await flush()
+      expect(unref(ins.isBuilding('P'))).toBe(false)
+    })
+
+    it('isBuilding сбрасывается и после ошибки пересборки', async () => {
+      const ins = await load({ applied: { P: [E1] }, rebuildSections: vi.fn(async () => { throw new Error('воркер упал') }) })
+      await ins.rebuild('P').catch(() => {})
+      await flush()
+      expect(unref(ins.isBuilding('P'))).toBe(false)
+    })
+  })
+})

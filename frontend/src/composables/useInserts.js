@@ -39,14 +39,22 @@ function appliedFor(parentId) {
 
 // пересборки идут по одной: параллельные загрузки перетирали бы друг друга
 let chain = Promise.resolve()
+// сколько пересборок трека ждут или идут: пока их больше нуля, файл микса ещё старый —
+// студия не даёт его слушать как «микс с правками» и делать из него версию
+const building = ref({})
 function rebuild(parentId) {
-  const run = chain.then(() => doRebuild(parentId))
+  building.value = { ...building.value, [parentId]: (building.value[parentId] || 0) + 1 }
+  const run = chain.then(() => doRebuild(parentId)).finally(() => {
+    building.value = { ...building.value, [parentId]: building.value[parentId] - 1 }
+  })
   chain = run.catch(() => {})
   return run
 }
+const isBuilding = (parentId) => (building.value[parentId] || 0) > 0
 async function doRebuild(parentId) {
-  const list = appliedFor(parentId)
-  if (!list.length) return null
+  // выключенные записи остаются в реестре, но в пересборку не идут; активных нет — звучит оригинал
+  const list = appliedFor(parentId).filter((it) => !it.off)
+  if (!list.length) return { empty: true }
   const r = await api.rebuildSections(parentId, list.map((it) => ({
     child_id: it.childId > 0 ? it.childId : 0, from: it.from, to: it.to,
     // у «громкости дорожек» (childId ≤ 0) db без зажима: −100 — заглушить
@@ -86,10 +94,16 @@ function carryTo(fromParent, toParent, srcJob) {
   register([...done, ...waiting].map((it) => ({ ...it, parent: toParent, srcJob })))
 }
 
-// файл свежего микса: Go называет его по последней вклейке реестра
+// файл свежего микса: Go называет его по последней активной вклейке реестра
 function latestFile(parentId) {
-  const list = appliedFor(parentId).filter((it) => it.childId > 0)   // «заглушить» файла не именует
+  const list = appliedFor(parentId).filter((it) => !it.off && it.childId > 0)   // «заглушить» файла не именует
   return list.length ? `overdub-inst-${list[list.length - 1].childId}.flac` : null
+}
+// микс с правками для «▶ микс» студии: без вклеек (одни эффекты/громкости) Go называет его «-0»;
+// активных записей нет — микса нет, звучит оригинал
+function mixFile(parentId) {
+  if (!appliedFor(parentId).some((it) => !it.off)) return null
+  return latestFile(parentId) || 'overdub-inst-0.flac'
 }
 
 // выбрать один из вариантов рендера вклейки (alts) и пересобрать трек
@@ -168,6 +182,45 @@ async function addStemEnvelope(parentId, { stem, envelope }) {
   return rebuild(parentId)
 }
 
+// выключить/вернуть запись: остаётся в реестре (и в localStorage), пересборка без неё
+async function setOff(parentId, childId, off) {
+  const list = appliedFor(parentId)
+  const it = list.find((x) => x.childId === childId)
+  if (!it) return null
+  it.off = !!off
+  applied.value = { ...applied.value, [parentId]: [...list] }
+  save()
+  return rebuild(parentId)
+}
+
+// удалить запись; ожидающая спека той же вклейки уходит из очереди — иначе готовый рендер
+// вернул бы её в реестр. Записи не было — пересборки нет
+async function remove(parentId, childId) {
+  const before = pending.value.length
+  pending.value = pending.value.filter((s) => !(s.parent === parentId && s.childId === childId))
+  const list = appliedFor(parentId)
+  const rest = list.filter((x) => x.childId !== childId)
+  if (rest.length === list.length) {
+    if (pending.value.length !== before) save()
+    return null
+  }
+  applied.value = { ...applied.value, [parentId]: rest }
+  save()
+  return rebuild(parentId)
+}
+
+// новая цепочка у записи движка: окно и дорожка прежние, подпись — новая, если дана
+async function replaceEngine(parentId, childId, { chain, label } = {}) {
+  const list = appliedFor(parentId)
+  const it = list.find((x) => x.childId === childId)
+  if (!it || !it.engine) throw new Error('это не запись звукового движка')
+  it.engine = (chain || []).map((b) => ({ ...b }))
+  if (label) it.label = label
+  applied.value = { ...applied.value, [parentId]: [...list] }
+  save()
+  return rebuild(parentId)
+}
+
 async function setDb(parentId, childId, db) {
   const it = appliedFor(parentId).find((x) => x.childId === childId)
   if (!it) return null
@@ -217,6 +270,8 @@ async function tickOnce() {
       if (!child) { spec.dead = true; continue }
       if (child.status === 'error' || child.status === 'canceled') { spec.dead = true; continue }
       if (child.status !== 'done') continue
+      // спеку убрали (remove) пока тик ждал воркер — в реестр её не возвращаем
+      if (!pending.value.includes(spec)) continue
       // повтор после сбоя пересборки: запись уже в реестре — не трогаем её
       // (громкость с ползунка и порядок сохраняются)
       const list = appliedFor(spec.parent)
@@ -232,7 +287,7 @@ async function tickOnce() {
           to: spec.to ?? spec.from + 15, lead: spec.lead || 0, beat: spec.beat || 0,
           db: spec.db ?? INSERT_DEFAULT_DB,
           stems: spec.stems || [], fadeIn: spec.fadeIn || 0, fadeOut: spec.fadeOut || 0,
-          keepHighHz: spec.keepHighHz || 0,
+          keepHighHz: spec.keepHighHz || 0, off: !!spec.off,
         }] }
       }
       try {
@@ -250,5 +305,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEnvelope, carryTo, flush, latestFile }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, setOff, remove, replaceEngine, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEnvelope, carryTo, flush, latestFile, mixFile, isBuilding }
 }

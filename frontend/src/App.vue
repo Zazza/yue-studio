@@ -419,7 +419,7 @@ const kidMaterial = (id) => (grouped.value.children[id] || []).filter((k) => !is
 function mixKey(parentId, v) { return `mix${parentId}:${v.file}` }
 // подпись микса: по реестру вклеек, иначе сохранённая воркером (микс из MCP)
 function mixName(parentId, v) {
-  const label = mixLabel(v.file, { applied: insertsSvc.appliedFor(parentId), jobs: jobs.value,
+  const label = mixLabel(v.file, { applied: insertsSvc.appliedFor(parentId).filter((it) => !it.off), jobs: jobs.value,
     labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
   if (label) return t('studio.trick.inst.mix', { what: label })
   return v.label || t('studio.trick.inst.variant', { id: mixChildId(v.file) })

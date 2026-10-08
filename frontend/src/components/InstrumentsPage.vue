@@ -9,18 +9,17 @@ import { api } from '../api.js'
 import { ensureKits as ensureKitsOn } from '../engineRun.js'
 import { useInserts } from '../composables/useInserts.js'
 import { usePlayer } from '../composables/usePlayer.js'
+import { useWindowPlay } from '../composables/useWindowPlay.js'
 import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
-import {
-  addBlock, removeBlock, moveBlock, toggleBlock, setParam, addBand, removeBand, setBand,
-  toWorkerChain, fromWorkerChain, missingRequired,
-} from '../fxChain.js'
+import ChainEditor from './ChainEditor.vue'
+import { toWorkerChain, fromWorkerChain, missingRequired } from '../fxChain.js'
 
 const { t, locale } = useI18n()
 const emit = defineEmits(['close'])
-const { toggleArtifact, playBtn, playerState, nowPlayingKey } = usePlayer()
-const BEFORE_KEY = 'instr-before'
+const { toggleArtifact, playBtn } = usePlayer()
+const before = useWindowPlay('instr-before', () => t('instr.before'))
 const inserts = useInserts()
 
 const SOURCES = ['mix', 'vocals', 'drums', 'bass', 'other', 'guitar', 'piano',
@@ -53,18 +52,11 @@ const jobOptions = computed(() => jobs.value.map((j) => ({ value: String(j.id), 
 const sourceOptions = computed(() => SOURCES
   .filter((s) => s === 'mix' || stems.value.includes(s))
   .map((s) => ({ value: s, label: t('studio.dsp.target.' + s) })))
-const blockOptions = computed(() => Object.keys(BLOCKS).map((k) => ({ value: k, label: tr(BLOCKS[k].label) })))
 const preset = computed(() => fxPresets.find((p) => p.id === presetId.value))
 const missing = computed(() => missingRequired(chain.value, BLOCKS))
 const end = computed(() => Math.min(Number(start.value) + Number(len.value), job.value?.duration_sec || Infinity))
 const ready = computed(() => engineOn.value && engineKnown.value && job.value && !missing.value.length &&
   toWorkerChain(chain.value).length > 0 && (source.value === 'mix' || stems.value.includes(source.value)))
-
-function assetOptions(kind, def) {
-  const list = ({ amp: assets.value.amps, ir: assets.value.irs, kit: assets.value.kits })[kind] || []
-  const opts = list.map((a) => ({ value: a.name, label: a.name }))
-  return def === '' ? [{ value: '', label: t('instr.builtin') }, ...opts] : opts
-}
 
 async function loadJobs() {
   try {
@@ -115,14 +107,6 @@ watch(jobId, () => { lastPreview.value = null; fitStart(); loadStems() })
 const onKey = (e) => { if (e.key === 'Escape') emit('close') }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
-// закрыли страницу во время «было» — остановить: следить за концом куска больше некому
-onBeforeUnmount(() => {
-  if (beforeUntil.value && nowPlayingKey.value === BEFORE_KEY) {
-    beforeUntil.value = null
-    nowPlayingKey.value = ''
-    api.stopAudio().catch(() => { /* плеер уже остановлен */ })
-  }
-})
 
 // захват не выбран, а он один/первый есть — подставить: пресет с amp без захватов иначе молчит
 function fillAmp(c) {
@@ -136,9 +120,6 @@ function applyPreset(id) {
   if (p) chain.value = fillAmp(fromWorkerChain(p.chain, BLOCKS))
 }
 
-const newType = ref('reverb')
-function add() { chain.value = fillAmp(addBlock(chain.value, newType.value, BLOCKS)) }
-const set = (i, key, v) => { chain.value = setParam(chain.value, i, key, v, BLOCKS) }
 
 function window_() {
   const from = Math.max(0, Number(start.value) || 0)
@@ -193,34 +174,13 @@ async function playAfter() {
   })
 }
 
-// «было»: тот же кусок без обработки — с той же секунды
+// «было»: тот же кусок без обработки — с той же секунды, стоп в конце куска
 async function playBefore() {
   err.value = ''
   const { from, to } = window_()
   const file = source.value === 'mix' || !solo.value ? job.value.audio_file : `stem-${source.value}.flac`
-  await toggleArtifact(BEFORE_KEY, t('instr.before'), async () => {
-    await api.playFile(job.value.id, file, job.value.duration_sec)
-    await api.seekAudio(from)
-    beforeArmed = false
-    beforeUntil.value = { from, to }
-  })
+  await before.play({ jobId: job.value.id, file, dur: job.value.duration_sec, from, to })
 }
-
-// «было» играет файл трека целиком — остановить на конце куска (плеер сам этого не знает)
-const beforeUntil = ref(null)    // {from, to} куска «было»
-let beforeArmed = false
-watch(() => playerState.value.position_sec, async (pos) => {
-  if (beforeUntil.value == null || nowPlayingKey.value !== BEFORE_KEY) return
-  const { from, to } = beforeUntil.value
-  if (!beforeArmed) {               // первая позиция может остаться от прошлого проигрывания
-    if (pos >= from && pos < to) beforeArmed = true
-    return
-  }
-  if (pos >= to) {
-    beforeUntil.value = null
-    await toggleArtifact(BEFORE_KEY, t('instr.before'), async () => {})
-  }
-})
 
 // понравилось — та же цепочка на весь трек вариантом и сразу отдельным треком
 async function toTrack() {
@@ -309,49 +269,7 @@ async function upload(kind) {
         </div>
         <p v-if="preset" class="muted voice-hint">{{ tr(preset.note) }}</p>
 
-        <div v-for="(b, i) in chain" :key="i" class="instr-block" :class="{ off: !b.on }">
-          <div class="instr-block-head">
-            <label class="instr-on"><input type="checkbox" :checked="b.on" @change="chain = toggleBlock(chain, i)" /> {{ tr(BLOCKS[b.type].label) }}</label>
-            <span class="spacer"></span>
-            <button class="ghost icon" :title="t('instr.up')" :disabled="i === 0" @click="chain = moveBlock(chain, i, -1)">↑</button>
-            <button class="ghost icon" :title="t('instr.down')" :disabled="i === chain.length - 1" @click="chain = moveBlock(chain, i, 1)">↓</button>
-            <button class="ghost icon" :title="t('instr.remove')" @click="chain = removeBlock(chain, i)"><AppIcon name="x" /></button>
-          </div>
-          <div v-if="b.on" class="dsp-params">
-            <label v-for="s in BLOCKS[b.type].strings || []" :key="s.id">
-              <span>{{ tr(s.label) }}</span>
-              <VSelect :model-value="b.params[s.id]" :options="assetOptions(s.asset, s.default)"
-                       :placeholder="t('instr.asset.none')" @update:model-value="(v) => set(i, s.id, v)" />
-              <span>
-                <button v-if="s.asset !== 'kit'" class="ghost small-btn" :title="t('instr.upload.tip')" @click.prevent="upload(s.asset)">{{ t('instr.upload') }}</button>
-                <button v-else class="ghost small-btn" :disabled="!!busy" :title="t('instr.kit.tip')" @click.prevent="installKit('osdk')">{{ busy === 'kit' ? t('instr.kit.busy') : t('instr.kit') }}</button>
-              </span>
-            </label>
-            <label v-for="p in BLOCKS[b.type].params" :key="p.id">
-              <span>{{ tr(p.label) }}</span>
-              <input type="range" :min="p.zero_off ? 0 : p.min" :max="p.max" :step="p.step" :value="b.params[p.id]"
-                     @input="(e) => set(i, p.id, Number(e.target.value))" />
-              <span class="dsp-pval">{{ b.params[p.id] }}</span>
-            </label>
-            <template v-if="BLOCKS[b.type].bands">
-              <div v-for="(band, k) in b.params.bands" :key="'band' + k" class="instr-band">
-                <label v-for="(bs, key) in BLOCKS[b.type].bands" :key="key">
-                  <span>{{ t('instr.band', { n: k + 1 }) }} · {{ tr(bs.label) }}</span>
-                  <input type="range" :min="bs.min" :max="bs.max" :step="bs.step" :value="band[key]"
-                         @input="(e) => (chain = setBand(chain, i, k, key, Number(e.target.value), BLOCKS))" />
-                  <span class="dsp-pval">{{ band[key] }}</span>
-                </label>
-                <button class="ghost small-btn" @click="chain = removeBand(chain, i, k, BLOCKS)">{{ t('instr.band.remove') }}</button>
-              </div>
-              <button class="ghost small-btn" @click="chain = addBand(chain, i, BLOCKS)">{{ t('instr.band.add') }}</button>
-            </template>
-          </div>
-        </div>
-
-        <div class="corpus-actions">
-          <VSelect v-model="newType" :options="blockOptions" style="width: 200px" />
-          <button class="ghost" @click="add">{{ t('instr.add') }}</button>
-        </div>
+        <ChainEditor v-model="chain" :assets="assets" :busy="busy" @upload="upload" @install-kit="installKit" />
         <p v-if="missing.length" class="err">{{ t('instr.needAmp') }}</p>
 
         <div class="corpus-actions">
@@ -378,11 +296,7 @@ async function upload(kind) {
 </template>
 
 <style scoped>
-.instr-block { border: 1px solid var(--line, #2a2a35); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
-.instr-block.off { opacity: 0.55; }
-.instr-block-head { display: flex; align-items: center; gap: 6px; }
 .instr-on { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.instr-band { border-left: 2px solid var(--line, #2a2a35); padding-left: 8px; margin: 4px 0; }
 .spacer { flex: 1; }
 .small-btn.on { border-color: var(--accent, #7aa2f7); }
 </style>

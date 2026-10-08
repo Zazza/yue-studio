@@ -23,7 +23,7 @@ import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '.
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 import PedalBoard from './PedalBoard.vue'
-import EngineBox from './EngineBox.vue'
+import TrackDesk from './TrackDesk.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -852,6 +852,63 @@ const insertNames = {
 }
 const insertWin = computed(() => ({ fmt: fmtDur, toEnd: t('studio.inserts.toEnd'), whole: t('studio.inserts.whole') }))
 const dbBusy = ref(false)
+
+// «Правки трека»: выключить/вернуть, удалить, править цепочку движка в «Дорожках»; микс с правками —
+// послушать и сделать версией прямо из списка (без прокрутки к «Готово»)
+const deskRef = ref(null)
+const deskBox = ref(null)
+const activeEdits = computed(() => appliedInserts.value.filter((it) => !it.off))
+const mixFile = computed(() => inserts.mixFile(props.job.id))
+const mixBuilding = computed(() => inserts.isBuilding(props.job.id))
+// prev — файл микса с правками до правки: его и остановить, если правок не осталось (готовые
+// варианты в «Готово» не трогаем); новый микс играет под своим ключом — ▶/■ и стоп его видят
+async function afterEdit(r, prev) {
+  if (r && r.empty) {
+    trickMsg.value = t('studio.edits.none')
+    if (prev && nowPlayingKey.value === `v${props.job.id}:${prev}`) {
+      nowPlayingKey.value = ''
+      await api.stopAudio().catch(() => { /* плеер уже остановлен */ })
+    }
+  } else if (r && r.variant) {
+    await api.playFile(props.job.id, r.variant.file, props.job.duration_sec)
+    nowPlayingKey.value = `v${props.job.id}:${r.variant.file}`
+  }
+  reloadVariants()
+}
+async function toggleEdit(it) {
+  dbBusy.value = true
+  rollErr.value = ''
+  const prev = mixFile.value
+  try { await afterEdit(await inserts.setOff(props.job.id, it.childId, !it.off), prev) } catch (e) {
+    rollErr.value = String(e)
+  } finally { dbBusy.value = false }
+}
+function removeEdit(it) {
+  askConfirm(t('studio.edits.del.title'), insertTitle(it, insertNames), async () => {
+    dbBusy.value = true
+    rollErr.value = ''
+    const prev = mixFile.value
+    try { await afterEdit(await inserts.remove(props.job.id, it.childId), prev) } catch (e) {
+      rollErr.value = String(e)
+    } finally { dbBusy.value = false }
+  })
+}
+function editEngine(it) {
+  if (deskBox.value) deskBox.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (deskRef.value) deskRef.value.editRecord(it)
+}
+function playMix() {
+  const file = mixFile.value
+  if (!file) return
+  toggleArtifact(`v${props.job.id}:${file}`, t('studio.edits.mix') + ' · #' + props.job.id,
+    () => api.playFile(props.job.id, file, props.job.duration_sec))
+}
+function mixToTrack() {
+  if (mixFile.value) variantToTrack({ file: mixFile.value })
+}
+async function reloadStems() {
+  try { stemsList.value = (await api.jobStems(props.job.id)) || [] } catch { /* нет дорожек — пульт предложит сделать */ }
+}
 async function onInsertDb(it, value) {
   dbBusy.value = true
   rollErr.value = ''
@@ -1094,11 +1151,6 @@ async function makeMinus() {
   } finally { rollBusy.value = false }
 }
 
-function playStem(s) {
-  toggleArtifact(`s${props.job.id}:${s.file}`, `${s.name} · #${props.job.id}`,
-    () => api.playFile(props.job.id, s.file, props.job.duration_sec))
-}
-
 // ---------- Овердаб ----------
 
 function odToggleChip(idx) {
@@ -1194,7 +1246,7 @@ async function submitVoice() {
 function variantLabel(v) {
   const file = v.file
   if (file.startsWith('overdub-inst-')) {
-    const label = mixLabel(file, { applied: inserts.appliedFor(props.job.id), jobs: allJobs.value,
+    const label = mixLabel(file, { applied: inserts.appliedFor(props.job.id).filter((it) => !it.off), jobs: allJobs.value,
       labelOf: (id) => t('studio.trick.inst.' + id), fmt: fmtDur })
     if (label) return t('studio.trick.inst.mix', { what: label })
     return v.label || t('studio.trick.inst.variant', { id: mixChildId(file) })
@@ -1695,25 +1747,39 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </p>
             </div>
           </div>
-          <div v-if="appliedInserts.length" class="studio-box">
-            <div class="studio-box-head"><span>{{ t('studio.inserts.title') }}</span></div>
+          <div class="studio-box">
+            <div class="studio-box-head">
+              <span>{{ t('studio.edits.title') }}</span>
+              <span v-if="mixFile && activeEdits.length" class="studio-box-tools">
+                <button class="ghost small-btn" :class="{ stop: isPlaying('v' + job.id + ':' + mixFile) }"
+                        :disabled="mixBuilding || playBusy['v' + job.id + ':' + mixFile]" :title="t('studio.edits.mix.tip')" @click="playMix">
+                  {{ playBtn('v' + job.id + ':' + mixFile) }} {{ t('studio.edits.mix') }}</button>
+                <button class="primary small" :disabled="dspBusy || mixBuilding" :title="t('studio.dsp.totrack.tip')" @click="mixToTrack">→ в треки</button>
+              </span>
+            </div>
             <div class="studio-box-body insert-list">
-            <div v-for="it in appliedInserts" :key="it.instId + ':' + it.from" class="insert-row">
+            <p v-if="!activeEdits.length" class="muted">{{ t('studio.edits.none') }}</p>
+            <div v-for="it in appliedInserts" :key="it.childId" class="insert-row" :class="{ off: it.off }">
+              <input type="checkbox" :checked="!it.off" :disabled="dbBusy" :title="t('studio.edits.on.tip')" @change="toggleEdit(it)" />
               <strong>{{ insertTitle(it, insertNames) }}</strong>
               <span class="muted">{{ insertWindow(it, insertWin) }}</span>
               <label v-if="it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
                 <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
-                       :disabled="dbBusy" @change="onInsertDb(it, $event.target.value)" />
+                       :disabled="dbBusy || it.off" @change="onInsertDb(it, $event.target.value)" />
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
               </label>
               <span v-if="it.aligned === true" class="muted" :title="t('studio.inserts.aligned.tip')">✓ {{ t('studio.inserts.aligned') }}</span>
               <span v-else-if="it.aligned === false" class="error" :title="t('studio.inserts.plan.tip')"><AppIcon name="alert" /> {{ t('studio.inserts.plan') }}</span>
               <template v-if="(it.alts || []).length > 1">
                 <button v-for="(alt, n) in it.alts" :key="alt" class="ghost small-btn" :class="{ on: alt === it.childId }"
-                        :disabled="dbBusy" :title="t('studio.inserts.alt.tip')" @click="pickAlt(it, alt)">{{ n + 1 }}</button>
+                        :disabled="dbBusy || it.off" :title="t('studio.inserts.alt.tip')" @click="pickAlt(it, alt)">{{ n + 1 }}</button>
               </template>
-              <button v-if="!it.chain" class="ghost small-btn" :disabled="dbBusy || trickBusy" :title="t('studio.inserts.more.tip')"
+              <button v-if="it.childId > 0" class="ghost small-btn" :disabled="dbBusy || trickBusy || it.off" :title="t('studio.inserts.more.tip')"
                       @click="moreVariant(it)">↻ {{ t('studio.inserts.more') }}</button>
+              <button v-if="it.engine" class="ghost small-btn" :disabled="dbBusy" :title="t('studio.edits.edit.tip')"
+                      @click="editEngine(it)">{{ t('studio.edits.edit') }}</button>
+              <span class="spacer"></span>
+              <button class="ghost small-btn" :disabled="dbBusy" :title="t('studio.edits.del.tip')" @click="removeEdit(it)"><AppIcon name="x" /></button>
             </div>
             </div>
           </div>
@@ -1765,6 +1831,28 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </details>
 
           <h3 id="st-sound" class="studio-step">3 · {{ t('studio.step.sound') }} <span class="muted">{{ t('studio.step.sound.sub') }}</span></h3>
+          <div ref="deskBox" class="studio-box">
+            <div class="studio-box-head"><span><AppIcon name="sliders" /> {{ t('desk.title') }}</span> <span class="muted studio-box-hint">{{ t('desk.sub') }}</span></div>
+            <div class="studio-box-body">
+              <TrackDesk ref="deskRef" :job="job" :stems="stemsList" :sel="selRange" :cursor="waveCursor"
+                         :names="insertNames" :win="insertWin" @applied="reloadVariants" @stems="reloadStems" />
+              <div class="stems-inline">
+                <span class="muted">{{ t('studio.stems.minus') }}</span>
+                <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
+                  <button class="toggle" :class="{ on: !stemMute[nm] }"
+                         :title="stemMute[nm] ? t('studio.stem.off') : t('studio.stem.on')"
+                         @click="stemMute = { ...stemMute, [nm]: !stemMute[nm] }">
+                    {{ stemLabel(nm) }}
+                  </button>
+                </label>
+                <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
+                        :title="t('studio.minus.tip')" @click="makeMinus">
+                  {{ rollBusy ? '…' : t('studio.minus') }}
+                </button>
+                <span class="muted">{{ t('studio.minus.hint') }}</span>
+              </div>
+            </div>
+          </div>
           <details ref="fxBox" class="studio-box">
             <summary class="studio-box-head"><span>{{ t('studio.dsp') }}</span> <span class="muted studio-box-hint">{{ t('studio.dsp.sub') }}</span></summary>
             <div class="studio-box-body">
@@ -1817,41 +1905,6 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <PedalBoard :job="job" :chains="dspChains" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
             </div>
           </details>
-
-          <details class="studio-box">
-            <summary class="studio-box-head"><span><AppIcon name="sliders" /> {{ t('engine') }}</span> <span class="muted studio-box-hint">{{ t('engine.sub') }}</span></summary>
-            <div class="studio-box-body">
-              <EngineBox :job="job" :sel="selRange" @applied="reloadVariants" />
-            </div>
-          </details>
-
-          <div class="studio-box">
-            <div class="studio-box-head"><span>{{ t('studio.stems') }}</span></div>
-            <div class="studio-box-body">
-            <div class="stems-inline">
-              <span class="muted">{{ t('studio.stems.minus') }}</span>
-              <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
-                <button class="toggle" :class="{ on: !stemMute[nm] }"
-                       :title="stemMute[nm] ? t('studio.stem.off') : t('studio.stem.on')"
-                       @click="stemMute = { ...stemMute, [nm]: !stemMute[nm] }">
-                  {{ stemLabel(nm) }}
-                </button>
-              </label>
-              <button class="primary small" :disabled="rollBusy || !Object.values(stemMute).some(Boolean)"
-                      :title="t('studio.minus.tip')" @click="makeMinus">
-                {{ rollBusy ? '…' : t('studio.minus') }}
-              </button>
-              <span class="muted">{{ t('studio.minus.hint') }}</span>
-            </div>
-            <div v-for="st in stemsList" :key="st.file" class="stem-row">
-              <button class="ghost play-mini" :class="{ stop: isPlaying('s' + job.id + ':' + st.file) }"
-                      :disabled="playBusy['s' + job.id + ':' + st.file]" @click="playStem(st)">
-                {{ playBtn('s' + job.id + ':' + st.file) }}
-              </button>
-              <strong>{{ stemLabel(st.name) }}</strong>
-            </div>
-            </div>
-          </div>
 
           <h3 id="st-done" class="studio-step">4 · {{ t('studio.step.done') }} <span class="muted">{{ t('studio.step.done.sub') }}</span></h3>
           <!-- готово: мастеринг одним кликом, громкость альбома и все результаты (варианты) с ▶ / ⤓ / → в треки -->

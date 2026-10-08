@@ -1,10 +1,12 @@
 // Готовые цепочки звукового движка (страница «Инструменты», MCP fx_presets через make mcp-data).
 // chain — тот же JSON, что уходит воркеру (POST /jobs/{id}/fx); пропущенное — умолчания блоков.
 // amp.model пустой — захват выбирает пользователь из загруженных (в поставке их нет).
+// stems — дорожки, для которых цепочка (пульт дорожек студии); нет поля — подходит всем.
 
 export const fxPresets = [
   {
     id: 'guitar-amp-clean',
+    stems: ['guitar', 'other'],
     name: { ru: 'Гитара: чистый усилитель', en: 'Guitar: clean amp' },
     note: {
       ru: 'Перегруз YuE через чистый захват (Fender Twin и похожие) с убавленным входом и комнатой — звук заметно другой, старая гитара не узнаётся. Захват — только усилителя, без кабинета.',
@@ -20,6 +22,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-amp-hot',
+    stems: ['guitar', 'other'],
     name: { ru: 'Гитара: перегруз погорячее', en: 'Guitar: hotter drive' },
     note: {
       ru: 'Вход усилителя +12 дБ — захват перегруза (JCM2000/JCM900 и похожие) работает в полную силу. На похожем захвате с тем же уровнем замена малозаметна — гоните вход. Захват без кабинета.',
@@ -34,6 +37,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-amp-spring',
+    stems: ['guitar', 'other'],
     name: { ru: 'Гитара: Vox и короткий реверб', en: 'Guitar: Vox and short reverb' },
     note: {
       ru: 'Захват в духе Vox AC15 TopBoost, вход +6 дБ, короткий тёмный реверб (встроенный, в духе пружины; настоящую пружину — своим IR) — винтажный звон.',
@@ -49,6 +53,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-clean',
+    stems: ['guitar', 'other'],
     name: { ru: 'Гитара: чистая с коротким ревербом', en: 'Guitar: clean with short reverb' },
     note: {
       ru: 'Без усилителя: ровнее компрессором, чуть яснее середина, короткий тёмный хвост как у пружины.',
@@ -63,6 +68,7 @@ export const fxPresets = [
   },
   {
     id: 'vocal-plate',
+    stems: ['vocals'],
     name: { ru: 'Голос: плейт', en: 'Vocal: plate' },
     note: {
       ru: 'Гейт, срез низа, разборчивость на 3 кГц, компрессор, хвост с предзадержкой 30 мс — слова не тонут.',
@@ -77,6 +83,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-room',
+    stems: ['drums'],
     name: { ru: 'Барабаны: комната', en: 'Drums: room' },
     note: {
       ru: 'Компрессор с медленной атакой (удар проходит) и короткая комната — барабаны «в помещении», а не в вакууме.',
@@ -89,6 +96,7 @@ export const fxPresets = [
   },
   {
     id: 'synth-delay',
+    stems: ['other', 'piano'],
     name: { ru: 'Синт: дилей и зал', en: 'Synth: delay and hall' },
     note: {
       ru: 'Срез низа (место басу), повторы 375 мс и длинный зал — пэд шире и глубже.',
@@ -102,6 +110,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-kick-kit',
+    stems: ['kick'],
     name: { ru: 'Бочка: набор', en: 'Kick: kit' },
     note: {
       ru: 'На дорожку «бочка» (RoFormer): удары бочки заменяются сэмплами набора The Open Source Drum Kit, сила удара выбирает сэмпл. Набор — fx_kit_install osdk.',
@@ -111,6 +120,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-snare-kit',
+    stems: ['snare'],
     name: { ru: 'Малый: набор', en: 'Snare: kit' },
     note: {
       ru: 'На дорожку «малый барабан» (RoFormer): удары малого — сэмплами набора; порог −20 дБ пропускает и тихие удары (гоулст-ноты); слышна протечка бочки/хэта — поднимите порог.',
@@ -120,6 +130,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-hh-kit',
+    stems: ['hh'],
     name: { ru: 'Хэт: набор', en: 'Hi-hat: kit' },
     note: {
       ru: 'На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Громкость +4 дБ: хэт YuE тихий, на слух лучше заметнее (опыт #663). Набор — fx_kit_install osdk.',
@@ -129,6 +140,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-ride-kit',
+    stems: ['ride'],
     name: { ru: 'Райд: набор', en: 'Ride: kit' },
     note: {
       ru: 'На дорожку «райд» (RoFormer): удары райда — сэмплами набора. Если в дорожке в основном протечка других барабанов, поднимите порог.',
@@ -138,6 +150,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-crash-kit',
+    stems: ['crash'],
     name: { ru: 'Крэш: набор', en: 'Crash: kit' },
     note: {
       ru: 'На дорожку «крэш» (RoFormer): удары тарелки — сэмплами набора, тарелка звенит до конца.',
@@ -147,6 +160,7 @@ export const fxPresets = [
   },
   {
     id: 'bass-kit',
+    stems: ['bass'],
     name: { ru: 'Бас: бас-гитара (набор)', en: 'Bass: bass guitar (kit)' },
     note: {
       ru: 'На дорожку «бас»: ноты баса играются сэмплами настоящей бас-гитары (Growlybass, Squier Jazz). Ритм — доли дорожки (2 ноты на долю — восьмые), высота — по басу, громкость и баланс низа/середины следуют за исходным басом. Сложный рисунок (слэп, быстрые пассажи) не повторит. Набор — fx_kit_install growlybass.',

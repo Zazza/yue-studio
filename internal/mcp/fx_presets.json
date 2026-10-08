@@ -1,6 +1,10 @@
 [
  {
   "id": "guitar-amp-clean",
+  "stems": [
+   "guitar",
+   "other"
+  ],
   "name": {
    "ru": "Гитара: чистый усилитель",
    "en": "Guitar: clean amp"
@@ -38,6 +42,10 @@
  },
  {
   "id": "guitar-amp-hot",
+  "stems": [
+   "guitar",
+   "other"
+  ],
   "name": {
    "ru": "Гитара: перегруз погорячее",
    "en": "Guitar: hotter drive"
@@ -69,6 +77,10 @@
  },
  {
   "id": "guitar-amp-spring",
+  "stems": [
+   "guitar",
+   "other"
+  ],
   "name": {
    "ru": "Гитара: Vox и короткий реверб",
    "en": "Guitar: Vox and short reverb"
@@ -107,6 +119,10 @@
  },
  {
   "id": "guitar-clean",
+  "stems": [
+   "guitar",
+   "other"
+  ],
   "name": {
    "ru": "Гитара: чистая с коротким ревербом",
    "en": "Guitar: clean with short reverb"
@@ -148,6 +164,9 @@
  },
  {
   "id": "vocal-plate",
+  "stems": [
+   "vocals"
+  ],
   "name": {
    "ru": "Голос: плейт",
    "en": "Vocal: plate"
@@ -189,6 +208,9 @@
  },
  {
   "id": "drums-room",
+  "stems": [
+   "drums"
+  ],
   "name": {
    "ru": "Барабаны: комната",
    "en": "Drums: room"
@@ -217,6 +239,10 @@
  },
  {
   "id": "synth-delay",
+  "stems": [
+   "other",
+   "piano"
+  ],
   "name": {
    "ru": "Синт: дилей и зал",
    "en": "Synth: delay and hall"
@@ -248,6 +274,9 @@
  },
  {
   "id": "drums-kick-kit",
+  "stems": [
+   "kick"
+  ],
   "name": {
    "ru": "Бочка: набор",
    "en": "Kick: kit"
@@ -267,6 +296,9 @@
  },
  {
   "id": "drums-snare-kit",
+  "stems": [
+   "snare"
+  ],
   "name": {
    "ru": "Малый: набор",
    "en": "Snare: kit"
@@ -286,6 +318,9 @@
  },
  {
   "id": "drums-hh-kit",
+  "stems": [
+   "hh"
+  ],
   "name": {
    "ru": "Хэт: набор",
    "en": "Hi-hat: kit"
@@ -307,6 +342,9 @@
  },
  {
   "id": "drums-ride-kit",
+  "stems": [
+   "ride"
+  ],
   "name": {
    "ru": "Райд: набор",
    "en": "Ride: kit"
@@ -326,6 +364,9 @@
  },
  {
   "id": "drums-crash-kit",
+  "stems": [
+   "crash"
+  ],
   "name": {
    "ru": "Крэш: набор",
    "en": "Crash: kit"
@@ -345,6 +386,9 @@
  },
  {
   "id": "bass-kit",
+  "stems": [
+   "bass"
+  ],
   "name": {
    "ru": "Бас: бас-гитара (набор)",
    "en": "Bass: bass guitar (kit)"

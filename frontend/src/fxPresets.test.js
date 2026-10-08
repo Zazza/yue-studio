@@ -170,3 +170,50 @@ describe('fxPresets: гитары (условие 13) и наборы бараб
     }
   })
 })
+
+// Карточка internal-own-track, этап 0, условие 3 (тест-кейс ТК12): готовые цепочки знают
+// дорожки — у каждого пресета поле stems (список дорожек), кроме мастер-склейки.
+describe('fxPresets: дорожки пресетов (stems)', () => {
+  const KNOWN = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other']
+  const MASTER = 'master-glue'
+  const byId = (id) => fxPresets.find((p) => p.id === id)
+
+  it('мастер-склейка есть и она без stems — подходит всем', () => {
+    expect(byId(MASTER), 'нет пресета master-glue').toBeTruthy()
+    expect(byId(MASTER).stems).toBeUndefined()
+  })
+
+  it.each(fxPresets.filter((p) => p.id !== MASTER).map((p) => [p.id, p]))(
+    'пресет %s: stems — непустой список известных дорожек', (_, p) => {
+      expect(Array.isArray(p.stems), `${p.id}: stems не список`).toBe(true)
+      expect(p.stems.length).toBeGreaterThan(0)
+      for (const s of p.stems) expect(KNOWN, `${p.id}: неизвестная дорожка ${s}`).toContain(s)
+    })
+
+  it.each(['guitar', 'vocals', 'drums', 'kick', 'snare', 'hh', 'bass'])(
+    'для дорожки %s есть хотя бы один свой пресет', (stem) => {
+      expect(fxPresets.some((p) => (p.stems || []).includes(stem))).toBe(true)
+    })
+
+  // соответствие из условия 3: гитары → guitar/other; голос → vocals; барабаны-комната → drums;
+  // бочка → kick; малый → snare; хэт → hh; райд → ride; крэш → crash; бас → bass; синт → other/piano
+  it.each([
+    ['guitar-amp-clean', ['guitar', 'other']],
+    ['guitar-amp-hot', ['guitar', 'other']],
+    ['guitar-amp-spring', ['guitar', 'other']],
+    ['guitar-clean', ['guitar', 'other']],
+    ['vocal-plate', ['vocals']],
+    ['drums-room', ['drums']],
+    ['drums-kick-kit', ['kick']],
+    ['drums-snare-kit', ['snare']],
+    ['drums-hh-kit', ['hh']],
+    ['drums-ride-kit', ['ride']],
+    ['drums-crash-kit', ['crash']],
+    ['bass-kit', ['bass']],
+    ['synth-delay', ['other', 'piano']],
+  ])('пресет %s — дорожки %j', (id, want) => {
+    const p = byId(id)
+    expect(p, `нет пресета ${id}`).toBeTruthy()
+    expect([...(p.stems || [])].sort()).toEqual([...want].sort())
+  })
+})

@@ -1,5 +1,5 @@
 // Звуковой движок из интерфейса без Vue: докачка наборов сэмплов и «применить цепочку» (короткое
-// превью, затем запись в реестр пересборки). Вызывают EngineBox и InstrumentsPage.
+// превью, затем запись в реестр пересборки). Вызывают пульт дорожек студии (TrackDesk) и InstrumentsPage.
 import RU from './i18n/ru.js'
 import { missingKits } from './fxChain.js'
 

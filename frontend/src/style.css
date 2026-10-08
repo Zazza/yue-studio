@@ -265,6 +265,9 @@ input[type="range"]::-webkit-slider-thumb {
 /* вклейки инструментов в студии: громкость и отметка ритма */
 .insert-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .insert-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* выключенная правка — в списке, но приглушена */
+.insert-row.off strong, .insert-row.off .muted { opacity: 0.5; text-decoration: line-through; }
+.insert-row .spacer { flex: 1; }
 
 /* вложения трека (производные: куски, пересборки, варианты) — отдельный блок:
    рамка и фон, чтобы не сливался с карточкой; заголовок с кнопкой «свернуть» */
