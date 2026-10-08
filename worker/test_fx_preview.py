@@ -412,6 +412,47 @@ class TestPreviewCacheVersion(_PreviewCase):
                 self.assertGreater(_residual_db(y1, y2), -20, "превью посчитано со старым IR")
                 upload(_wav_bytes(0.5, 48000))  # вернуть исходный IR для следующего блока
 
+    def test_tc45_replaced_nam_same_mtime_recomputed(self):
+        # ТК45: захват .nam заменён файлом другого размера с тем же mtime_ns → повторный
+        # такой же запрос превью не из кэша. Граница torch/NAM — fx_nam.load_nam (фейк).
+        import fx_engine
+        import fx_nam
+        from test_fx_api import NAM_OK
+        from test_fx_engine import FakeAmp
+        p = mock.patch.object(self.w, "fx_resources", self.real_fx_resources)
+        p.start()
+        self.addCleanup(p.stop)
+        # очередь GPU — внешняя граница (блокировка с другими задачами GPU), здесь не нужна
+        from contextlib import nullcontext
+        p = mock.patch.object(self.w, "gpu_queue", lambda *a, **kw: nullcontext())
+        p.start()
+        self.addCleanup(p.stop)
+        class _Amp(FakeAmp):           # у захвата воркера есть close() — освобождение модели
+            def close(self):
+                pass
+
+        p = mock.patch.object(fx_nam, "load_nam", lambda path, latency=None, *a, **kw: _Amp(shift=5))
+        p.start()
+        self.addCleanup(p.stop)
+        amps = self.data / "fx" / "amps"
+        amps.mkdir(parents=True, exist_ok=True)
+        path = amps / "Plexi.nam"
+        path.write_bytes(NAM_OK)
+        st = path.stat()
+        jid, d = self._audio_job()
+        chain = [{"type": "amp", "model": "Plexi.nam"}]
+        with mock.patch.object(fx_engine, "process", wraps=fx_engine.process) as proc:
+            a = self._ok_preview(jid, chain, 1.0, 2.0, source="vocals", output="solo")
+            calls = proc.call_count
+            other = NAM_OK.replace(b"0.3]", b"0.333]")
+            self.assertNotEqual(len(other), len(NAM_OK))
+            path.write_bytes(other)
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+            self.assertEqual(path.stat().st_mtime_ns, st.st_mtime_ns, "самопроверка: mtime не вернулся")
+            b = self._ok_preview(jid, chain, 1.0, 2.0, source="vocals", output="solo")
+            self.assertGreater(proc.call_count, calls, "захват заменён (тот же mtime, другой размер), а превью из кэша")
+        self.assertNotEqual(a["file"], b["file"], "захват заменён, а имя превью то же")
+
 
 class TestPreviewConcurrent(_PreviewCase):
     """Регрессия ревью: два одинаковых превью одновременно."""
@@ -773,6 +814,99 @@ class TestPreviewPad(_FadeCase):
         self.assertEqual(a["file"], b["file"])
         y, _ = _read(d / a["file"])
         self.assertAlmostEqual(len(y) / SR, 1.0 + FADE, delta=2 / SR)
+
+
+# ---------- Условие 36f (закрытие хвостов), ТК42: превью с pad пишется потоком ----------
+#
+# Контракт: файл тот же, что раньше (тишина round(from·sr) сэмплов + кусок без pad, длина
+# end от начала трека), но тишина до окна не собирается в массив длиной from: функция записи
+# получает её блоками ≤ 1 с.
+# Допущение о точке подмены: воркер пишет FLAC через soundfile, и любая запись (sf.write
+# или SoundFile(..., "w").write блоками) проходит через soundfile.SoundFile.write — шпион
+# стоит там и смотрит самую длинную серию нулевых кадров в одном вызове. Если реализация
+# пишет мимо SoundFile.write (buffer_write, ffmpeg), шпион ничего не увидит — для этого
+# есть проверка «шпион видел все кадры файла».
+
+PAD_TRACK_DUR = 125.0
+
+
+@unittest.skipUnless(fa._OK, fa._SKIP)
+class TestPreviewPadStream(_FadeCase):
+    """ТК42 (36f): pad=true на позднем окне — файл тот же, тишина пишется блоками ≤ 1 с."""
+
+    def _long_job(self):
+        import numpy as np
+        import soundfile as sf
+        jid = self._job(duration=PAD_TRACK_DUR, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        t = np.arange(int(PAD_TRACK_DUR * SR)) / SR
+        voc = (fa.AMP * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+        oth = (fa.AMP * np.sin(2 * np.pi * 3000 * t)).astype(np.float32)
+        sf.write(str(d / "stem-vocals.flac"), np.stack([voc, voc], axis=1), SR)
+        sf.write(str(d / "stem-other.flac"), np.stack([oth, oth], axis=1), SR)
+        sf.write(str(d / "audio.flac"), np.stack([voc + oth, voc + oth], axis=1), SR)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid, d
+
+    def _spy_writes(self):
+        """Шпион на soundfile.SoundFile.write → (список вызовов, патч-контекст); вызов —
+        (кадров в вызове, самая длинная серия нулевых кадров)."""
+        import numpy as np
+        import soundfile as sf
+        calls = []
+        orig = sf.SoundFile.write
+
+        def spy(sf_self, data):
+            a = np.asarray(data)
+            z = np.all(a.reshape(len(a), -1) == 0, axis=1) if len(a) else np.zeros(0, bool)
+            run = 0
+            if z.any():
+                edges = np.flatnonzero(np.diff(np.concatenate(([0], z.astype(np.int8), [0]))))
+                run = int((edges[1::2] - edges[::2]).max())
+            calls.append((len(a), run))
+            return orig(sf_self, data)
+
+        return calls, mock.patch.object(sf.SoundFile, "write", spy)
+
+    CASES = ((CUT_1K, 120.0, 122.0), (ECHO, 120.0, 121.0), (CUT_1K, 120.3456, 124.5))
+
+    def test_tc42_file_same_as_before(self):
+        import numpy as np
+        jid, d = self._long_job()
+        n = int(round(PAD_TRACK_DUR * SR))
+        for chain, fr, to in self.CASES:
+            with self.subTest(chain=chain, fr=fr, to=to):
+                a = self._ok_preview(jid, chain, fr, to, source="vocals", output="solo", fade=FADE, pad=True)
+                b = self._ok_preview(jid, chain, fr, to, source="vocals", output="solo", fade=FADE, pad=False)
+                ya, sr = _read(d / a["file"])
+                yb, _ = _read(d / b["file"])
+                self.assertEqual(sr, SR)
+                s0 = int(round(fr * SR))
+                bb, F = int(round(to * SR)), int(round(FADE * SR))
+                has_tail = any(blk["type"] in ("reverb", "delay") for blk in chain)
+                end = min(bb + F + (int(round(TAIL * SR)) if has_tail else 0), n)
+                self.assertEqual(len(ya), end, "длина ≠ to+fade+хвост от начала трека")
+                self.assertEqual(float(np.abs(ya[:s0]).max()), 0.0, "до from не тишина")
+                np.testing.assert_array_equal(ya[s0:], yb, "кусок после тишины не побитно тот же, что без pad")
+                self.assertAlmostEqual(a["duration_sec"], len(ya) / SR, delta=0.001)
+
+    def test_tc42_silence_written_in_blocks_le_1s(self):
+        jid, d = self._long_job()
+        for chain, fr, to in self.CASES:
+            with self.subTest(chain=chain, fr=fr, to=to):
+                calls, spy = self._spy_writes()
+                with spy:
+                    out = self._ok_preview(jid, chain, fr, to, source="vocals", output="solo", fade=FADE, pad=True)
+                y, _ = _read(d / out["file"])
+                self.assertGreaterEqual(sum(c[0] for c in calls), len(y),
+                                        "шпион не видел записи файла — запись идёт мимо SoundFile.write")
+                worst = max(c[1] for c in calls)
+                self.assertLessEqual(worst, SR, f"в один вызов записи ушло {worst / SR:.1f} с тишины подряд")
+                biggest = max(c[0] for c in calls)
+                self.assertLess(biggest, int(round(fr * SR)),
+                                f"один вызов записи — {biggest / SR:.1f} с: массив не меньше тишины до окна")
 
 
 # ---------- Условие 14 (internal-studio-engine, этап 5а): превью с sampler ----------

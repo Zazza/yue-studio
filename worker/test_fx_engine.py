@@ -2034,5 +2034,291 @@ class TestSamplerChokeAttack(unittest.TestCase):
         self.assertLessEqual(abs(at - p2), 1, f"пик выхода у второго удара на {at - p2} от пика удара")
 
 
+# ---------- Условие 36 (закрытие хвостов), ТК37–39, ТК41 ----------
+#
+# 36a: _env5 (sampler) без NaN/RuntimeWarning на тишине и крохах после сглаживания —
+#      проверяется через вход: process с warnings как ошибки, выход конечен.
+# 36b: поиск ударов — кадр 256 (было 128), точность места удара прежняя (пик по сэмплам).
+#      Размер кадра снаружи не виден: тест охраняет точность (±1) на некруглых отсчётах
+#      вокруг границ кадров 128/256 и у краёв входа — зелёный и до, и после правки.
+# 36c: не больше 16 блоков и 12 полос эквалайзера — больше → ChainError с причиной.
+# 36e: задержка модели NAM (в т.ч. отрицательная) больше длины входа → ChainError
+#      с текстом про захват, не другое исключение (500).
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestTailsSamplerQuiet(unittest.TestCase):
+    """ТК37 (36a): тишина, ровно нулевые участки и крохи не дают RuntimeWarning/NaN."""
+
+    def _run_strict(self, x, chain, res):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")          # любой RuntimeWarning — ошибка теста
+            y = _fx().process(x, SR, chain, res)
+        self.assertEqual(y.shape, x.shape)
+        self.assertTrue(np.all(np.isfinite(y)), "в выходе NaN/inf")
+        return y
+
+    def _inputs(self):
+        n = 6 * SR
+        rare = _hat_hits([(int(1.0 * SR) + 13, 0.8, 0.06), (int(4.0 * SR) + 7, 0.8, 0.3)], n)
+        rare[int(1.5 * SR):int(3.8 * SR)] = 0.0     # ровно нулевой участок между ударами
+        rare[int(4.8 * SR):] = 0.0                  # и ровно ноль до конца
+        crumbs = np.zeros(n, dtype=np.float32)
+        crumbs[int(2.0 * SR)] = 1e-30               # крохи: после сглаживания — около денормалов
+        crumbs[int(2.0 * SR) + 1] = -1e-38
+        crumbs[int(3.0 * SR) + 5] = np.float32(1e-7)
+        one = np.zeros(n, dtype=np.float32)
+        one[int(2.5 * SR) + 3] = 0.5                # один щелчок в тишине
+        return {
+            "silence": np.zeros(n, dtype=np.float32),
+            "rare_hits_zero_stretches": rare,
+            "crumbs": crumbs,
+            "single_click": one,
+            "stereo_rare": np.stack([rare, np.zeros_like(rare)], axis=1),
+        }
+
+    def test_tc37_kit_open_no_runtime_warning(self):
+        for name, x in self._inputs().items():
+            with self.subTest(input=name):
+                self._run_strict(x, [_hh(kit_open=HH_OPEN)], _hat_res())
+
+    def test_tc37_kit_open_choke_no_runtime_warning(self):
+        for name, x in self._inputs().items():
+            with self.subTest(input=name):
+                self._run_strict(x, [_hh(kit_open=HH_OPEN, choke=1)], _hat_res())
+
+    def test_tc37_silence_gives_silence(self):
+        y = self._run_strict(np.zeros(3 * SR, dtype=np.float32), [_hh(kit_open=HH_OPEN)], _hat_res())
+        self.assertEqual(float(np.abs(y).max()), 0.0, "на тишине сэмплер что-то сыграл")
+
+    def test_tc37_rare_hits_still_found(self):
+        # контроль: строгий режим не «лечится» тишиной на выходе — удары на месте
+        x = self._inputs()["rare_hits_zero_stretches"]
+        y = self._run_strict(x, [_hh(kit_open=HH_OPEN)], _hat_res())
+        for p in (int(1.0 * SR) + 13, int(4.0 * SR) + 7):
+            with self.subTest(hit=p):
+                at, pk = _peak_near(y, p)
+                self.assertGreater(pk, 0.05, "удар не найден")
+                self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestTailsSamplerFrame(unittest.TestCase):
+    """ТК38 (36b): место удара ±1 на некруглых отсчётах вокруг границ кадров 128/256
+    и у краёв входа. Охранный тест: должен быть зелёным до и после смены кадра."""
+
+    # смещения от кратного 256: по обе стороны границ кадров 128 и 256
+    OFFSETS = (1, 3, 63, 127, 128, 129, 191, 254, 255, 257, 383, 511)
+
+    def test_tc38_peak_in_place_around_frame_bounds(self):
+        for sr in (44100, 48000):
+            pos = [int((0.25 + 0.3 * i) * sr) // 256 * 256 + off for i, off in enumerate(self.OFFSETS)]
+            n = pos[-1] + sr
+            x = _hits(pos, [0.8] * len(pos), n, sr=sr)
+            y = _fx().process(x, sr, [_sampler()], _kit_res(sr=sr))
+            self.assertEqual(y.shape, x.shape)
+            for p in pos:
+                with self.subTest(sr=sr, hit=p, off=p % 256):
+                    at, _ = _peak_near(y, p, sr=sr)
+                    self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+    def test_tc38_edges_with_other_hits(self):
+        # удары у краёв (0, 20, последний) вместе с ударами внутри входа — все найдены
+        sr = SR
+        n = 2 * SR + 131
+        inner = [int(0.6 * SR) + 77, int(1.3 * SR) + 201]
+        for edge in (0, 20, n - 1):
+            with self.subTest(edge=edge):
+                x = _hits(inner, [0.8] * len(inner), n)
+                for k, a in enumerate((0.8, -0.4, 0.2)):   # короткий щелчок, пик |x| на edge
+                    if edge + k < n:
+                        x[edge + k] = a
+                y = _fx().process(x, sr, [_sampler()], _kit_res())
+                at, pk = _peak_near(y, edge, before=0.001, after=0.004)
+                self.assertGreater(pk, 0, "удар у края не найден")
+                self.assertLessEqual(abs(at - edge), 1, f"пик выхода {at}, щелчок {edge}")
+                for p in inner:
+                    at, _ = _peak_near(y, p)
+                    self.assertLessEqual(abs(at - p), 1, f"пик выхода {at}, удар {p}")
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestTailsChainLimits(unittest.TestCase):
+    """ТК39 (36c): не больше 16 блоков и 12 полос эквалайзера."""
+
+    @staticmethod
+    def _band(i):
+        return {"freq_hz": 100 + 150 * i, "gain_db": 1, "q": 1}
+
+    def test_tc39_16_blocks_ok(self):
+        chain = [{"type": "gain", "gain_db": 0}] * 16
+        self.assertEqual(len(_fx().parse_chain(chain)), 16)
+
+    def test_tc39_17_blocks_chain_error(self):
+        fx = _fx()
+        with self.assertRaises(fx.ChainError) as cm:
+            fx.parse_chain([{"type": "gain", "gain_db": 0}] * 17)
+        msg = str(cm.exception)
+        self.assertIn("16", msg, f"причина не называет предел: {msg!r}")
+        self.assertIn("блок", msg.lower(), f"причина не про блоки: {msg!r}")
+
+    def test_tc39_17_blocks_rejected_by_process(self):
+        fx = _fx()
+        x, _ = _impulse(n=SR)
+        with self.assertRaises(fx.ChainError):
+            fx.process(x, SR, [{"type": "gain"}] * 17, FakeResources())
+
+    def test_tc39_12_bands_ok(self):
+        got = _fx().parse_chain([{"type": "eq", "bands": [self._band(i) for i in range(12)]}])
+        self.assertEqual(len(got[0]["bands"]), 12)
+
+    def test_tc39_13_bands_chain_error(self):
+        fx = _fx()
+        with self.assertRaises(fx.ChainError) as cm:
+            fx.parse_chain([{"type": "eq", "bands": [self._band(i) for i in range(13)]}])
+        msg = str(cm.exception)
+        self.assertIn("12", msg, f"причина не называет предел: {msg!r}")
+        self.assertIn("полос", msg.lower(), f"причина не про полосы: {msg!r}")
+
+    def test_tc39_limits_per_eq_block(self):
+        # предел полос — на блок: два eq по 12 полос в одной цепочке допустимы
+        eq = {"type": "eq", "bands": [self._band(i) for i in range(12)]}
+        self.assertEqual(len(_fx().parse_chain([eq, eq])), 2)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestTailsNamLatencyTooLong(unittest.TestCase):
+    """ТК41 (36e): задержка захвата больше длины входа → ChainError про захват."""
+
+    def test_tc41_latency_longer_than_input(self):
+        fx = _fx()
+        n = 2000
+        x, _ = _impulse(n=n, pos=500)
+        for lat in (n + 100, 10 * n, -(n + 100), -10 * n):
+            with self.subTest(latency=lat):
+                res = FakeResources(amps={"m": FakeAmp(shift=0, latency=lat)})
+                with self.assertRaises(fx.ChainError) as cm:
+                    fx.process(x, SR, [_block("amp", model="m")], res)
+                self.assertIn("захват", str(cm.exception).lower(), f"причина не про захват: {cm.exception}")
+
+    def test_tc41_stereo_and_other_sr(self):
+        # стерео вход и модель с другой частотой: задержка в сэмплах модели всё равно больше входа
+        fx = _fx()
+        n = 4410
+        x, _ = _impulse(n=n, pos=100, ch=2)
+        for lat in (48000, -48000):
+            with self.subTest(latency=lat):
+                res = FakeResources(amps={"m": FakeAmp(shift=0, sr=48000, latency=lat)})
+                with self.assertRaises(fx.ChainError):
+                    fx.process(x, 44100, [_block("amp", model="m")], res)
+
+    def test_tc41_latency_within_input_still_ok(self):
+        # контроль: обычная задержка (меньше входа) по-прежнему компенсируется
+        for lat in (8, -2):
+            with self.subTest(latency=lat):
+                x, pos = _impulse(n=2000, pos=1000)
+                res = FakeResources(amps={"m": FakeAmp(shift=lat)})
+                out = _fx().process(x, SR, [_block("amp", model="m")], res)
+                self.assertEqual(_peak(out), pos)
+
+
+
+# ---------- ТК44 (lead-ревью c36, Б-1): тот же NaN, что в 36a, — в блоке bass ----------
+#
+# Вход ТК10/ТК12 (ноты с паузами, ровно нулевые участки) → ни одного RuntimeWarning
+# (warnings как ошибки) по всем тестам блока bass; в паузах входа выход ≤ −40 дБ от пика
+# (с NaN обрезка конца ноты выключалась: бас звучал в паузах до −4,8 дБ).
+# «По всем тестам блока bass» — классы TestBass/TestBassOnsets/TestBassReview повторно
+# запускаются в строгом режиме (подклассы ниже, сами тесты не меняются).
+
+
+class _StrictWarnings:
+    """RuntimeWarning внутри теста — ошибка (карточка: «ни одного RuntimeWarning»).
+    UserWarning librosa pyin (fmin=25 Гц меньше двух периодов в кадре) — не предмет ТК44,
+    в ошибку не превращается."""
+
+    def setUp(self):
+        import warnings
+        super().setUp()
+        cm = warnings.catch_warnings()
+        cm.__enter__()
+        self.addCleanup(cm.__exit__, None, None, None)
+        warnings.simplefilter("error", RuntimeWarning)
+
+
+class TestBassStrict(_StrictWarnings, TestBass):
+    """ТК44: все тесты TestBass без RuntimeWarning."""
+
+
+class TestBassOnsetsStrict(_StrictWarnings, TestBassOnsets):
+    """ТК44: все тесты TestBassOnsets без RuntimeWarning."""
+
+
+class TestBassReviewStrict(_StrictWarnings, TestBassReview):
+    """ТК44: все тесты TestBassReview без RuntimeWarning."""
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestBassPausesQuiet(_StrictWarnings, unittest.TestCase):
+    """ТК44: ноты с паузами (ровно ноль во входе) → в паузах выход ≤ −40 дБ от пика."""
+
+    PAUSE_DB = -40
+
+    def _run(self, x, res=None):
+        y = _fx().process(x, SR, [_bass()], res if res is not None else _bass_res())
+        self.assertEqual(y.shape, x.shape)
+        self.assertTrue(np.all(np.isfinite(y)), "в выходе NaN/inf")
+        return y
+
+    def _check_pauses(self, y, pauses):
+        a = _mono(y)
+        loud = float(a.max())
+        self.assertGreater(loud, 1e-3, "выход молчит")
+        for t0, t1 in pauses:
+            with self.subTest(pause=(round(t0, 3), round(t1, 3))):
+                seg = a[int(t0 * SR):int(t1 * SR)]
+                got = _db(float(seg.max()) / loud)
+                self.assertLessEqual(got, self.PAUSE_DB, f"в паузе входа выход {got:.1f} дБ от пика")
+
+    @staticmethod
+    def _pauses(starts, note_dur, total):
+        # пауза — от конца ноты (+50 мс на спад) до следующего удара (−2 кадра поиска)
+        out = [(s + note_dur + 0.05, n - 2 * ONSET_TOL / SR) for s, n in zip(starts, starts[1:], strict=False)]
+        out.append((starts[-1] + note_dur + 0.05, total))
+        return out
+
+    def _tk10(self):
+        x, hits = _tk10_input()
+        self.assertEqual(float(np.abs(x[int((hits[0] / SR + 0.23) * SR):hits[1] - 1]).max()), 0.0,
+                         "самопроверка: пауза входа не ровно ноль")
+        starts = [p / SR for p in hits]
+        return x, self._pauses(starts, 0.22, len(x) / SR)
+
+    def test_tc44_tk10_input_pauses_quiet(self):
+        x, pauses = self._tk10()
+        self._check_pauses(self._run(x), pauses)
+
+    def test_tc44_tk10_stereo_input(self):
+        x, pauses = self._tk10()
+        self._check_pauses(self._run(np.stack([x, x], axis=1)), pauses)
+
+    def test_tc44_tk10_stereo_kit_and_other_rate(self):
+        x, pauses = self._tk10()
+        for name, res in (("stereo_kit", _bass_res(ch=2)), ("kit_44k", _bass_res(sr=44100))):
+            with self.subTest(kit=name):
+                self._check_pauses(self._run(x, res=res), pauses)
+
+    def test_tc44_tk12_loud_quiet_with_pauses(self):
+        # вход ТК12 (тихая половина и на 12 дБ громче), но ноты — 0,6 восьмой, дальше ровно ноль
+        lo_amp = 0.1
+        hi_amp = lo_amp * 10 ** (12 / 20)
+        dur = 0.6 * EIGHTH
+        ev = [(LEAD + i * EIGHTH, A1, lo_amp if i < 8 else hi_amp, dur, 0.12) for i in range(16)]
+        x, hits = _bass_line(ev, LEAD + 16 * EIGHTH + 0.5)
+        y = self._run(x)
+        self._check_pauses(y, self._pauses([p / SR for p in hits], dur, len(x) / SR))
+
+
 if __name__ == "__main__":
     unittest.main()

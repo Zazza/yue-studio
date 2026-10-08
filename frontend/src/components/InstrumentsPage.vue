@@ -6,6 +6,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from '../i18n/index.js'
 import { api } from '../api.js'
+import { ensureKits as ensureKitsOn } from '../engineRun.js'
 import { useInserts } from '../composables/useInserts.js'
 import { usePlayer } from '../composables/usePlayer.js'
 import VSelect from '../VSelect.vue'
@@ -13,7 +14,7 @@ import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import {
   addBlock, removeBlock, moveBlock, toggleBlock, setParam, addBand, removeBand, setBand,
-  toWorkerChain, fromWorkerChain, missingRequired, missingKits,
+  toWorkerChain, fromWorkerChain, missingRequired,
 } from '../fxChain.js'
 
 const { t, locale } = useI18n()
@@ -150,10 +151,8 @@ function window_() {
 // workerChain — уже собранная до первого await цепочка: пока качается набор, форму могут поменять;
 // after — какое «занято» вернуть после скачивания (на кнопках снова «считаю»)
 async function ensureKits(workerChain, after) {
-  const need = missingKits(workerChain, assets.value.kits)
-  if (!need.length) return
-  busy.value = 'kit'
-  for (const k of need) await api.installFxKit(k)
+  const got = await ensureKitsOn(api, workerChain, assets.value.kits, () => { busy.value = 'kit' })
+  if (!got.length) return
   await loadAssets()
   busy.value = after
 }

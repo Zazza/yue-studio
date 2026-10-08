@@ -31,12 +31,15 @@ CTRL = 16            # шаг управляющего сигнала гейта
 OVERSAMPLE = 4       # передискретизация перегруза
 MAX_TAIL_S = 10.0    # предел длины хвоста реверба/дилея
 EPS = 1e-12
-SAMPLER_HOP = 128    # кадр поиска ударов sampler, сэмплов (2,7 мс при 48 кГц)
+SAMPLER_HOP = 128    # кадр уточнения ударов баса, сэмплов (2,7 мс при 48 кГц)
+HITS_HOP = 256       # кадр поиска ударов sampler: место удара — по пику в сэмплах; кадр 128 стоил ~1,4 ГБ на трек
 BASS_SAMPLE_S = 6.0  # bass: сэмпл набора дольше не тянется (Growlybass записан по 6 с — целиком)
 BASS_RELEASE_S = 0.03  # bass: глушение струны в конце ноты
 BASS_FOLLOW_DB = 15.0  # bass: предел подгонки громкости по времени к входу, ± дБ
 BASS_RISE_DB = 2.0   # bass: удар — рост громкости 25 мс после начала против 25 мс до, не меньше
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
+MAX_BLOCKS = 16      # блоков в цепочке не больше: длинная цепочка надолго заняла бы воркер и очередь GPU
+MAX_BANDS = 12       # полос эквалайзера в блоке не больше
 
 # описание блоков — один источник worker/fx_blocks.json (копии во фронте и MCP — make mcp-data)
 BLOCKS_JSON = Path(__file__).with_name("fx_blocks.json")
@@ -74,6 +77,8 @@ def _check_num(where: str, key: str, v, spec: tuple) -> float:
 def _parse_bands(where: str, bands) -> list[dict]:
     if not isinstance(bands, list):
         raise ChainError(f"{where}: bands должен быть списком полос")
+    if len(bands) > MAX_BANDS:
+        raise ChainError(f"{where}: не больше {MAX_BANDS} полос (сейчас {len(bands)})")
     out = []
     for j, b in enumerate(bands):
         w = f"{where}, полоса {j + 1}"
@@ -92,6 +97,8 @@ def parse_chain(chain) -> list[dict]:
         raise ChainError("цепочка — список блоков")
     if not chain:
         raise ChainError("цепочка пуста")
+    if len(chain) > MAX_BLOCKS:
+        raise ChainError(f"цепочка: не больше {MAX_BLOCKS} блоков (сейчас {len(chain)})")
     out = []
     for i, blk in enumerate(chain):
         where = f"блок {i + 1}"
@@ -280,6 +287,9 @@ def _amp(x, sr, p, res):
     for c in range(x.shape[1]):
         xm = (_resample(x[:, c], sr, msr) * gin).astype(np.float32)
         m = len(xm)
+        if abs(lat) >= m:            # задержка не меньше куска — захват неисправен (отрицательная падала с 500)
+            raise ChainError(f"захват {p['model']!r}: задержка {lat} сэмплов не меньше длины куска ({m}) — "
+                             "захват неисправен или кусок слишком короткий")
         # тишина в конце под задержку модели: иначе её последние lat сэмплов не успевают выйти
         xm = np.pad(xm, (0, max(lat, 0)))
         ym = np.asarray(model(xm), dtype=np.float64)
@@ -413,7 +423,7 @@ def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
     тише p95·10^(floor_db/20) — отбрасываются (протечка других барабанов в дорожке-части)."""
     import librosa
     mono = np.abs(x).mean(axis=1)
-    hop = SAMPLER_HOP
+    hop = HITS_HOP
     # тишина спереди: удар в первом кадре librosa иначе не видит (не с чем сравнить)
     pad = max(4 * hop, int(0.25 * sr))   # выбор пиков librosa усредняет ~0,1 с истории
     lead = np.concatenate([np.zeros(pad, dtype=np.float32), x.mean(axis=1).astype(np.float32),
@@ -422,6 +432,7 @@ def _hits(x: np.ndarray, sr: int, floor_db: float) -> list[tuple[int, float]]:
     on = np.clip(on - pad, 0, len(mono) - 1)
     win = max(1, int(0.015 * sr))
     hits = []
+    hop = SAMPLER_HOP                    # запасы вокруг удара — прежние: кадр поиска крупнее, место — в сэмплах
     back = max(2 * hop, int(0.02 * sr))
     for o in on:
         # начало ноты librosa даёт с точностью до кадра и бывает позже самого удара (у края —
@@ -470,7 +481,8 @@ def _ring(env: np.ndarray, t: int, end: int) -> int:
 
 def _env5(mono: np.ndarray, sr: int) -> np.ndarray:
     from scipy.ndimage import uniform_filter1d
-    return np.sqrt(uniform_filter1d(mono * mono, max(1, int(0.005 * sr))))
+    # сглаживание даёт в тишине крошечные отрицательные числа — корень из них NaN
+    return np.sqrt(np.maximum(uniform_filter1d(mono * mono, max(1, int(0.005 * sr))), 0.0))
 
 
 def _sampler(x, sr, p, res):
@@ -544,7 +556,10 @@ def _kit_notes(raw, ksr: int) -> list[tuple[float, float, int, np.ndarray]]:
         body = s[a + int(0.05 * ksr):a + int(0.6 * ksr)]    # после щелчка струны — тон
         if len(body) < 2048:
             continue
-        f0 = librosa.yin(body, fmin=25, fmax=500, sr=ksr, frame_length=2048)
+        # librosa предупреждает, что 25 Гц не влезает в кадр дважды; на Growlybass замер сверен с pyin
+        # (C#1/E1 — те же отклонения: это расстройка самих сэмплов, её и компенсирует сдвиг высоты)
+        with np.errstate(invalid="ignore"):   # librosa/numba: «invalid value in cast» при первой компиляции
+            f0 = librosa.yin(body, fmin=25, fmax=500, sr=ksr, frame_length=2048)
         out.append((float(librosa.hz_to_midi(np.median(f0))), peak, a, s))
     return out
 
@@ -601,7 +616,7 @@ def _attack_at(m: np.ndarray, hf: np.ndarray, c: np.ndarray, o: int, sr: int) ->
             # по «20 % подъёма» точка уезжала на 15 мс позже. Дно — по RMS 8 мс: огибающая «2 мс вперёд»
             # проваливается и на нуле волны низкой ноты (дно на 6 мс раньше стыка)
             from scipy.ndimage import uniform_filter1d
-            rms = np.sqrt(uniform_filter1d(m[b0:b1] ** 2, max(1, int(0.008 * sr))))
+            rms = np.sqrt(np.maximum(uniform_filter1d(m[b0:b1] ** 2, max(1, int(0.008 * sr))), 0.0))
             at = b0 + q0 + int(np.argmin(rms[q0:q1]))
         elif peak > base:
             low = np.flatnonzero(ef[q0:q1] <= base + 0.2 * (peak - base))
@@ -752,7 +767,8 @@ def _bass(x, sr, p, res):
     dsr = 11025
     md = _resample(m[:, None], sr, dsr)[:, 0]
     hop = 256
-    f0 = librosa.yin(md, fmin=30, fmax=400, sr=dsr, frame_length=2048, hop_length=hop, center=True)
+    with np.errstate(invalid="ignore"):       # то же предупреждение librosa/numba, см. _kit_notes
+        f0 = librosa.yin(md, fmin=30, fmax=400, sr=dsr, frame_length=2048, hop_length=hop, center=True)
     fr = librosa.feature.rms(y=md, frame_length=2048, hop_length=hop, center=True)[0]
     bounds, onsets = _bass_cells(m, sr, int(round(p["division"])), _pitch_changes(f0, fr, hop * sr / dsr))
     cells = []
@@ -803,7 +819,8 @@ def _bass(x, sr, p, res):
     rel = int(BASS_RELEASE_S * sr)
     # конец ноты — где вход замолк: ячейка сетки бывает длиннее звука, и нота тянулась бы в тишину
     from scipy.ndimage import uniform_filter1d
-    env = np.sqrt(uniform_filter1d(m * m, max(1, int(0.02 * sr))))
+    # без maximum крохи < 0 после сглаживания давали NaN, NaN-процентиль выключал обрезку — бас звучал в паузах
+    env = np.sqrt(np.maximum(uniform_filter1d(m * m, max(1, int(0.02 * sr))), 0.0))
     quiet = env < np.percentile(env, 90) * _db(p["floor_db"] - 10)
     for nt in notes:
         after = np.flatnonzero(quiet[nt[0] + int(0.02 * sr):nt[1]])

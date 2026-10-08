@@ -572,5 +572,144 @@ class _Wrap:
         return self._fn(x)
 
 
+# ---------- Условие 36 (закрытие хвостов): ТК39 (422), ТК40 (36d), ТК41 (36e) ----------
+#
+# 36d: замер задержки захвата привязан к версии файла .nam (mtime_ns и размер): файл
+#      заменили на диске без загрузки через API — при следующем использовании замер
+#      заново. Граница torch/NAM — fx_nam.load_nam(path, latency): latency=None — «замерить»
+#      (фейк ставит задержку, которую сейчас «показывает» модель), число — взять как есть.
+#      Хранилище настоящее: <data>/fx/amps/<name>.nam, ресурсы — yue_worker.fx_resources().
+# 36e/36c: ошибки цепочки по HTTP — 422 с понятной причиной, не 500.
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestNamLatencyVersion(_FxApiCase):
+    """ТК40 (36d): заменили файл захвата на диске — замер делается заново."""
+
+    def setUp(self):
+        super().setUp()
+        import fx_nam
+        self.true_shift = 7          # задержка, которую «покажет» замер модели сейчас
+        self.loads = []              # (имя файла, переданная latency)
+        test = self
+
+        def fake_load(path, latency=None, *a, **kw):
+            test.loads.append((Path(path).name, latency))
+            m = FakeAmp(shift=test.true_shift)
+            m.latency = test.true_shift if latency is None else int(latency)
+            return m
+
+        p = mock.patch.object(fx_nam, "load_nam", fake_load)
+        p.start()
+        self.addCleanup(p.stop)
+        self.amps = self.data / "fx" / "amps"
+        self.amps.mkdir(parents=True, exist_ok=True)
+
+    def _latency(self, name):
+        # каждый раз — свежий вызов fx_resources(), как у очередного запроса /fx
+        return int(self.real_fx_resources().amp(name).latency)
+
+    def _put(self, name, data, mtime_ns=None):
+        path = self.amps / name
+        path.write_bytes(data)
+        if mtime_ns is not None:
+            os.utime(path, ns=(mtime_ns, mtime_ns))
+        return path
+
+    def test_tc40_unchanged_file_keeps_saved_measurement(self):
+        # охрана: файл не трогали — замер не повторяется, даже если модель «показала бы» другое
+        self._put("Plexi.nam", NAM_OK)
+        self.assertEqual(self._latency("Plexi.nam"), 7)
+        self.true_shift = 11
+        self.assertEqual(self._latency("Plexi.nam"), 7, "файл тот же, а замер сделан заново")
+
+    def test_tc40_replaced_file_remeasured(self):
+        other = NAM_OK.replace(b"0.3]", b"0.25]")      # другой захват: другой размер
+        self.assertNotEqual(len(other), len(NAM_OK))
+        path = self._put("Plexi.nam", NAM_OK)
+        self.assertEqual(self._latency("Plexi.nam"), 7)
+        st = path.stat()
+        self.true_shift = 11
+        self._put("Plexi.nam", other, mtime_ns=st.st_mtime_ns + 5 * 10**9)
+        self.assertEqual(self._latency("Plexi.nam"), 11, "файл заменён, а взят старый замер")
+        # и дальше новый замер держится (сохранён для новой версии файла)
+        self.true_shift = 3
+        self.assertEqual(self._latency("Plexi.nam"), 11)
+
+    def test_tc40_same_size_new_mtime_remeasured(self):
+        other = NAM_OK.replace(b"0.1,", b"0.2,")        # тот же размер, другое содержимое
+        self.assertEqual(len(other), len(NAM_OK))
+        path = self._put("Lead.nam", NAM_OK)
+        self.assertEqual(self._latency("Lead.nam"), 7)
+        st = path.stat()
+        self.true_shift = 13
+        self._put("Lead.nam", other, mtime_ns=st.st_mtime_ns + 5 * 10**9)
+        self.assertEqual(self._latency("Lead.nam"), 13, "mtime другой — замер должен повториться")
+
+    def test_tc40_same_mtime_new_size_remeasured(self):
+        other = NAM_OK.replace(b"0.3]", b"0.333]")      # другой размер, mtime вернули прежний
+        path = self._put("Crunch.nam", NAM_OK)
+        self.assertEqual(self._latency("Crunch.nam"), 7)
+        st = path.stat()
+        self.true_shift = 9
+        self._put("Crunch.nam", other, mtime_ns=st.st_mtime_ns)
+        self.assertEqual(path.stat().st_mtime_ns, st.st_mtime_ns)
+        self.assertEqual(self._latency("Crunch.nam"), 9, "размер другой — замер должен повториться")
+
+    def test_tc40_replaced_file_used_by_chain_with_new_latency(self):
+        # путь запроса: цепочка с amp на настоящих ресурсах после замены файла —
+        # модель получает новую задержку (импульсный вход: пик выхода на месте)
+        import numpy as np
+        import fx_engine
+        path = self._put("Plexi.nam", NAM_OK)
+        self.assertEqual(self._latency("Plexi.nam"), 7)
+        self.true_shift = 40
+        self._put("Plexi.nam", NAM_OK + b" ", mtime_ns=path.stat().st_mtime_ns + 5 * 10**9)
+        x = np.zeros(48000, dtype=np.float32)
+        x[20011] = 1.0
+        y = fx_engine.process(x, 48000, [{"type": "amp", "model": "Plexi.nam"}], self.real_fx_resources())
+        self.assertEqual(int(np.argmax(np.abs(y))), 20011, "сдвиг: применён старый замер задержки")
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestTailsChainErrors422(_FxApiCase):
+    """ТК39/ТК41 по HTTP: 422 с причиной, не 500."""
+
+    def _detail(self, r):
+        d = r.json().get("detail")
+        return d if isinstance(d, str) else json.dumps(d, ensure_ascii=False)
+
+    def test_tc39_17_blocks_422(self):
+        jid, d = self._audio_job()
+        r = self._fx(jid, source="vocals", chain=[{"type": "gain"}] * 17, output="solo")
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("16", self._detail(r))
+        self.assertEqual(self._fx_files(d), [])
+
+    def test_tc39_13_bands_422(self):
+        jid, _ = self._audio_job()
+        bands = [{"freq_hz": 100 + 150 * i, "gain_db": 1, "q": 1} for i in range(13)]
+        r = self._fx(jid, source="vocals", chain=[{"type": "eq", "bands": bands}], output="solo")
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("12", self._detail(r))
+
+    def test_tc39_16_blocks_12_bands_ok(self):
+        jid, _ = self._audio_job()
+        bands = [{"freq_hz": 100 + 150 * i, "gain_db": 0, "q": 1} for i in range(12)]
+        chain = [{"type": "eq", "bands": bands}] + [{"type": "gain"}] * 15
+        self._ok(jid, source="vocals", chain=chain, output="solo")
+
+    def test_tc41_latency_longer_than_input_422(self):
+        jid, d = self._audio_job()
+        n_model = int(DUR * 48000)                       # вход 4 с; задержка в сэмплах модели 48 кГц
+        for lat in (n_model + 4800, -(n_model + 4800)):
+            with self.subTest(latency=lat):
+                self.resources = FakeResources(amps={"fake": FakeAmp(shift=0, sr=48000, latency=lat)})
+                r = self._fx(jid, source="vocals", chain=[{"type": "amp", "model": "fake"}], output="solo")
+                self.assertEqual(r.status_code, 422, r.text[:300])
+                self.assertIn("захват", self._detail(r).lower())
+        self.assertEqual(self._fx_files(d), [])
+
+
 if __name__ == "__main__":
     unittest.main()

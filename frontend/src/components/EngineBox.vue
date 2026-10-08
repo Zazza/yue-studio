@@ -10,7 +10,7 @@ import { api } from '../api.js'
 import { useInserts } from '../composables/useInserts.js'
 import VSelect from '../VSelect.vue'
 import { fxPresets } from '../fxPresets.js'
-import { missingKits } from '../fxChain.js'
+import { applyEngine } from '../engineRun.js'
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -21,7 +21,6 @@ const { t, locale } = useI18n()
 const inserts = useInserts()
 
 const STEMS = ['guitar', 'other', 'piano', 'vocals', 'bass', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
-const PREVIEW_SEC = 10                         // проверка цепочки перед записью — короткий кусок
 
 const presetId = ref(fxPresets[0].id)
 const stem = ref('guitar')
@@ -52,31 +51,17 @@ function chain() {
 async function apply() {
   if (needsAmp.value && !amp.value) { msg.value = t('engine.noAmp'); return }
   const s = props.sel
-  const from = s ? s.from : 0
-  const to = s ? s.to : 0
-  const c = chain()
-  // всё, что уйдёт в превью и в запись, — до первого await: пока качается набор, дорожку,
-  // пресет и трек могут сменить, а превью и запись должны быть про одно и то же
-  const jobId = props.job.id
-  const dur = props.job.duration_sec
-  const src = stem.value
-  const label = t('engine.label', { name: tr(preset.value?.name) })
+  // снимок — до первого await (applyEngine копирует его сразу): трек, дорожку и пресет могут сменить
+  const snap = {
+    jobId: props.job.id, dur: props.job.duration_sec, src: stem.value,
+    from: s ? s.from : 0, to: s ? s.to : 0, chain: chain(),
+    label: t('engine.label', { name: tr(preset.value?.name) }),
+  }
   busy.value = true
   msg.value = ''
   try {
-    // старый воркер превью не знает: запрос ниже создал бы лишний вариант — сначала спросить
-    const cfg = await api.workerConfig()
-    if (!cfg || !cfg.fx_preview) throw new Error(t('instr.engine.old'))
-    // набор сэмплов (замена ударов), которого нет на воркере, — скачать по требованию
-    const need = missingKits(c, ((await api.fxAssets()) || {}).kits)
-    for (const k of need) { msg.value = t('instr.kit.busy'); await api.installFxKit(k) }
-    // запись с цепочкой, которую воркер не примет (движок выключен, нет захвата, нет дорожки),
-    // роняла бы каждую следующую пересборку — сначала короткое превью того же
-    const pTo = to > from ? Math.min(to, from + PREVIEW_SEC) : Math.min(from + PREVIEW_SEC, dur || from + PREVIEW_SEC)
-    const r = await api.applyFx(jobId, { source: src, chain: c, from, to: pTo, output: 'solo', preview: true })
-    // старый воркер превью не знает и делает вариант — такую запись пересборка отвергнет
-    if (!r || !String(r.file || '').startsWith('preview-fx-')) throw new Error(t('instr.engine.old'))
-    await inserts.addStemEngine(jobId, { stem: src, chain: c, from, to, label })
+    const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old'), onKit: () => { msg.value = t('instr.kit.busy') } })
+    await inserts.addStemEngine(snap.jobId, rec)
     emit('applied')
     msg.value = t('engine.applied')
   } catch (e) { msg.value = String(e) } finally { busy.value = false }

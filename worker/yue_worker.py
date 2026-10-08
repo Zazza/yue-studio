@@ -2578,6 +2578,23 @@ def _nam_latency_path(p: Path) -> Path:
     return p.with_name(p.name + ".latency.json")
 
 
+def _nam_version(p: Path) -> list:
+    st = p.stat()
+    return [st.st_mtime_ns, st.st_size]
+
+
+def _nam_cached_latency(p: Path) -> int | None:
+    """Замер задержки захвата — только если он сделан для этой версии файла (mtime_ns, размер):
+    файл заменили на диске мимо загрузки — замер заново."""
+    try:
+        d = json.loads(_nam_latency_path(p).read_text())
+        if d.get("version") != _nam_version(p):
+            return None
+        return int(d["latency"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None  # нет замера или старый формат — load_nam замерит щелчком
+
+
 class _FxResources:
     """Захваты NAM и IR из <data>/fx для fx_engine.process. Модели, загруженные за проход,
     выгружаются в close() — видеопамять делится с YuE2."""
@@ -2601,15 +2618,10 @@ class _FxResources:
             if NAM_DEPS and NAM_DEPS not in sys.path:
                 sys.path.insert(0, NAM_DEPS)
             import fx_nam
-            lp = _nam_latency_path(p)
-            cached = None
-            try:
-                cached = int(json.loads(lp.read_text())["latency"])
-            except (OSError, ValueError, KeyError, TypeError):
-                pass  # нет замера — load_nam замерит щелчком
+            cached = _nam_cached_latency(p)
             m = fx_nam.load_nam(p, cached)
             if cached is None:
-                lp.write_text(json.dumps({"latency": m.latency}))
+                _nam_latency_path(p).write_text(json.dumps({"latency": m.latency, "version": _nam_version(p)}))
             self._amps[p.name] = m
         return self._amps[p.name]
 
@@ -2808,9 +2820,10 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     out = []
     for f in files:
         try:
-            out.append([f.name, f.stat().st_mtime_ns])
+            st = f.stat()
+            out.append([f.name, st.st_mtime_ns, st.st_size])   # размер — как в версии замера захвата
         except OSError:
-            out.append([f.name, 0])
+            out.append([f.name, 0, 0])
     return out
 
 
@@ -2887,18 +2900,25 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         seg[:stop - a] *= w[:, None]
     wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
     out = wet if (req.output == "solo" and req.source != "mix") else track[a:end] + (wet - seg)
-    if req.pad and a > 0:
-        out = np.concatenate([np.zeros((a, out.shape[1])), out])
+    lead = a if req.pad and a > 0 else 0
     # своё временное имя на запрос (одинаковые превью параллельно не делят файл) и не *.flac —
-    # вытеснение ниже его не видит
+    # вытеснение ниже его не видит. Тишина до окна (pad) пишется блоками по секунде: массив длиной
+    # from в памяти не нужен (окно на 4-й минуте — сотни МБ)
     tmp = target.with_name(f"{target.name}.{uuid.uuid4().hex[:8]}.part")
-    sf.write(str(tmp), out, sr, format="FLAC", subtype="PCM_24")
+    with sf.SoundFile(str(tmp), "w", samplerate=sr, channels=out.shape[1], format="FLAC", subtype="PCM_24") as fh:
+        silence = np.zeros((min(lead, sr), out.shape[1]))
+        left = lead
+        while left > 0:
+            k = min(left, len(silence))
+            fh.write(silence[:k])
+            left -= k
+        fh.write(out)
     tmp.replace(target)
     olds = sorted(jdir.glob("preview-fx-*.flac"), key=_mtime_or_zero, reverse=True)
     for old in olds[FX_PREVIEW_KEEP:]:
         old.unlink(missing_ok=True)
     peak = float(np.max(np.abs(out))) if out.size else 0.0
-    return {"file": fname, "duration_sec": round(len(out) / sr, 3), "clipped": peak > 1.0}
+    return {"file": fname, "duration_sec": round((lead + len(out)) / sr, 3), "clipped": peak > 1.0}
 
 
 @app.post("/jobs/{job_id}/fx")
@@ -2916,12 +2936,7 @@ def fx_assets():
     import soundfile as sf
     amps, irs = [], []
     for p in sorted((_fx_dir() / "amps").glob("*.nam")):
-        lat = None
-        try:
-            lat = int(json.loads(_nam_latency_path(p).read_text())["latency"])
-        except (OSError, ValueError, KeyError, TypeError):
-            pass  # ещё не замерена — замер при первом применении
-        amps.append({"name": p.name, "latency": lat})
+        amps.append({"name": p.name, "latency": _nam_cached_latency(p)})  # None — замер при применении
     for p in sorted((_fx_dir() / "irs").glob("*.wav")):
         try:
             i = sf.info(str(p))
