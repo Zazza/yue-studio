@@ -735,7 +735,10 @@ def _band_follow(y: np.ndarray, ref: np.ndarray, sr: int) -> np.ndarray:
     from scipy.ndimage import uniform_filter1d
     sos = signal.butter(4, 200, "lowpass", fs=sr, output="sos")
     w = max(1, int(0.5 * sr))
-    env = lambda v: np.sqrt(uniform_filter1d(v * v, w) + 1e-12)
+
+    def env(v):
+        return np.sqrt(uniform_filter1d(v * v, w) + 1e-12)
+
     out = np.zeros_like(y)
     lo_y, lo_r = _zero_phase(sos, y[:, None])[:, 0], _zero_phase(sos, ref[:, None])[:, 0]
     for a, b in ((lo_y, lo_r), (y - lo_y, ref - lo_r)):     # верх — остаток: полосы в сумме — целое
