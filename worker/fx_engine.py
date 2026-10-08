@@ -91,6 +91,32 @@ def _parse_bands(where: str, bands) -> list[dict]:
     return out
 
 
+def _parse_notes(where: str, notes) -> list[dict]:
+    """Ноты блока synth: [{t (с, < 0 — началась до окна), d > 0, midi [0…127], vel 0…1}], не больше
+    SYNTH_MAX_NOTES."""
+    if not isinstance(notes, list):
+        raise ChainError(f"{where}: notes — список нот {{t, d, midi, vel}}")
+    if len(notes) > SYNTH_MAX_NOTES:
+        raise ChainError(f"{where}: нот не больше {SYNTH_MAX_NOTES} (сейчас {len(notes)})")
+    out = []
+    for i, nt in enumerate(notes):
+        w = f"{where}, нота {i + 1}"
+        if not isinstance(nt, dict) or not _num(nt.get("t")) or not _num(nt.get("d")) or nt["d"] <= 0:
+            raise ChainError(f"{w}: нужны t (с) и d > 0 (с)")
+        midi = nt.get("midi")
+        if isinstance(midi, (int, float)) and not isinstance(midi, bool):
+            midi = [midi]
+        if not isinstance(midi, list) or not midi or not all(_num(m) and 0 <= m <= 127 for m in midi):
+            raise ChainError(f"{w}: midi — список номеров нот 0…127")
+        if len(midi) > SYNTH_MAX_CHORD or nt["t"] < SYNTH_MIN_T:
+            raise ChainError(f"{w}: не больше {SYNTH_MAX_CHORD} нот в аккорде, начало не раньше {SYNTH_MIN_T:g} с")
+        vel = nt.get("vel", 0.8)
+        if not _num(vel) or not 0 <= vel <= 1:
+            raise ChainError(f"{w}: vel — 0…1")
+        out.append({"t": float(nt["t"]), "d": float(nt["d"]), "midi": [float(m) for m in midi], "vel": float(vel)})
+    return out
+
+
 def parse_chain(chain) -> list[dict]:
     """Проверка и нормализация цепочки: умолчания дописываются, ошибки — ChainError."""
     if not isinstance(chain, list):
@@ -109,7 +135,8 @@ def parse_chain(chain) -> list[dict]:
             raise ChainError(f"{where}: неизвестный тип {t!r} (есть: {', '.join(SPEC)})")
         where = f"{where} ({t})"
         nums, strs = SPEC[t], STR_SPEC.get(t, {})
-        allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set())
+        allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set()) | \
+            ({"notes", "_until"} if t == "synth" else set())
         extra = set(blk) - allowed
         if extra:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
@@ -128,6 +155,10 @@ def parse_chain(chain) -> list[dict]:
             norm[k] = v
         if t == "eq":
             norm["bands"] = _parse_bands(where, blk.get("bands", []))
+        if t == "synth":
+            norm["notes"] = _parse_notes(where, blk.get("notes", []))
+            if _num(blk.get("_until")):   # край окна превью (ставит воркер); зажим — огромное не ломает расчёт
+                norm["_until"] = min(max(float(blk["_until"]), 0.0), 86400.0)
         if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
             raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
         out.append(norm)
@@ -947,9 +978,260 @@ def _gain(x, sr, p, _res):
     return x * _db(p["gain_db"])
 
 
+# ---------- синтезатор и эффекты для синтов (этап 4) ----------
+SYNTH_MAX_NOTES = 5000   # нот в блоке synth не больше: партия на весь трек — сотни
+SYNTH_MAX_CHORD = 16     # нот в одном аккорде не больше
+SYNTH_MIN_T = -600.0     # нота не раньше 10 мин до окна: считается целиком от начала — длинная съела бы память
+SYNTH_EDGE_S = 0.01      # нарастание/спад на краях окна: нота, идущая через край, без щелчка
+
+
+def _polyblep(ph, dt):
+    """Поправка PolyBLEP для разрыва в фазе 0 (ph — фаза 0..1, dt — шаг фазы)."""
+    out = np.zeros_like(ph)
+    a = ph < dt
+    t = ph[a] / dt[a]
+    out[a] = t + t - t * t - 1.0
+    b = ph > 1.0 - dt
+    t = (ph[b] - 1.0) / dt[b]
+    out[b] = t * t + t + t + 1.0
+    return out
+
+
+def _osc(wave: int, f: np.ndarray, sr: int, pwm: float = 0.5, phase0: float = 0.0) -> np.ndarray:
+    """Генератор с переменной частотой f (Гц, по сэмплам): 0 пила, 1 квадрат, 2 пульс (ширина pwm),
+    3 треугольник, 4 синус; разрывы — с поправкой PolyBLEP (без зеркальных частот)."""
+    dt = np.clip(f / sr, 1e-6, 0.49)
+    ph = (phase0 + np.cumsum(dt)) % 1.0
+    if wave == 4:
+        return np.sin(2 * np.pi * ph)
+    if wave == 0:
+        return 2.0 * ph - 1.0 - _polyblep(ph, dt)
+    width = 0.5 if wave in (1, 3) else float(np.clip(pwm, 0.05, 0.95))
+    sq = np.where(ph < width, 1.0, -1.0) + _polyblep(ph, dt) - _polyblep((ph - width) % 1.0, dt)
+    if wave == 3:   # треугольник — интеграл квадрата (с утечкой)
+        tri = np.cumsum(sq * 4 * dt)
+        tri = signal.lfilter([1, -1], [1, -0.999], tri)
+        return tri / (np.abs(tri).max() + EPS)
+    return sq
+
+
+def _adsr(n_on: int, n_total: int, sr: int, a, d, s, r) -> np.ndarray:
+    """Огибающая длиной n_total: атака/спад/удержание до n_on, затем затухание r."""
+    env = np.zeros(n_total)
+    na, nd = max(1, int(a * sr)), max(1, int(d * sr))
+    k = np.arange(n_on)
+    on = np.where(k < na, k / na, np.where(k < na + nd, 1 - (1 - s) * (k - na) / nd, s))
+    env[:n_on] = on
+    last = on[-1] if n_on else 0.0
+    nr = n_total - n_on
+    if nr > 0:
+        env[n_on:] = last * np.exp(-np.arange(nr) / max(1.0, r * sr / 6.9))   # −60 дБ за r
+    return env
+
+
+def _lowpass_sweep(x, sr, cut_lo, cut_hi, mod, res):
+    """НЧ-фильтр с изменяемой во времени частотой среза: смесь двух неподвижных фильтров (закрытого и
+    открытого) по огибающей mod 0..1 — дёшево и без пошагового пересчёта коэффициентов."""
+    q = 0.707 + res * 8
+    def lp(c):
+        c = float(np.clip(c, 20, sr * 0.45))
+        b, a = signal.iirfilter(2, c, btype="low", ftype="butter", fs=sr) if res <= 0 else _rbj_lp(c, q, sr)
+        return signal.lfilter(b, a, x)
+    if abs(cut_hi - cut_lo) < 1 or np.ptp(mod) < 1e-3:
+        return lp(cut_lo + (cut_hi - cut_lo) * float(np.mean(mod)))
+    lo, hi = lp(cut_lo), lp(cut_hi)
+    return lo + (hi - lo) * mod
+
+
+def _rbj_lp(f0, q, sr):
+    w = 2 * np.pi * f0 / sr
+    al = np.sin(w) / (2 * q)
+    c = np.cos(w)
+    b = np.array([(1 - c) / 2, 1 - c, (1 - c) / 2])
+    a = np.array([1 + al, -2 * c, 1 - al])
+    return b / a[0], a / a[0]
+
+
+def _synth_notes(n: int, sr: int, ch: int, p: dict) -> np.ndarray:
+    notes = p.get("notes") or []
+    y = np.zeros(n)
+    rel_n = int(p["release_s"] * sr)
+    rng = np.random.default_rng(12345)
+    uni = int(p["unison"])
+    dets = np.linspace(-1, 1, uni) * p["detune_cents"] if uni > 1 else np.zeros(1)
+    for nt in notes:
+        a = int(round(nt["t"] * sr))
+        # нота кончилась до окна — не играется: иначе её затухание (одно в окне) нормировка ниже вытянула бы
+        # до −6 дБFS; нота, начатая до окна и звучащая в нём, играется с середины
+        if a >= n or nt["t"] + nt["d"] <= 0:
+            continue
+        n_on = max(1, int(round(nt["d"] * sr)))
+        b = min(n, a + n_on + rel_n)
+        if b <= max(a, 0):
+            continue
+        m = b - a
+        t = np.arange(m) / sr
+        vib = 2 ** (p["vib_cents"] / 1200 * np.sin(2 * np.pi * p["vib_rate"] * t)) if p["vib_cents"] > 0 else 1.0
+        v = np.zeros(m)
+        for midi in nt["midi"]:
+            f0 = 440.0 * 2 ** ((midi - 69) / 12)
+            for dc in dets:
+                f = f0 * 2 ** (dc / 1200) * vib * np.ones(m)
+                ph0 = rng.random()
+                o = _osc(int(p["osc1"]), f, sr, p["pwm"], ph0) * (1 - p["osc_mix"])
+                if p["osc_mix"] > 0:
+                    o += _osc(int(p["osc2"]), f * 2 ** (p["osc2_semi"] / 12), sr, p["pwm"], ph0) * p["osc_mix"]
+                v += o / len(dets)
+            if p["sub"] > 0:
+                v += p["sub"] * _osc(1, f0 / 2 * np.ones(m), sr)
+        if p["noise"] > 0:
+            v += p["noise"] * rng.uniform(-1, 1, m)
+        n_on_c = min(n_on, m)
+        env = _adsr(n_on_c, m, sr, p["attack_s"], p["decay_s"], p["sustain"], p["release_s"])
+        fenv = _adsr(n_on_c, m, sr, p["f_attack_s"], p["f_decay_s"], 0.0, p["release_s"])
+        lfo = 0.5 * (1 + np.sin(2 * np.pi * max(p["vib_rate"], 0.1) * t))
+        mod = np.clip(p["env_amount"] * fenv + p["lfo_cutoff"] * lfo, 0, 1)
+        cut = p["cutoff_hz"]
+        v = _lowpass_sweep(v, sr, cut, min(16000.0, cut * 8), mod, p["resonance"])
+        vel = float(nt.get("vel", 0.8))
+        seg = v * env * vel
+        lo = max(0, a)
+        y[lo:b] += seg[lo - a:]
+    pk = np.abs(y).max()
+    if pk > EPS:
+        y *= 10 ** (-6 / 20) / pk * 10 ** (p["output_db"] / 20)
+    # край окна: _until (секунды; ставит воркер для превью) — синт молчит дальше, затухание не заходит в хвост
+    # эффектов; без него — конец буфера
+    stop = min(n, int(round(p.get("_until", n / sr) * sr)))
+    y[stop:] = 0.0
+    e = min(int(SYNTH_EDGE_S * sr), max(stop, 1) // 2)
+    if e > 0:
+        ramp = np.linspace(0.0, 1.0, e, endpoint=False)
+        y[:e] *= ramp
+        y[stop - e:stop] *= ramp[::-1]
+    return np.repeat(y[:, None], ch, axis=1)
+
+
+def _mod_delay(x, sr, base_ms, depth_ms, rate, phase):
+    n = len(x)
+    t = np.arange(n) / sr
+    d = (base_ms + depth_ms * 0.5 * (1 + np.sin(2 * np.pi * rate * t + phase))) * sr / 1000
+    idx = np.arange(n) - d
+    return np.interp(idx, np.arange(n), x, left=0.0)
+
+
+def _chorus(x, sr, p, _res=None):
+    """Ансамбль: несколько копий через задержки 7–20 мс, качаемые LFO с разной фазой; L и R — разные фазы."""
+    n, ch = x.shape
+    out = np.zeros_like(x)
+    vcs = int(p["voices"])
+    for c in range(ch):
+        src = x.mean(axis=1) if ch > 1 else x[:, 0]
+        wet = np.zeros(n)
+        for v in range(vcs):
+            ph = 2 * np.pi * (v / vcs + (0.25 if c == 1 else 0.0))
+            wet += _mod_delay(src, sr, 7.0, p["depth_ms"], p["rate_hz"] * (1 + 0.07 * v), ph)
+        wet /= max(vcs, 1)
+        out[:, c] = x[:, c] * (1 - p["mix"] * 0.5) + wet * p["mix"]
+    return out
+
+
+def _flanger(x, sr, p, _res=None):
+    n, ch = x.shape
+    out = np.zeros_like(x)
+    for c in range(ch):
+        src = x[:, c]
+        wet = _mod_delay(src, sr, p["delay_ms"], p["depth_ms"], p["rate_hz"], 0.5 * np.pi * c)
+        if p["feedback"] > 0:   # простая обратная связь: ещё один проход через ту же задержку
+            wet = wet + p["feedback"] * _mod_delay(wet, sr, p["delay_ms"], p["depth_ms"], p["rate_hz"], 0.5 * np.pi * c)
+        out[:, c] = src * (1 - p["mix"] * 0.5) + wet * p["mix"]
+    return out
+
+
+def _phaser(x, sr, p, _res=None, block=256):
+    """Цепочка all-pass первого порядка с частотой, качаемой LFO (пересчёт по блокам, состояние сохраняется)."""
+    n, ch = x.shape
+    out = np.zeros_like(x)
+    stages = int(p["stages"])
+    for c in range(ch):
+        src = x[:, c]
+        y = np.zeros(n)
+        z = np.zeros(stages)
+        fb = 0.0
+        for s0 in range(0, n, block):
+            s1 = min(n, s0 + block)
+            tt = (s0 / sr)
+            lfo = 0.5 * (1 + np.sin(2 * np.pi * p["rate_hz"] * tt + 0.5 * np.pi * c))
+            fc = 200 * (2 ** (lfo * p["depth"] * 5))       # 200 Гц … 6,4 кГц
+            k = np.tan(np.pi * min(fc, sr * 0.45) / sr)
+            a1 = (k - 1) / (k + 1)
+            seg = src[s0:s1] + fb * p["feedback"]
+            for st in range(stages):
+                seg, zf = signal.lfilter([a1, 1.0], [1.0, a1], seg, zi=[z[st]])
+                z[st] = zf[0]
+            y[s0:s1] = seg
+            fb = float(seg[-1]) if len(seg) else 0.0
+        out[:, c] = src * (1 - p["mix"] * 0.5) + y * p["mix"] * 0.5 + src * p["mix"] * 0.5
+    return out
+
+
+def _tape(x, sr, p, _res=None):
+    """Лента: wow (медленное плавание высоты, ~0,6 Гц) и flutter (быстрое, ~7 Гц) — переменная задержка;
+    насыщение tanh; срез верха; тихое шипение."""
+    n, ch = x.shape
+    t = np.arange(n) / sr
+    wow = p["wow"] * 6.0 * (1 + np.sin(2 * np.pi * 0.6 * t))           # мс: медленное плавание
+    flutter = p["flutter"] * 0.6 * (1 + np.sin(2 * np.pi * 7.0 * t))   # мс: быстрое дрожание
+    d = (wow + flutter) * sr / 1000
+    idx = np.arange(n) - d
+    out = np.zeros_like(x)
+    sos = signal.butter(2, min(p["lowpass_hz"], sr * 0.45), "low", fs=sr, output="sos")
+    rng = np.random.default_rng(7)
+    for c in range(ch):
+        y = np.interp(idx, np.arange(n), x[:, c], left=0.0)
+        if p["saturation"] > 0:
+            g = 1 + 4 * p["saturation"]
+            y = np.tanh(y * g) / np.tanh(g)
+        y = signal.sosfiltfilt(sos, y)
+        if p["hiss"] > 0:
+            y += p["hiss"] * 0.01 * rng.standard_normal(n)
+        out[:, c] = y
+    return out
+
+
+def _spring(x, sr, p, _res=None):
+    """Пружина: дисперсия (цепочка all-pass — «чирп» пружины) + затухающий шум с тоном; сухой звук не трогается."""
+    n, ch = x.shape
+    L = int(min(p["decay_s"] * 1.5, 6.0) * sr)
+    rng = np.random.default_rng(3)
+    ir = rng.standard_normal(L) * np.exp(-np.arange(L) / (p["decay_s"] * sr / 6.9))
+    # «пружинистость»: отражения с шагом ~ 30 мс и дисперсия
+    for k in range(1, 8):
+        i = int(k * 0.031 * sr)
+        if i < L:
+            ir[i] += 0.6 ** k * 3
+    for _ in range(12):
+        ir = signal.lfilter([-0.6, 1.0], [1.0, -0.6], ir)
+    cut = 1500 + 6000 * p["tone"]
+    ir = signal.sosfilt(signal.butter(2, [120, min(cut, sr * 0.45)], "band", fs=sr, output="sos"), ir)
+    ir /= np.sqrt(np.sum(ir ** 2)) + EPS
+    out = np.zeros_like(x)
+    for c in range(ch):
+        wet = signal.fftconvolve(x[:, c], ir)[:n]
+        out[:, c] = x[:, c] + p["wet"] * wet
+    return out
+
+
+def _synth(x, sr, p, _res):
+    """Синт по нотам партии: вход — только длина (содержимое не слушается), выход — ноты notes [{t, d, midi[], vel}]
+    (t — от начала окна), пик −6 дБFS + output_db."""
+    return _synth_notes(x.shape[0], sr, x.shape[1], p)
+
+
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
           "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler,
-          "bass": _bass}
+          "bass": _bass, "synth": _synth, "chorus": _chorus, "phaser": _phaser, "flanger": _flanger,
+          "tape": _tape, "spring": _spring}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

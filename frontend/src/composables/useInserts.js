@@ -69,6 +69,8 @@ async function doRebuild(parentId) {
     ...(it.envelope ? { envelope: it.envelope } : {}),
     // цепочка звукового движка воркера: JSON-блоки как у fx_apply
     ...(it.engine ? { engine: it.engine } : {}),
+    // добавление поверх трека (синт): исходная дорожка не вычитается
+    ...(it.add ? { add: true } : {}),
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -168,10 +170,12 @@ async function addStemPedals(parentId, { stem, steps, from = 0, to = 0, label = 
 
 // цепочка звукового движка воркера на дорожку в окне: одна запись реестра,
 // считается на воркере при пересборке; label — подпись в списке вставок
-async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = '' }) {
+// add — добавить кусок поверх трека, исходную дорожку не вычитать (синт-партия на «mix» — без разделения)
+async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = '', add = false }) {
   const item = {
     childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'engine', from, to, lead: 0, beat: 0, db: 0,
     stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, engine: (chain || []).map((b) => ({ ...b })), label,
+    ...(add ? { add: true } : {}),
   }
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
   save()

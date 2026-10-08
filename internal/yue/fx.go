@@ -22,6 +22,8 @@ type FxRequest struct {
 	Fade float64 `json:"fade,omitempty"`
 	// Pad — у превью: файл от начала трека (до From — тишина), чтобы вставить его без задержки
 	Pad bool `json:"pad,omitempty"`
+	// Add — добавление (синт-партия): превью «в миксе» = трек + обработанное, без замены дорожки
+	Add bool `json:"add,omitempty"`
 }
 
 // ApplyFx — цепочка движка на трек/дорожку → вариант dsp-fx-*.flac (список вариантов).

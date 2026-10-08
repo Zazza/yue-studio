@@ -35,10 +35,10 @@ func registerRevoiceTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to (0 — до конца трека), lead?, beat_sec?, " +
-				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?} — chain/params: эффект на " +
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?, add?} — chain/params: эффект на " +
 				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
 				"steps [{chain, params, off}] вместо chain — цепочка эффектов по порядку (педали, dsp_presets). " +
-				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне (и на части барабанов kick/snare/toms/hh/ride/crash — только при дорожках RoFormer; замена ударов — блок sampler): считается на воркере, звук не сдвигается, хвост реверба/дилея/сэмплов звучит после to. " +
+				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне (и на части барабанов kick/snare/toms/hh/ride/crash — только при дорожках RoFormer; замена ударов — блок sampler): считается на воркере, звук не сдвигается, хвост реверба/дилея/сэмплов звучит после to. add true у записи engine — добавить кусок поверх трека, исходную дорожку не вычитать; stems [\"mix\"] (без разделения) — только с add: так ложится синт-партия (блок synth с notes в секундах трека, аккорды — chord_grid). " +
 				"stems: drums/bass/other/vocals; при child_id 0 ещё guitar/piano — гитара и клавиши внутри other " +
 				"(заменить куском их нельзя)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
@@ -358,6 +358,22 @@ func formatPlanCheck(pc *yue.PlanCheck) string {
 
 func registerToneTools(s *Server) {
 	s.Register(Tool{
+		Name: "chord_grid",
+		Description: "Аккорды и секции плана трека по ТАКТАМ ЗВУКА (не по времени плана — темп плана и звука расходятся): " +
+			"{bpm, bars [{start, end, chord, section}]} в секундах трека. Для синт-партии: ноты по аккордам → блок движка " +
+			"synth (notes [{t, d, midi[], vel}], t — секунды трека) → rebuild_sections запись {child_id: 0, stems: [\"mix\"], " +
+			"add: true, engine: [synth…, эффекты…]}. Нет плана — сначала transcribe_job.",
+		InputSchema: props(map[string]any{"job_id": prop("ID трека", "integer")}, "job_id"),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			g, err := s.client.ChordGrid(context.Background(), argInt(args, "job_id"))
+			if err != nil {
+				return "", err
+			}
+			return toJSON(g), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name: "beat_grid",
 		Description: "Сетка долей трека для эффектов в такт: темп (BPM) и время сильной доли в окне [from, to) — " +
 			"готовые bpm и offset для dsp chain «gate» («Ритм-гейт»). По дорожке барабанов, если сделан make_stems, " +
@@ -458,7 +474,7 @@ func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
 			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
 			Chain: argString(m, "chain"), Params: argNumMap(m, "params"), Steps: steps, Envelope: argEnvelope(m, "envelope"),
-			Engine: engine,
+			Engine: engine, Add: argBool(m, "add"),
 		})
 	}
 	return out, nil

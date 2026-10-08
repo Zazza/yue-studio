@@ -61,6 +61,8 @@ func registerFxTools(s *Server) {
 				"файл preview-fx-*.flac, в варианты не попадает, повтор тех же настроек — без пересчёта", "boolean"),
 			"fade": prop("у превью: плавные края входа окна, с (0…0,5; рост с from, спад после to) — как у "+
 				"вычитаемой дорожки в пересборке студии; по умолчанию 0", "number"),
+			"add": prop("у превью: добавление (синт-партия, source mix) — output mix = трек + обработанное, "+
+				"ничего не вычитается; ноты synth — в секундах трека (воркер сдвигает на окно)", "boolean"),
 		}, "job_id", "chain"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			chain, err := argObjects(args, "chain")
@@ -75,6 +77,7 @@ func registerFxTools(s *Server) {
 			req.From, req.To = optFloat(args, "from"), optFloat(args, "to")
 			req.Preview = argBool(args, "preview")
 			req.Fade = argFloat(args, "fade")
+			req.Add = argBool(args, "add")
 			out, err := s.client.ApplyFx(context.Background(), argInt(args, "job_id"), req)
 			if err != nil {
 				return "", err

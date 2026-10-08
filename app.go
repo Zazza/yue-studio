@@ -702,6 +702,11 @@ func (a *App) YueJobGrid(jobID int64, from, to float64) (*yue.BeatGrid, error) {
 	return a.yue.JobGrid(a.ctx, jobID, from, to)
 }
 
+// YueChordGrid — аккорды и секции плана по тактам звука (синт по аккордам в студии).
+func (a *App) YueChordGrid(jobID int64) (*yue.ChordGrid, error) {
+	return a.yue.ChordGrid(a.ctx, jobID)
+}
+
 // YueJobTones — узкие тона («свист») в окне трека — частота для «Убрать свист».
 // stem — дорожка (vocals/drums/bass/other/guitar/piano), пусто — весь микс.
 func (a *App) YueJobTones(jobID int64, from, to float64, stem string) ([]yue.Tone, error) {

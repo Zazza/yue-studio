@@ -190,4 +190,81 @@ export const fxPresets = [
       { type: 'comp', threshold_db: -12, ratio: 2, attack_ms: 30, release_ms: 200 },
     ],
   },
+
+  // ---------- синты (этап 4): блок synth (ноты партии подставляет студия по аккордам трека) + эффекты ----------
+  {
+    id: 'synth-solina', stems: ['synth'], style: 'pad', octave: 0,
+    name: { ru: 'Струнный ансамбль (Solina)', en: 'String ensemble (Solina)' },
+    note: { ru: 'Мягкие «струны» 70-х: три расстроенные пилы, медленная атака и густой ансамбль-хорус — холодная подушка под гитары (Joy Division, Молчат Дома).', en: '70s soft "strings": three detuned saws, slow attack and a thick ensemble chorus — a cold bed under guitars.' },
+    chain: [
+      { type: 'synth', osc1: 0, unison: 3, detune_cents: 14, cutoff_hz: 3000, attack_s: 0.4, decay_s: 0.3, sustain: 0.9, release_s: 1.0, output_db: 0 },
+      { type: 'chorus', voices: 3, depth_ms: 4, rate_hz: 0.6, mix: 0.7 },
+      { type: 'reverb', decay_s: 2.2, predelay_ms: 20, lowpass_hz: 6000, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'synth-juno', stems: ['synth'], style: 'pad', octave: 0,
+    name: { ru: 'Пэд с хорусом (Juno)', en: 'Chorus pad (Juno)' },
+    note: { ru: 'Пульс с суб-октавой через тёплый фильтр, медленно «дышащий» от LFO, и фирменный хорус — тёплый пэд 80-х.', en: 'Pulse with a sub-octave through a warm filter slowly breathing with the LFO, and the signature chorus — a warm 80s pad.' },
+    chain: [
+      { type: 'synth', osc1: 2, pwm: 0.4, osc2: 0, osc_mix: 0.3, sub: 0.3, cutoff_hz: 1500, resonance: 0.2, lfo_cutoff: 0.15, vib_rate: 0.3, attack_s: 0.6, decay_s: 0.5, sustain: 0.8, release_s: 1.2, output_db: 0 },
+      { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.5, mix: 0.8 },
+    ],
+  },
+  {
+    id: 'synth-moog-bass', stems: ['synth'], style: 'pulse', octave: 0,
+    name: { ru: 'Синт-бас (Moog)', en: 'Synth bass (Moog)' },
+    note: { ru: 'Пила и квадрат на октаву ниже через резонансный фильтр с коротким «щелчком» огибающей — плотный пульсирующий бас восьмыми.', en: 'Saw plus a square an octave down through a resonant filter with a short envelope "pluck" — a tight eighth-note bass.' },
+    chain: [
+      { type: 'synth', osc1: 0, osc2: 1, osc2_semi: -12, osc_mix: 0.4, cutoff_hz: 500, resonance: 0.4, env_amount: 0.6, f_attack_s: 0.005, f_decay_s: 0.25, attack_s: 0.005, decay_s: 0.25, sustain: 0.6, release_s: 0.1, output_db: 0 },
+    ],
+  },
+  {
+    id: 'synth-moog-lead', stems: ['synth'], style: 'arp', octave: 1,
+    name: { ru: 'Лид (Moog)', en: 'Lead (Moog)' },
+    note: { ru: 'Две пилы с лёгкой расстройкой, резонанс и вибрато, ленточное эхо — арпеджио по аккордам поверх трека.', en: 'Two slightly detuned saws, resonance and vibrato, tape echo — an arpeggio over the chords.' },
+    chain: [
+      { type: 'synth', osc1: 0, unison: 2, detune_cents: 6, cutoff_hz: 2500, resonance: 0.35, env_amount: 0.4, f_decay_s: 0.3, vib_rate: 5, vib_cents: 8, attack_s: 0.01, decay_s: 0.2, sustain: 0.7, release_s: 0.2, output_db: 0 },
+      { type: 'delay', time_ms: 340, feedback: 0.35, lowpass_hz: 4000, wet: 0.3 },
+      { type: 'tape', wow: 0.15, flutter: 0.1, saturation: 0.2, lowpass_hz: 9000, hiss: 0 },
+    ],
+  },
+  {
+    id: 'synth-cs80-brass', stems: ['synth'], style: 'pad', octave: 0,
+    name: { ru: 'Медь (CS-80)', en: 'Brass (CS-80)' },
+    note: { ru: 'Расстроенные пилы и фильтр, раскрывающийся на атаке, с медленным вибрато — «Blade Runner»-медь, торжественно и тревожно.', en: 'Detuned saws and a filter opening on the attack with slow vibrato — Blade Runner style brass, solemn and uneasy.' },
+    chain: [
+      { type: 'synth', osc1: 0, unison: 2, detune_cents: 10, cutoff_hz: 900, env_amount: 0.7, f_attack_s: 0.15, f_decay_s: 0.6, vib_rate: 5.5, vib_cents: 10, attack_s: 0.08, decay_s: 0.4, sustain: 0.8, release_s: 0.4, output_db: 0 },
+      { type: 'chorus', voices: 2, depth_ms: 2, rate_hz: 0.3, mix: 0.4 },
+      { type: 'reverb', decay_s: 2.8, predelay_ms: 30, lowpass_hz: 7000, wet: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-farfisa', stems: ['synth'], style: 'pad', octave: 0,
+    name: { ru: 'Орган (Farfisa)', en: 'Organ (Farfisa)' },
+    note: { ru: 'Квадрат с октавой сверху и быстрым вибрато, без атаки, через пружину — гаражный орган 60-х.', en: 'Square with an octave on top and fast vibrato, no attack, through a spring — a 60s garage organ.' },
+    chain: [
+      { type: 'synth', osc1: 1, osc2: 1, osc2_semi: 12, osc_mix: 0.35, cutoff_hz: 6000, vib_rate: 6, vib_cents: 12, attack_s: 0.005, decay_s: 0.05, sustain: 1, release_s: 0.06, output_db: 0 },
+      { type: 'spring', decay_s: 1.6, tone: 0.6, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'synth-vox-continental', stems: ['synth'], style: 'pad', octave: 0,
+    name: { ru: 'Орган (Vox Continental)', en: 'Organ (Vox Continental)' },
+    note: { ru: 'Треугольник с квадратом на октаву выше, лёгкое вибрато и старая лента — тонкий «стеклянный» орган (The Doors, The Animals).', en: 'Triangle with a square an octave up, light vibrato and old tape — a thin "glassy" organ.' },
+    chain: [
+      { type: 'synth', osc1: 3, osc2: 1, osc2_semi: 12, osc_mix: 0.25, cutoff_hz: 5000, vib_rate: 6.5, vib_cents: 6, attack_s: 0.005, decay_s: 0.05, sustain: 1, release_s: 0.08, output_db: 0 },
+      { type: 'tape', wow: 0.1, flutter: 0.15, saturation: 0.15, lowpass_hz: 10000, hiss: 0.1 },
+      { type: 'spring', decay_s: 1.2, tone: 0.5, wet: 0.2 },
+    ],
+  },
+  {
+    id: 'synth-vltone', stems: ['synth'], style: 'arp', octave: 1,
+    name: { ru: 'Игрушка (VL-Tone)', en: 'Toy (VL-Tone)' },
+    note: { ru: 'Узкий пульс с коротким звуком через зажатую ленту с шипением — карманный калькулятор-синт («Da Da Da»), странно и по-детски.', en: 'A narrow pulse with short notes through squashed hissing tape — the pocket calculator synth, odd and childlike.' },
+    chain: [
+      { type: 'synth', osc1: 2, pwm: 0.25, cutoff_hz: 7000, attack_s: 0.002, decay_s: 0.15, sustain: 0.3, release_s: 0.1, output_db: 0 },
+      { type: 'tape', wow: 0.2, flutter: 0.3, saturation: 0.5, lowpass_hz: 7000, hiss: 0.2 },
+    ],
+  },
 ]

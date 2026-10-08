@@ -54,6 +54,8 @@ const sourceOptions = computed(() => SOURCES
   .filter((s) => s === 'mix' || stems.value.includes(s))
   .map((s) => ({ value: s, label: t('studio.dsp.target.' + s) })))
 const preset = computed(() => fxPresets.find((p) => p.id === presetId.value))
+// синты играют ноты партии по аккордам — их место в студии («Синт по аккордам»), не на дорожке трека
+const stemPresets = fxPresets.filter((p) => !(p.stems || []).includes('synth'))
 const missing = computed(() => missingRequired(chain.value, BLOCKS))
 const end = computed(() => Math.min(Number(start.value) + Number(len.value), job.value?.duration_sec || Infinity))
 const ready = computed(() => engineOn.value && engineKnown.value && job.value && !missing.value.length &&
@@ -265,7 +267,7 @@ async function upload(kind) {
 
         <div class="voice-presets">
           <span class="muted">{{ t('instr.presets') }}</span>
-          <button v-for="p in fxPresets" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
+          <button v-for="p in stemPresets" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
                   :title="tr(p.note)" @click="applyPreset(p.id)">{{ tr(p.name) }}</button>
         </div>
         <p v-if="preset" class="muted voice-hint">{{ tr(preset.note) }}</p>

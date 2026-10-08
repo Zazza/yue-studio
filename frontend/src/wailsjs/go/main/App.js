@@ -46,6 +46,10 @@ export function YueCancelJob(arg1) {
   return window['go']['main']['App']['YueCancelJob'](arg1);
 }
 
+export function YueChordGrid(arg1) {
+  return window['go']['main']['App']['YueChordGrid'](arg1);
+}
+
 export function YueContinueJob(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['YueContinueJob'](arg1, arg2, arg3, arg4, arg5);
 }

@@ -57,6 +57,9 @@ type SectionSpec struct {
 	// fx_apply) на дорожки Stems в окне: считается на воркере, в трек — разница
 	// «обработанная − исходная», как у Chain/Steps
 	Engine []map[string]any `json:"engine,omitempty"`
+	// Add у записи Engine — добавить обработанный кусок поверх трека, исходную дорожку не вычитать
+	// (синт-партия по аккордам); дорожка "mix" (весь трек как вход, без разделения) — только с Add
+	Add bool `json:"add,omitempty"`
 }
 
 // RebuildResult — новый вариант трека и отчёт по заменам.
@@ -133,13 +136,26 @@ func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
+	needStems := false
+	for _, sp := range specs {
+		engineAdd := sp.Add && len(sp.Engine) > 0
+		if slices.Contains(sp.Stems, "mix") && !engineAdd {
+			return nil, errors.New("дорожка mix — только для добавления цепочкой движка (add): вычесть весь трек нельзя")
+		}
+		if !engineAdd || len(sp.Stems) != 1 || sp.Stems[0] != "mix" {
+			needStems = true
+		}
+	}
 	base, err := FetchBase(ctx, svc, parentID, dir)
 	if err != nil {
 		return nil, fmt.Errorf("оригинал #%d: %w", parentID, err)
 	}
-	parent, err := fetchStems(ctx, svc, parentID, dir)
-	if err != nil {
-		return nil, err
+	// только добавления поверх всего трека (синт) — разделение на дорожки не нужно
+	parent := stemSet{}
+	if needStems {
+		if parent, err = fetchStems(ctx, svc, parentID, dir); err != nil {
+			return nil, err
+		}
 	}
 	for _, s := range specs {
 		if (s.ChildID == 0 || s.Revoice) && slices.Contains(s.Stems, "vocals") && parent["vocals"] == "" {
@@ -419,12 +435,13 @@ func engineInserts(ctx context.Context, svc yue.Service, parentID int64, s Secti
 	}
 	var out []dsp.Insert
 	for _, name := range s.Stems {
-		if !slices.Contains(engineStems, name) || parent[name] == "" {
+		mixAdd := name == "mix" && s.Add
+		if !mixAdd && (!slices.Contains(engineStems, name) || parent[name] == "") {
 			continue
 		}
 		fromV, toV := from, to
 		v, err := svc.ApplyFx(ctx, parentID, yue.FxRequest{Source: name, Chain: s.Engine, From: &fromV, To: &toV,
-			Output: "solo", Preview: true, Fade: f, Pad: true})
+			Output: "solo", Preview: true, Fade: f, Pad: true, Add: s.Add})
 		if err != nil {
 			return nil, fmt.Errorf("движок на %s: %w", name, err)
 		}
@@ -441,11 +458,14 @@ func engineInserts(ctx context.Context, svc yue.Service, parentID int64, s Secti
 		if err != nil {
 			return nil, fmt.Errorf("движок на %s: кусок %s: %w", name, v.File, err)
 		}
-		*inputs = append(*inputs, wet, parent[name])
-		out = append(out,
-			// кусок от начала трека (Pad): на место без adelay — тем же отсчётом, что дорожка
-			dsp.Insert{Gain: math.Pow(10, s.Db/20)},
-			dsp.Insert{AtSec: from, SkipSec: from, DurSec: to + f - from, Gain: -1, FadeIn: f, FadeOut: f})
+		// кусок от начала трека (Pad): на место без adelay — тем же отсчётом, что дорожка
+		*inputs = append(*inputs, wet)
+		out = append(out, dsp.Insert{Gain: math.Pow(10, s.Db/20)})
+		if s.Add {
+			continue // добавление: исходная дорожка остаётся как есть
+		}
+		*inputs = append(*inputs, parent[name])
+		out = append(out, dsp.Insert{AtSec: from, SkipSec: from, DurSec: to + f - from, Gain: -1, FadeIn: f, FadeOut: f})
 	}
 	return out, nil
 }

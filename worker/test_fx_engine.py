@@ -2588,5 +2588,419 @@ class TestTomGroupsWithLeak(unittest.TestCase):
                 self.assertEqual(ng, 3)
                 self.assertEqual({grp[0], grp[100], grp[160]}, {0, 1, 2})
 
+
+# ---------- Карточка internal-own-track, этап 4 «Синты»: блок synth (условие 23, ТК47) ----------
+#
+# Контракт (карточка и контракт задачи; реализацию не читали): блок {"type": "synth",
+# "notes": [{t, d, midi: [..], vel 0..1}], osc1/osc2 0..4 (0 пила, 1 квадрат, 2 пульс,
+# 3 треугольник, 4 синус), osc2_semi −24…24, osc_mix 0…1, unison 1…4, detune_cents 0…50,
+# sub, noise, pwm 0…1, cutoff_hz 80…16000, resonance 0…1, env_amount 0…1, f_attack_s,
+# f_decay_s, attack_s, decay_s, sustain, release_s, vib_rate 0…12, vib_cents 0…50,
+# lfo_cutoff 0…1, output_db}. Вход — только длина (содержимое не влияет); t нот — от
+# начала окна; нота звучит до t+d, затем release (не дальше конца окна); без нот —
+# тишина; пик выхода −6 дБFS + output_db; неверные ноты → ChainError; нот ≤ 5000.
+# «Без фильтра» в тестах — cutoff_hz 16000, resonance 0, env_amount 0 (контракт задачи).
+
+SYNTH_BLOCKS = ("synth", "chorus", "phaser", "flanger", "tape", "spring")
+
+# синус на обоих генераторах, без фильтра, без вибрато/юнисона/саба/шума
+SINE = {"osc1": 4, "osc2": 4, "osc2_semi": 0, "osc_mix": 0, "unison": 1, "detune_cents": 0,
+        "sub": 0, "noise": 0, "cutoff_hz": 16000, "resonance": 0, "env_amount": 0,
+        "vib_cents": 0, "lfo_cutoff": 0, "attack_s": 0.005, "decay_s": 0.05, "sustain": 1,
+        "release_s": 0.1, "output_db": 0}
+
+
+def _snote(t, d, midi, vel=1.0):
+    return {"t": t, "d": d, "midi": list(midi), "vel": vel}
+
+
+def _synth_block(notes, **params):
+    return {"type": "synth", "notes": notes, **{**SINE, **params}}
+
+
+def _synth(notes, n=2 * SR, x=None, **params):
+    """Выход synth на тишине длиной n (или на заданном входе x)."""
+    if x is None:
+        x = np.zeros(n, dtype=np.float32)
+    return _fx().process(x, SR, [_synth_block(notes, **params)])
+
+
+def _smono(y):
+    y = np.asarray(y, dtype=np.float64)
+    return y.mean(axis=1) if y.ndim == 2 else y
+
+
+def _spectrum(y, t0, t1, pad=4):
+    """Амплитудный спектр отрезка [t0, t1) с окном Ханна и дополнением нулями."""
+    seg = _smono(y)[int(t0 * SR):int(t1 * SR)]
+    w = np.hanning(len(seg))
+    nfft = pad * len(seg)
+    S = np.abs(np.fft.rfft(seg * w, nfft))
+    fr = np.fft.rfftfreq(nfft, 1 / SR)
+    return fr, S
+
+
+def _dominant_hz(y, t0, t1):
+    fr, S = _spectrum(y, t0, t1)
+    return float(fr[int(np.argmax(S))])
+
+
+def _hz(midi):
+    return 440.0 * 2 ** ((midi - 69) / 12)
+
+
+def _blocks_json():
+    import os
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fx_blocks.json"),
+              encoding="utf-8") as f:
+        return json.load(f)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSynthPitch(unittest.TestCase):
+    """ТК47: высота нот, несколько нот, юнисон."""
+
+    def test_tk47_a4_sine_440(self):
+        y = _synth([_snote(0.1, 1.0, [69])])
+        self.assertAlmostEqual(_dominant_hz(y, 0.3, 1.0), 440.0, delta=2)
+
+    def test_tk47_two_notes_both_frequencies(self):
+        # две ноты одновременно: A4 и E5 — обе частоты в спектре, ничего громче их
+        y = _synth([_snote(0.1, 1.5, [69]), _snote(0.1, 1.5, [76])])
+        fr, S = _spectrum(y, 0.4, 1.4)
+
+        def level(hz):
+            m = np.abs(fr - hz) <= 3
+            return float(S[m].max())
+
+        a, e = level(440.0), level(_hz(76))
+        top = float(S.max())
+        self.assertGreater(a, top * 0.3, "A4 (440 Гц) не слышна")
+        self.assertGreater(e, top * 0.3, "E5 (659 Гц) не слышна")
+
+    def test_tk47_chord_in_one_note(self):
+        # midi — список: аккорд одной нотой даёт все высоты
+        y = _synth([_snote(0.1, 1.5, [60, 64, 67])])
+        fr, S = _spectrum(y, 0.4, 1.4)
+        top = float(S.max())
+        for m in (60, 64, 67):
+            with self.subTest(midi=m):
+                sel = np.abs(fr - _hz(m)) <= 3
+                self.assertGreater(float(S[sel].max()), top * 0.3)
+
+    def test_tk47_unison_3_detune_20_three_peaks_within_20_cents(self):
+        y = _synth([_snote(0.0, 4.0, [69])], n=4 * SR, unison=3, detune_cents=20)
+        fr, S = _spectrum(y, 0.5, 3.5, pad=8)
+        lo, hi = 440 * 2 ** (-21 / 1200), 440 * 2 ** (21 / 1200)
+        top = float(S.max())
+        # пики (локальные максимумы > −20 дБ от главного) около A4
+        band = (fr > 380) & (fr < 500)
+        idx = np.where(band)[0]
+        peaks = [i for i in idx if S[i] > S[i - 1] and S[i] >= S[i + 1] and S[i] > 0.1 * top]
+        pf = [float(fr[i]) for i in peaks]
+        self.assertEqual(len(pf), 3, f"пики {pf}, want 3 голоса юнисона")
+        for f in pf:
+            self.assertTrue(lo <= f <= hi, f"пик {f:.2f} Гц вне ±20 центов от 440")
+
+    def test_saw_110_no_aliasing(self):
+        # ТК47 «пила без фс-зеркал»: у пилы 110 Гц при 48 кГц зеркала (гармоники выше
+        # Найквиста, отражённые вниз) ложатся МЕЖДУ гармониками 110·k (48000/110 не целое).
+        # Энергия вне гармоник (дальше 8 Гц от 110·k) ниже 20 кГц < −40 дБ от всей:
+        # наивная пила даёт ≈ −27 дБ, PolyBLEP ≈ −47 дБ (проверено прототипом).
+        y = _synth([_snote(0.0, 3.0, [45])], n=3 * SR, osc1=0, osc2=0)
+        seg = _smono(y)[SR // 2:SR // 2 + 2 * SR]
+        P = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
+        fr = np.fft.rfftfreq(len(seg), 1 / SR)
+        f0 = _hz(45)
+        self.assertAlmostEqual(f0, 110.0, places=6)
+        near = np.abs(fr - f0 * np.round(fr / f0)) <= 8
+        off = float(P[~near & (fr < 20000)].sum())
+        self.assertLess(10 * np.log10(off / float(P.sum())), -40,
+                        "энергия между гармониками — зеркала (алиасинг) генератора")
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSynthTimeAndLevel(unittest.TestCase):
+    """ТК47 и условие 23: время нот, release, тишина без нот, громкость выхода."""
+
+    def test_tk47_silence_after_release(self):
+        y = _synth([_snote(0.1, 0.5, [69])], release_s=0.2)
+        peak = float(np.abs(y).max())
+        self.assertGreater(peak, 0)
+        tail = float(np.abs(_smono(y)[int(0.85 * SR):]).max())   # t + d + release = 0,8 с
+        self.assertLess(_db(tail / peak), -60, "после t+d+release не тишина")
+
+    def test_silence_before_note(self):
+        # t — от начала окна: до t тишина
+        y = _synth([_snote(0.5, 0.5, [69])])
+        peak = float(np.abs(y).max())
+        before = float(np.abs(_smono(y)[:int(0.49 * SR)]).max())
+        self.assertLess(_db(before / peak), -60)
+
+    def test_note_sounds_until_t_plus_d(self):
+        # нота держится (sustain 1) до t+d: на последней десятке мс перед t+d звучит
+        y = _synth([_snote(0.1, 1.0, [69])], release_s=0.05)
+        a_mid = _tone_amp(y, 440, t0=0.5, t1=0.6)
+        a_end = _tone_amp(y, 440, t0=1.0, t1=1.075)
+        self.assertGreater(a_mid, 0)
+        self.assertGreater(a_end, 0.5 * a_mid, "нота стихла раньше t+d")
+
+    def test_release_not_past_window(self):
+        # нота с release за концом окна: длина выхода = длине входа
+        x = np.zeros(SR, dtype=np.float32)
+        y = _fx().process(x, SR, [_synth_block([_snote(0.7, 1.0, [69])], release_s=2.0)])
+        self.assertEqual(y.shape, x.shape)
+        self.assertTrue(np.all(np.isfinite(y)))
+
+    def test_shape_mono_stereo_odd(self):
+        for x in (np.zeros(SR + 7, dtype=np.float32), np.zeros((SR + 7, 2), dtype=np.float32)):
+            with self.subTest(shape=x.shape):
+                y = _fx().process(x, SR, [_synth_block([_snote(0.1, 0.5, [60])])])
+                self.assertEqual(y.shape, x.shape)
+                self.assertEqual(y.dtype, np.float32)
+                self.assertTrue(np.all(np.isfinite(y)))
+
+    def test_tk47_empty_notes_silence(self):
+        y = _synth([])
+        self.assertLess(float(np.abs(y).max()), 1e-6)
+
+    def test_tk47_peak_minus6_dbfs(self):
+        for notes in ([_snote(0.1, 1.0, [69], vel=1.0)],
+                      [_snote(0.1, 1.0, [69], vel=0.2)],
+                      [_snote(0.1, 1.0, [48, 52, 55, 60, 64, 67], vel=1.0)]):
+            with self.subTest(notes=notes):
+                y = _synth(notes, output_db=0)
+                self.assertAlmostEqual(_db(float(np.abs(y).max())), -6, delta=0.5)
+
+    def test_output_db_shifts_peak(self):
+        y = _synth([_snote(0.1, 1.0, [69])], output_db=-6)
+        self.assertAlmostEqual(_db(float(np.abs(y).max())), -12, delta=0.5)
+
+    def test_input_content_does_not_matter(self):
+        # вход — только длина: тишина, тихий и громкий шум дают тот же выход
+        rng = np.random.default_rng(1)
+        notes = [_snote(0.1, 1.0, [57, 64])]
+        base = _synth(notes)
+        for amp in (0.01, 0.9):
+            with self.subTest(amp=amp):
+                x = (amp * rng.standard_normal(2 * SR)).astype(np.float32)
+                y = _synth(notes, x=x)
+                self.assertTrue(np.allclose(y, base, atol=1e-6), "выход зависит от содержимого входа")
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSynthParse(unittest.TestCase):
+    """Условие 23: проверка нот и параметров (ChainError → 422)."""
+
+    def _bad(self, block):
+        fx = _fx()
+        # опора: верный блок synth принимается — иначе ChainError ниже ничего не доказывает
+        fx.parse_chain([_synth_block([_snote(0, 1, [60])])])
+        with self.assertRaises(fx.ChainError):
+            fx.parse_chain([block])
+
+    def test_tk47_midi_200_chain_error(self):
+        self._bad(_synth_block([_snote(0, 1, [200])]))
+
+    def test_bad_notes(self):
+        for notes in ("C4", {"t": 0, "d": 1, "midi": [60]}, 5,
+                      [_snote(0, 1, [-1])], [_snote(0, 1, [128])],
+                      [_snote(0, 0, [60])], [_snote(0, -1, [60])],
+                      [{"t": 0, "d": 1, "midi": "60", "vel": 1}]):
+            with self.subTest(notes=notes):
+                self._bad(_synth_block(notes))
+
+    def test_bad_notes_rejected_by_process(self):
+        fx = _fx()
+        fx.parse_chain([_synth_block([_snote(0, 1, [60])])])
+        with self.assertRaises(fx.ChainError):
+            fx.process(np.zeros(SR, dtype=np.float32), SR, [_synth_block([_snote(0, 1, [200])])])
+
+    def test_notes_limit_5000(self):
+        fx = _fx()
+        ok = [_snote(i * 0.001, 0.01, [60]) for i in range(5000)]
+        self.assertEqual(len(fx.parse_chain([_synth_block(ok)])), 1)
+        self._bad(_synth_block(ok + [_snote(5.0, 0.01, [60])]))
+
+    def test_midi_bounds_inclusive(self):
+        fx = _fx()
+        self.assertEqual(len(fx.parse_chain([_synth_block([_snote(0, 1, [0, 127])])])), 1)
+
+    def test_param_bounds(self):
+        bad = [{"osc1": 5}, {"osc1": -1}, {"osc2": 5}, {"osc2_semi": 25}, {"osc2_semi": -25},
+               {"osc_mix": 1.1}, {"unison": 0}, {"unison": 5}, {"detune_cents": 51},
+               {"sub": 1.1}, {"noise": -0.1}, {"pwm": 1.1}, {"cutoff_hz": 79},
+               {"cutoff_hz": 16001}, {"resonance": 1.1}, {"env_amount": 1.1},
+               {"vib_rate": 13}, {"vib_cents": 51}, {"lfo_cutoff": 1.1}]
+        for p in bad:
+            with self.subTest(param=p):
+                self._bad(_synth_block([], **p))
+
+    def test_param_bounds_inclusive(self):
+        fx = _fx()
+        ok = [{"osc1": 0}, {"osc1": 4}, {"osc2_semi": -24}, {"osc2_semi": 24}, {"unison": 4},
+              {"detune_cents": 50}, {"cutoff_hz": 80}, {"cutoff_hz": 16000}, {"resonance": 1},
+              {"vib_rate": 12}, {"vib_cents": 50}]
+        for p in ok:
+            with self.subTest(param=p):
+                self.assertEqual(len(fx.parse_chain([_synth_block([], **p)])), 1)
+
+    def test_in_blocks_json(self):
+        blocks = _blocks_json()
+        for t in SYNTH_BLOCKS:
+            self.assertIn(t, blocks, f"блока {t} нет в fx_blocks.json")
+        ids = {p["id"] for p in blocks["synth"]["params"]}
+        for k in ("osc1", "osc2", "osc2_semi", "osc_mix", "unison", "detune_cents", "sub", "noise",
+                  "pwm", "cutoff_hz", "resonance", "env_amount", "f_attack_s", "f_decay_s",
+                  "attack_s", "decay_s", "sustain", "release_s", "vib_rate", "vib_cents",
+                  "lfo_cutoff", "output_db"):
+            self.assertIn(k, ids, f"synth.{k} нет в описании")
+
+
+# ---------- Условие 24, ТК48: эффекты для синтов ----------
+
+FX_DRY = {  # «сухой» вариант каждого эффекта: mix/wet 0
+    "chorus": {"mix": 0},
+    "phaser": {"mix": 0},
+    "flanger": {"mix": 0},
+    "spring": {"wet": 0},
+}
+
+
+def _noise(n=2 * SR, ch=None, seed=3, amp=0.3):
+    rng = np.random.default_rng(seed)
+    x = amp * rng.standard_normal(n if ch is None else (n, ch))
+    return x.astype(np.float32)
+
+
+def _dual_mono(x):
+    return np.stack([x, x], axis=1).astype(np.float32)
+
+
+@unittest.skipUnless(_HAS_DEPS, _SKIP)
+class TestSynthEffects(unittest.TestCase):
+    """ТК48: chorus/phaser/flanger/tape/spring."""
+
+    def test_tk48_length_equals_input(self):
+        for t in ("chorus", "phaser", "flanger", "tape", "spring"):
+            for x in (_noise(SR + 7), _noise(SR + 7, ch=2)):
+                with self.subTest(block=t, shape=x.shape):
+                    y = _fx().process(x, SR, [_block(t)])
+                    self.assertEqual(y.shape, x.shape)
+                    self.assertEqual(y.dtype, np.float32)
+                    self.assertTrue(np.all(np.isfinite(y)))
+
+    def test_tk48_mix_wet_zero_is_identity(self):
+        for t, p in FX_DRY.items():
+            for x in (_noise(), _noise(ch=2)):
+                with self.subTest(block=t, shape=x.shape):
+                    y = _fx().process(x, SR, [_block(t, **p)])
+                    self.assertTrue(np.allclose(y, x, atol=1e-5), f"{t} при {p} меняет сигнал")
+
+    def test_dry_without_delay(self):
+        # сухой сигнал без задержки: взаимная корреляция выхода со входом (шум)
+        # максимальна на сдвиге 0
+        x = _noise(SR)
+        for t, p in (("chorus", {"mix": 0.3}), ("phaser", {"mix": 0.3}),
+                     ("flanger", {"mix": 0.3}), ("spring", {"wet": 0.3})):
+            with self.subTest(block=t):
+                from scipy.signal import correlate, correlation_lags
+                y = _smono(_fx().process(x, SR, [_block(t, **p)]))
+                xc = np.abs(correlate(y, x.astype(np.float64), mode="full", method="fft"))
+                lags = correlation_lags(len(y), len(x), mode="full")
+                self.assertEqual(int(lags[int(np.argmax(xc))]), 0)
+
+    def test_tk48_chorus_phaser_spread_dual_mono(self):
+        # моно-вход (одинаковые каналы) → L и R разные (разная фаза LFO)
+        x = _dual_mono(_noise())
+        for t in ("chorus", "phaser"):
+            with self.subTest(block=t):
+                y = _fx().process(x, SR, [_block(t, mix=0.5)]).astype(np.float64)
+                diff = np.sqrt(np.mean((y[:, 0] - y[:, 1]) ** 2))
+                ref = np.sqrt(np.mean(y ** 2))
+                self.assertGreater(_db(diff / ref), -30, f"{t}: L и R одинаковы")
+
+    def test_tk48_tape_wow_pitch_drifts(self):
+        from scipy.signal import hilbert
+        wow_max = next(p["max"] for p in _blocks_json()["tape"]["params"] if p["id"] == "wow")
+
+        def spread(y):
+            a = hilbert(_smono(y))
+            f = np.diff(np.unwrap(np.angle(a))) * SR / (2 * np.pi)
+            k = int(0.02 * SR)
+            f = np.convolve(f, np.ones(k) / k, mode="valid")[SR // 2:-SR // 2]
+            return float(np.percentile(f, 95) - np.percentile(f, 5))
+
+        x = _sine(1000, dur=4.0)
+        quiet = {"flutter": 0, "saturation": 0, "hiss": 0}
+        y0 = _fx().process(x, SR, [_block("tape", wow=0, **quiet)])
+        y1 = _fx().process(x, SR, [_block("tape", wow=wow_max, **quiet)])
+        self.assertLess(spread(y0), 1.0, "без wow частота уже плавает — замер не о wow")
+        self.assertGreater(spread(y1), 1.0, "wow > 0: частота 1 кГц не плавает")
+
+    def test_tk48_spring_tail_longer_than_03s(self):
+        x, pos = _impulse(n=2 * SR, pos=SR // 4)
+        y = _smono(_fx().process(x, SR, [_block("spring", wet=0.5)]))
+        tail = float(np.abs(y[pos + int(0.3 * SR):pos + int(0.5 * SR)]).max())
+        self.assertGreater(_db(tail), -60, "у пружины нет хвоста после 0,3 с")
+        self.assertLess(float(np.abs(y[:pos]).max()), 1e-4, "звук раньше импульса")
+
+    def test_parse_bounds(self):
+        fx = _fx()
+        fx.parse_chain([{"type": "chorus"}, {"type": "phaser"}, {"type": "spring"}])  # опора
+        for blk in ({"type": "chorus", "voices": 0}, {"type": "chorus", "voices": 5},
+                    {"type": "phaser", "stages": 1}, {"type": "phaser", "stages": 9},
+                    {"type": "chorus", "mix": 1.5}, {"type": "spring", "wet": -0.1}):
+            with self.subTest(block=blk), self.assertRaises(fx.ChainError):
+                fx.parse_chain([blk])
+        ok = [{"type": "chorus", "voices": 1}, {"type": "chorus", "voices": 4},
+              {"type": "phaser", "stages": 2}, {"type": "phaser", "stages": 8}]
+        self.assertEqual(len(fx.parse_chain(ok)), 4)
+
+    def test_in_blocks_json_params(self):
+        blocks = _blocks_json()
+        want = {"chorus": ("voices", "depth_ms", "rate_hz", "mix"),
+                "phaser": ("stages", "rate_hz", "depth", "feedback", "mix"),
+                "flanger": ("delay_ms", "depth_ms", "rate_hz", "feedback", "mix"),
+                "tape": ("wow", "flutter", "saturation", "lowpass_hz", "hiss"),
+                "spring": ("decay_s", "tone", "wet")}
+        for t, keys in want.items():
+            with self.subTest(block=t):
+                ids = {p["id"] for p in blocks[t]["params"]}
+                for k in keys:
+                    self.assertIn(k, ids)
+
+
+
+@unittest.skipUnless(_HAS_DEPS, "нужны numpy/scipy/librosa")
+class TestSynthLimitsAndEdges(unittest.TestCase):
+    """Кросс-ревью и безопасность этапа 4: лимиты нот, края окна без щелчка."""
+
+    def _syn(self, notes, **kw):
+        return {"type": "synth", "osc1": 4, "cutoff_hz": 16000, "notes": notes, **kw}
+
+    def test_note_start_too_early_and_huge_chord_rejected(self):
+        import fx_engine as fe
+        with self.assertRaises(fe.ChainError):
+            fe.parse_chain([self._syn([{"t": -1e6, "d": 1e6 + 1, "midi": [60]}])])
+        with self.assertRaises(fe.ChainError):
+            fe.parse_chain([self._syn([{"t": 0, "d": 1, "midi": list(range(40, 57))}])])   # 17 нот
+        fe.parse_chain([self._syn([{"t": 0, "d": 1, "midi": list(range(40, 56))}])])       # 16 — можно
+
+    def test_edges_fade_no_click(self):
+        import fx_engine as fe
+        sr = 48000
+        y = fe.process(np.zeros((sr, 1)), sr, [self._syn([{"t": -1, "d": 3, "midi": [69], "vel": 1}], release_s=0.01)])
+        self.assertLess(abs(float(y[0, 0])), 1e-3)          # нота, начатая до окна, — с нарастанием
+        self.assertLess(abs(float(y[-1, 0])), 1e-3)         # и со спадом к концу окна
+
+
+    def test_until_huge_is_harmless(self):
+        # кросс-ревью s4 r3: внешний _until 1e308 — не 500 (переполнение при пересчёте в сэмплы)
+        import fx_engine as fe
+        sr = 48000
+        y = fe.process(np.zeros((sr, 1)), sr, [self._syn([{"t": 0, "d": 0.5, "midi": [69], "vel": 1}], _until=1e308)])
+        self.assertEqual(y.shape, (sr, 1))
+
 if __name__ == "__main__":
     unittest.main()

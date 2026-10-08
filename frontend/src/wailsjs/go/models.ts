@@ -254,6 +254,7 @@ export namespace studio {
 	    steps?: dsp.Step[];
 	    envelope?: dsp.EnvPoint[];
 	    engine?: any[];
+	    add?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SectionSpec(source);
@@ -277,6 +278,7 @@ export namespace studio {
 	        this.steps = this.convertValues(source["steps"], dsp.Step);
 	        this.envelope = this.convertValues(source["envelope"], dsp.EnvPoint);
 	        this.engine = source["engine"];
+	        this.add = source["add"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -337,6 +339,56 @@ export namespace yue {
 	        this.strength = source["strength"];
 	        this.source = source["source"];
 	    }
+	}
+	export class ChordBar {
+	    start: number;
+	    end: number;
+	    chord: string;
+	    section: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChordBar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.start = source["start"];
+	        this.end = source["end"];
+	        this.chord = source["chord"];
+	        this.section = source["section"];
+	    }
+	}
+	export class ChordGrid {
+	    bpm: number;
+	    bars: ChordBar[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChordGrid(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bpm = source["bpm"];
+	        this.bars = this.convertValues(source["bars"], ChordBar);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ContourBar {
 	    index: number;
@@ -444,6 +496,7 @@ export namespace yue {
 	    preview?: boolean;
 	    fade?: number;
 	    pad?: boolean;
+	    add?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FxRequest(source);
@@ -460,6 +513,7 @@ export namespace yue {
 	        this.preview = source["preview"];
 	        this.fade = source["fade"];
 	        this.pad = source["pad"];
+	        this.add = source["add"];
 	    }
 	}
 	export class HealthInfo {

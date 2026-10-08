@@ -27,6 +27,8 @@ export function YueAudioURL(arg1:number,arg2:string):Promise<string>;
 
 export function YueCancelJob(arg1:number):Promise<boolean>;
 
+export function YueChordGrid(arg1:number):Promise<yue.ChordGrid>;
+
 export function YueContinueJob(arg1:number,arg2:number,arg3:number,arg4:string,arg5:string):Promise<number>;
 
 export function YueCopilot(arg1:yue.CopilotParams):Promise<yue.CopilotResult>;

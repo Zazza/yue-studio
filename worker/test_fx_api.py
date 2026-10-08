@@ -711,5 +711,136 @@ class TestTailsChainErrors422(_FxApiCase):
         self.assertEqual(self._fx_files(d), [])
 
 
+
+# ---------- Карточка internal-own-track, этап 4, условие 25 (ТК50): synth в /fx ----------
+#
+# Контракт: POST /jobs/{id}/fx {source: "mix", output: "solo", preview: true, from, to,
+# chain: [synth]} — ноты synth в запросе от начала ТРЕКА; воркер сдвигает их на окно:
+# нота t звучит в превью через t − from; нота до окна не звучит. output solo — в файле
+# только синт (тонов трека нет). Реализацию не читали.
+
+SYN_DUR = 16.0
+SYN_TRACK_HZ = 100            # тон трека: в solo-файле его быть не должно
+SYN_SINE = {"osc1": 4, "osc2": 4, "osc2_semi": 0, "osc_mix": 0, "unison": 1, "detune_cents": 0,
+            "sub": 0, "noise": 0, "cutoff_hz": 16000, "resonance": 0, "env_amount": 0,
+            "vib_cents": 0, "lfo_cutoff": 0, "attack_s": 0.005, "decay_s": 0.05, "sustain": 1,
+            "release_s": 0.05, "output_db": 0}
+
+
+def _synth_chain(notes):
+    return [{"type": "synth", "notes": notes, **SYN_SINE}]
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestSynthWindowShift(_FxApiCase):
+    """ТК50: from = 10 — нота t = 12 в превью на 2 с, нота t = 5 не звучит."""
+
+    def _long_job(self):
+        import numpy as np
+        import soundfile as sf
+        jid = self._job(duration=SYN_DUR, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        x = _tone(SYN_TRACK_HZ, amp=0.3, dur=SYN_DUR)
+        sf.write(str(d / "audio.flac"), x.astype(np.float32), SR)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid, d
+
+    def _preview(self, jid, notes, fr=10.0, to=14.0):
+        r = self._fx(jid, source="mix", output="solo", preview=True, chain=_synth_chain(notes),
+                     **{"from": fr, "to": to})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_tk50_note_in_window_shifted_by_from(self):
+        import numpy as np
+        jid, d = self._long_job()
+        out = self._preview(jid, [{"t": 12.0, "d": 1.0, "midi": [69], "vel": 1.0}])
+        y, sr = _read(d / out["file"])
+        self.assertEqual(sr, SR)
+        self.assertAlmostEqual(len(y) / SR, 4.0, delta=0.01)       # окно 10–14 с, без хвоста
+        a = np.abs(y).max(axis=1)
+        peak = float(a.max())
+        self.assertGreater(peak, 0.1, "в превью нет синта")
+        # до 2 с (12 − 10) — тишина, нота звучит на 2,1–2,9 с
+        self.assertLess(_db(float(a[:int(1.98 * SR)].max()) / peak), -60, "нота не на t − from")
+        self.assertGreater(_amp(y, 440, 2.1, 2.9), 0.1, "нота A4 не звучит через 2 с от начала окна")
+
+    def test_tk50_solo_without_track(self):
+        jid, d = self._long_job()
+        out = self._preview(jid, [{"t": 12.0, "d": 1.0, "midi": [69], "vel": 1.0}])
+        y, _ = _read(d / out["file"])
+        # output solo: тона трека (100 Гц) в файле нет
+        self.assertLess(_amp(y, SYN_TRACK_HZ, 0.0, 1.9), 1e-3)
+        self.assertLess(_amp(y, SYN_TRACK_HZ, 2.0, 3.0), 1e-3)
+
+    def test_tk50_note_before_window_silent(self):
+        import numpy as np
+        jid, d = self._long_job()
+        out = self._preview(jid, [{"t": 5.0, "d": 1.0, "midi": [69], "vel": 1.0}])
+        y, _ = _read(d / out["file"])
+        self.assertLess(float(np.abs(y).max()), 1e-4, "нота до окна звучит в превью")
+
+    def test_note_after_window_not_played(self):
+        # кросс-ревью s4: нота после окна не звучит даже в хвосте реверба (партия — только в выделении)
+        import numpy as np
+        jid, d = self._long_job()
+        chain = _synth_chain([{"t": 14.5, "d": 1.0, "midi": [69], "vel": 1.0}]) + [{"type": "reverb", "wet": 0.3}]
+        r = self._fx(jid, source="mix", output="solo", preview=True, add=True, chain=chain,
+                     **{"from": 10.0, "to": 14.0})     # как шлют студия и пересборка: добавление
+        self.assertEqual(r.status_code, 200, r.text)
+        y, _ = _read(d / r.json()["file"])
+        self.assertLess(float(np.abs(y).max()), 1e-4, "нота за окном прозвучала в хвосте")
+
+    def test_add_without_preview_422(self):
+        # кросс-ревью s4: add — только у превью (вариант на весь трек заменил бы трек синтом)
+        jid, _ = self._long_job()
+        chain = _synth_chain([{"t": 12.0, "d": 1.0, "midi": [69], "vel": 1.0}])
+        r = self._fx(jid, source="mix", output="mix", add=True, chain=chain, **{"from": 10.0, "to": 14.0})
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_synth_silent_after_window_even_with_tail(self):
+        # кросс-ревью s4 r2: длинная нота с долгим затуханием — синт молчит после края окна (хвост — только
+        # эффекта; delay с wet 0 даёт буфер хвоста без самого эффекта)
+        import numpy as np
+        jid, d = self._long_job()
+        chain = [{"type": "synth", "notes": [{"t": 11.0, "d": 10.0, "midi": [69], "vel": 1.0}], **SYN_SINE,
+                  "release_s": 2.0}, {"type": "delay", "wet": 0.0}]
+        r = self._fx(jid, source="mix", output="solo", preview=True, add=True, chain=chain,
+                     **{"from": 10.0, "to": 14.0})
+        self.assertEqual(r.status_code, 200, r.text)
+        y, _ = _read(d / r.json()["file"])
+        self.assertGreater(len(y) / SR, 4.5)                                   # хвост буфера есть
+        self.assertLess(float(np.abs(y[int(4.0 * SR):]).max()), 1e-4, "синт звучит за краем окна")
+
+    def test_bad_synth_notes_422(self):
+        jid, _ = self._long_job()
+        self._preview(jid, [{"t": 12.0, "d": 1.0, "midi": [69], "vel": 1.0}])  # опора: верная — 200
+        r = self._fx(jid, source="mix", output="solo", preview=True,
+                     chain=_synth_chain([{"t": 12.0, "d": 1.0, "midi": [200], "vel": 1.0}]),
+                     **{"from": 10.0, "to": 14.0})
+        self.assertEqual(r.status_code, 422, r.text)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestSynthWindowPrep(unittest.TestCase):
+    """Кросс-ревью s4 r2: подготовка нот партии к окну превью (synth_window) — давние ноты не ломают превью."""
+
+    def test_old_notes_dropped_long_start_clamped(self):
+        import yue_worker as w
+        chain = [{"type": "synth", "notes": [{"t": 0.0, "d": 2.0, "midi": [60]},        # отзвучала давно
+                                             {"t": 100.0, "d": 700.0, "midi": [62]},    # тянется через окно
+                                             {"t": 710.0, "d": 1.0, "midi": [64]}]}]    # после окна
+        out = w.synth_window(chain, 700.0, 4.0)[0]
+        self.assertEqual([n["midi"] for n in out["notes"]], [[62]])
+        n = out["notes"][0]
+        self.assertGreaterEqual(n["t"], -w.SYNTH_LEAD_S)
+        self.assertAlmostEqual(n["t"] + n["d"], 4.0)
+        self.assertEqual(out["_until"], 4.0)
+        import fx_engine
+        fx_engine.parse_chain([out])          # лимит начала ноты не мешает

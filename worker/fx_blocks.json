@@ -569,5 +569,543 @@
     }
    }
   ]
+ },
+ "synth": {
+  "label": {
+   "ru": "Синтезатор (ноты партии)",
+   "en": "Synth (part notes)"
+  },
+  "params": [
+   {
+    "id": "osc1",
+    "default": 0,
+    "min": 0,
+    "max": 4,
+    "step": 1,
+    "label": {
+     "ru": "генератор 1: 0 пила, 1 квадрат, 2 пульс, 3 треугольник, 4 синус",
+     "en": "osc 1: 0 saw, 1 square, 2 pulse, 3 triangle, 4 sine"
+    },
+    "integer": true
+   },
+   {
+    "id": "osc2",
+    "default": 0,
+    "min": 0,
+    "max": 4,
+    "step": 1,
+    "label": {
+     "ru": "генератор 2 (та же шкала)",
+     "en": "osc 2 (same scale)"
+    },
+    "integer": true
+   },
+   {
+    "id": "osc2_semi",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 1,
+    "label": {
+     "ru": "генератор 2: сдвиг, полутона",
+     "en": "osc 2 shift, semitones"
+    },
+    "integer": true
+   },
+   {
+    "id": "osc_mix",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "доля генератора 2",
+     "en": "osc 2 share"
+    }
+   },
+   {
+    "id": "unison",
+    "default": 1,
+    "min": 1,
+    "max": 4,
+    "step": 1,
+    "label": {
+     "ru": "голосов в унисон",
+     "en": "unison voices"
+    },
+    "integer": true
+   },
+   {
+    "id": "detune_cents",
+    "default": 0,
+    "min": 0,
+    "max": 50,
+    "step": 1,
+    "label": {
+     "ru": "расстройка голосов, центы",
+     "en": "voice detune, cents"
+    }
+   },
+   {
+    "id": "sub",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "суб-октава",
+     "en": "sub octave"
+    }
+   },
+   {
+    "id": "noise",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "шум",
+     "en": "noise"
+    }
+   },
+   {
+    "id": "pwm",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "ширина пульса",
+     "en": "pulse width"
+    }
+   },
+   {
+    "id": "cutoff_hz",
+    "default": 4000,
+    "min": 80,
+    "max": 16000,
+    "step": 10,
+    "label": {
+     "ru": "фильтр: срез, Гц",
+     "en": "filter cutoff, Hz"
+    }
+   },
+   {
+    "id": "resonance",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "фильтр: резонанс",
+     "en": "filter resonance"
+    }
+   },
+   {
+    "id": "env_amount",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "фильтр: открытие огибающей",
+     "en": "filter env amount"
+    }
+   },
+   {
+    "id": "f_attack_s",
+    "default": 0.01,
+    "min": 0,
+    "max": 5,
+    "step": 0.01,
+    "label": {
+     "ru": "фильтр: атака, с",
+     "en": "filter attack, s"
+    }
+   },
+   {
+    "id": "f_decay_s",
+    "default": 0.3,
+    "min": 0.01,
+    "max": 5,
+    "step": 0.01,
+    "label": {
+     "ru": "фильтр: спад, с",
+     "en": "filter decay, s"
+    }
+   },
+   {
+    "id": "attack_s",
+    "default": 0.01,
+    "min": 0,
+    "max": 5,
+    "step": 0.01,
+    "label": {
+     "ru": "громкость: атака, с",
+     "en": "amp attack, s"
+    }
+   },
+   {
+    "id": "decay_s",
+    "default": 0.2,
+    "min": 0.01,
+    "max": 5,
+    "step": 0.01,
+    "label": {
+     "ru": "громкость: спад, с",
+     "en": "amp decay, s"
+    }
+   },
+   {
+    "id": "sustain",
+    "default": 0.8,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "громкость: удержание",
+     "en": "amp sustain"
+    }
+   },
+   {
+    "id": "release_s",
+    "default": 0.3,
+    "min": 0.01,
+    "max": 8,
+    "step": 0.01,
+    "label": {
+     "ru": "громкость: затухание, с",
+     "en": "amp release, s"
+    }
+   },
+   {
+    "id": "vib_rate",
+    "default": 5,
+    "min": 0,
+    "max": 12,
+    "step": 0.1,
+    "label": {
+     "ru": "LFO: частота, Гц",
+     "en": "LFO rate, Hz"
+    }
+   },
+   {
+    "id": "vib_cents",
+    "default": 0,
+    "min": 0,
+    "max": 50,
+    "step": 1,
+    "label": {
+     "ru": "вибрато, центы",
+     "en": "vibrato, cents"
+    }
+   },
+   {
+    "id": "lfo_cutoff",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "LFO на фильтр",
+     "en": "LFO to filter"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "output, dB"
+    }
+   }
+  ]
+ },
+ "chorus": {
+  "label": {
+   "ru": "Хорус / ансамбль",
+   "en": "Chorus / ensemble"
+  },
+  "params": [
+   {
+    "id": "voices",
+    "default": 2,
+    "min": 1,
+    "max": 4,
+    "step": 1,
+    "label": {
+     "ru": "копий",
+     "en": "voices"
+    },
+    "integer": true
+   },
+   {
+    "id": "depth_ms",
+    "default": 3,
+    "min": 0.5,
+    "max": 10,
+    "step": 0.5,
+    "label": {
+     "ru": "глубина, мс",
+     "en": "depth, ms"
+    }
+   },
+   {
+    "id": "rate_hz",
+    "default": 0.6,
+    "min": 0.05,
+    "max": 5,
+    "step": 0.05,
+    "label": {
+     "ru": "скорость, Гц",
+     "en": "rate, Hz"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "доля эффекта",
+     "en": "mix"
+    }
+   }
+  ]
+ },
+ "phaser": {
+  "label": {
+   "ru": "Фейзер",
+   "en": "Phaser"
+  },
+  "params": [
+   {
+    "id": "stages",
+    "default": 4,
+    "min": 2,
+    "max": 8,
+    "step": 1,
+    "label": {
+     "ru": "ступеней",
+     "en": "stages"
+    },
+    "integer": true
+   },
+   {
+    "id": "rate_hz",
+    "default": 0.4,
+    "min": 0.05,
+    "max": 5,
+    "step": 0.05,
+    "label": {
+     "ru": "скорость, Гц",
+     "en": "rate, Hz"
+    }
+   },
+   {
+    "id": "depth",
+    "default": 0.7,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "глубина",
+     "en": "depth"
+    }
+   },
+   {
+    "id": "feedback",
+    "default": 0.3,
+    "min": 0,
+    "max": 0.9,
+    "step": 0.05,
+    "label": {
+     "ru": "обратная связь",
+     "en": "feedback"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "доля эффекта",
+     "en": "mix"
+    }
+   }
+  ]
+ },
+ "flanger": {
+  "label": {
+   "ru": "Флэнжер",
+   "en": "Flanger"
+  },
+  "params": [
+   {
+    "id": "delay_ms",
+    "default": 2,
+    "min": 0.5,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "задержка, мс",
+     "en": "delay, ms"
+    }
+   },
+   {
+    "id": "depth_ms",
+    "default": 2,
+    "min": 0,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "глубина, мс",
+     "en": "depth, ms"
+    }
+   },
+   {
+    "id": "rate_hz",
+    "default": 0.25,
+    "min": 0.05,
+    "max": 5,
+    "step": 0.05,
+    "label": {
+     "ru": "скорость, Гц",
+     "en": "rate, Hz"
+    }
+   },
+   {
+    "id": "feedback",
+    "default": 0.4,
+    "min": 0,
+    "max": 0.9,
+    "step": 0.05,
+    "label": {
+     "ru": "обратная связь",
+     "en": "feedback"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "доля эффекта",
+     "en": "mix"
+    }
+   }
+  ]
+ },
+ "tape": {
+  "label": {
+   "ru": "Лента (плавание, насыщение)",
+   "en": "Tape (wow, saturation)"
+  },
+  "params": [
+   {
+    "id": "wow",
+    "default": 0.2,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "плавание (медленное)",
+     "en": "wow"
+    }
+   },
+   {
+    "id": "flutter",
+    "default": 0.1,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "дрожание (быстрое)",
+     "en": "flutter"
+    }
+   },
+   {
+    "id": "saturation",
+    "default": 0.2,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "насыщение",
+     "en": "saturation"
+    }
+   },
+   {
+    "id": "lowpass_hz",
+    "default": 10000,
+    "min": 2000,
+    "max": 20000,
+    "step": 100,
+    "label": {
+     "ru": "верх, Гц",
+     "en": "top, Hz"
+    }
+   },
+   {
+    "id": "hiss",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "шипение",
+     "en": "hiss"
+    }
+   }
+  ]
+ },
+ "spring": {
+  "label": {
+   "ru": "Пружинный ревербератор",
+   "en": "Spring reverb"
+  },
+  "params": [
+   {
+    "id": "decay_s",
+    "default": 1.8,
+    "min": 0.3,
+    "max": 5,
+    "step": 0.1,
+    "label": {
+     "ru": "хвост, с",
+     "en": "decay, s"
+    }
+   },
+   {
+    "id": "tone",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "тон (темнее — светлее)",
+     "en": "tone"
+    }
+   },
+   {
+    "id": "wet",
+    "default": 0.25,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "громкость хвоста",
+     "en": "wet"
+    }
+   }
+  ]
  }
 }

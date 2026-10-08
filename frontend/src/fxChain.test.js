@@ -42,8 +42,15 @@ const chain3 = () => deepFreeze([
 const types = (c) => c.map((b) => b.type)
 
 describe('описание блоков (fxBlocks.json)', () => {
-  it('одиннадцать типов в порядке показа (sampler — после gain, bass — последним)', () => {
-    expect(Object.keys(blocks)).toEqual(TYPES)
+  it('одиннадцать прежних типов в порядке показа (sampler — после gain, bass — за ним)', () => {
+    expect(Object.keys(blocks).slice(0, TYPES.length)).toEqual(TYPES)
+  })
+
+  // карточка internal-own-track, этап 4 (условия 23–24): за прежними — блоки синтов,
+  // их порядок карточка не задаёт
+  it('за прежними типами — synth и эффекты синтов', () => {
+    expect([...Object.keys(blocks).slice(TYPES.length)].sort())
+      .toEqual(['chorus', 'flanger', 'phaser', 'spring', 'synth', 'tape'])
   })
 })
 

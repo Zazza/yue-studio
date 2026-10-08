@@ -1228,6 +1228,64 @@ def job_preset_state(job_id: int, preset_id: int, req: PresetStateIn):
     return items
 
 
+# ---------- сетка аккордов (синт по аккордам) ----------
+
+CHORD_HOP = 2048   # шаг хромы, сэмплов
+
+
+@app.get("/jobs/{job_id}/chord_grid")
+def job_chord_grid(job_id: int):
+    """Аккорды и секции плана трека → такты звука: доли по барабанам (нет — по миксу), сдвиг плана — по хроме
+    гармонии (бас+прочее, нет — микс). Синт по аккордам ложится в такт звука, а не во время плана."""
+    import librosa
+    import numpy as np
+    import soundfile as sf
+    import chordgrid
+    row = _job_row(job_id)
+    if row is None or not row["audio_file"]:
+        raise HTTPException(404, "job or audio not found")
+    jdir = JOBS_DIR / str(job_id)
+    abc = jdir / (row["abc_file"] or "score.abc")
+    if not abc.is_file():
+        raise HTTPException(404, "у трека нет плана (score.abc) — сделайте транскрипцию")
+    plan = chordgrid.plan_bars(abc.read_text(encoding="utf-8"))
+    if not plan:
+        raise HTTPException(404, "в плане нет тактов")
+
+    def mono(path):
+        y, s_r = sf.read(str(path), always_2d=True, dtype="float32")
+        return y.mean(axis=1), s_r
+    mix, sr = mono(jdir / row["audio_file"])
+    n = len(mix)
+    drums = jdir / "stem-drums.flac"
+    beat_src = mono(drums)[0][:n] if drums.is_file() else mix
+    harm = mix
+    if (jdir / "stem-bass.flac").is_file() and (jdir / "stem-other.flac").is_file():
+        b, o = mono(jdir / "stem-bass.flac")[0], mono(jdir / "stem-other.flac")[0]
+        m = min(len(b), len(o), n)
+        harm = b[:m] + o[:m]
+    _, beats = librosa.beat.beat_track(y=beat_src, sr=sr, units="samples", tightness=200)
+    if len(beats) < 4:
+        raise HTTPException(422, "в звуке не найдено долей — сетку тактов не построить")
+    bl = float(np.median(np.diff(beats)))
+    grid = np.concatenate([np.arange(beats[0] - bl, -1, -bl)[::-1], beats,
+                           np.arange(beats[-1] + bl, n, bl)]).astype(int)
+    chroma = librosa.feature.chroma_cqt(y=harm, sr=sr, hop_length=CHORD_HOP)
+    ends = list(grid[1:]) + [n]
+    bc = np.array([chroma[:, a // CHORD_HOP:max(a // CHORD_HOP + 1, e // CHORD_HOP)].mean(axis=1)
+                   for a, e in zip(grid, ends, strict=True)])
+    shift, phase = chordgrid.best_shift([b["chord"] for b in plan], bc)
+    starts = list(grid[phase::4])
+    bars = []
+    for j, a in enumerate(starts):
+        e = starts[j + 1] if j + 1 < len(starts) else a + 4 * bl   # последний — полный такт (за концом не звучит)
+        k = j - shift
+        src = plan[k] if 0 <= k < len(plan) else {"chord": None, "section": ""}
+        bars.append({"start": round(a / sr, 4), "end": round(e / sr, 4), "chord": src["chord"],
+                     "section": src["section"]})
+    return {"bpm": round(60.0 * sr / bl, 2), "bars": bars}
+
+
 JOB_TITLE_MAX = 200
 JOB_FOLDER_MAX = 60
 
@@ -2826,6 +2884,8 @@ class FxIn(BaseModel):
     # превью: файл от начала трека (до from — тишина) — пересборка студии кладёт его без
     # задержки (adelay ffmpeg ошибается на сэмпл), «на место» тем же отсчётом, что дорожку
     pad: bool = False
+    # добавление (синт-партия): в превью «в миксе» — трек + обработанное, а не замена дорожки
+    add: bool = False
 
 
 def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
@@ -2881,6 +2941,9 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
 
     if req.preview and (frm is None or to is None):
         raise HTTPException(422, "preview needs from and to")
+    if req.add and not req.preview:
+        # вариант на весь трек «добавлением» не делается: без превью трек в окне заменился бы обработанным
+        raise HTTPException(422, "add — только у превью (preview: true)")
     if not 0 <= req.fade <= FX_FADE_MAX_S:
         raise HTTPException(422, f"fade must be within 0…{FX_FADE_MAX_S} s")
 
@@ -2903,6 +2966,8 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
 
     if req.preview:
         used = [src] if req.source == "mix" else [src, jdir / f"stem-{req.source}.flac"]
+        # ноты синта в запросе — от начала трека, превью считает кусок с from: сдвинуть на окно
+        chain = synth_window(chain, frm, to - frm + req.fade)
         return _fx_preview(job_id, jdir, req, chain, track, part, sr, used)
 
     wet = _fx_process(job_id, part.astype(np.float32), sr, chain).astype(np.float64)
@@ -2934,6 +2999,30 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     log.info("job %s: fx %s (%s) → %s, пик %.2f", job_id, req.source, label, fname, peak)
     return {"file": fname, "label": label, "created_at": created, "metrics": metrics,
             "clipped": peak > 1.0}
+
+
+SYNTH_LEAD_S = 1.0   # нота, начатая задолго до окна, считается с этой секунды до окна (атака успевает пройти)
+
+
+def synth_window(chain: list, frm: float, win: float) -> list:
+    """Ноты synth (секунды трека) → для куска окна [frm, frm + win): сдвиг на frm; отзвучавшие до окна и
+    начатые после — отброшены; начатые до окна — не раньше SYNTH_LEAD_S до окна (иначе синт считал бы минуты
+    сэмплов, а давняя нота упиралась бы в лимит начала); длинные — до края окна; _until — глушить синт на краю
+    окна (затухание и сам синт не заходят в хвост реверба/дилея)."""
+    out = []
+    for b in chain:
+        if b["type"] != "synth":
+            out.append(b)
+            continue
+        notes = []
+        for nt in b["notes"]:
+            t, end = nt["t"] - frm, nt["t"] - frm + nt["d"]
+            if end <= 0 or t >= win:
+                continue
+            t = max(t, -SYNTH_LEAD_S)
+            notes.append(dict(nt, t=t, d=min(end, win) - t))
+        out.append(dict(b, notes=notes, _until=win))
+    return out
 
 
 def _fx_process(job_id: int, part, sr: int, chain: list):
@@ -3032,6 +3121,8 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         key["fade"] = req.fade           # без края — ключ как у превью этапа 3 (кэш не сбрасывается)
     if req.pad:
         key["pad"] = True
+    if req.add:
+        key["add"] = True
     key = json.dumps(key, sort_keys=True)
     fname = f"preview-fx-{hashlib.sha1(key.encode()).hexdigest()[:8]}.flac"
     target = jdir / fname
@@ -3052,7 +3143,10 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         w = np.minimum(1.0, k / fade) * np.clip((b + fade - (a + k)) / fade, 0.0, 1.0)
         seg[:stop - a] *= w[:, None]
     wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
-    out = wet if (req.output == "solo" and req.source != "mix") else track[a:end] + (wet - seg)
+    if req.add:
+        out = wet if req.output == "solo" else track[a:end] + wet     # поверх трека, ничего не вычитая
+    else:
+        out = wet if (req.output == "solo" and req.source != "mix") else track[a:end] + (wet - seg)
     lead = a if req.pad and a > 0 else 0
     # своё временное имя на запрос (одинаковые превью параллельно не делят файл) и не *.flac —
     # вытеснение ниже его не видит. Тишина до окна (pad) пишется блоками по секунде: массив длиной

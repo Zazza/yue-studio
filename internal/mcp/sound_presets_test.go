@@ -483,3 +483,27 @@ func TestSoundPresetTargetLUFSSchemaNullable(t *testing.T) {
 		})
 	}
 }
+
+// Этап 4 (синты), паритет: chord_grid отдаёт сетку аккордов воркера как есть.
+type chordFake struct{ *presetFake }
+
+func (f *chordFake) ChordGrid(_ context.Context, id int64) (*yue.ChordGrid, error) {
+	if id != 488 {
+		return nil, fmt.Errorf("нет трека %d", id)
+	}
+	return &yue.ChordGrid{BPM: 130.8, Bars: []yue.ChordBar{{Start: 0, End: 1.83, Chord: "Dm", Section: "intro"}}}, nil
+}
+
+func TestChordGridTool(t *testing.T) {
+	s, fake := newPresetServer(t)
+	s.client = &chordFake{fake}
+	out, ok := call(t, s, "chord_grid", map[string]any{"job_id": 488})
+	if !ok {
+		t.Fatalf("chord_grid: %s", out)
+	}
+	for _, want := range []string{"130.8", "Dm", "intro"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("в ответе нет %q: %s", want, out)
+		}
+	}
+}

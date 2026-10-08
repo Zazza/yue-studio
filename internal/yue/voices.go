@@ -164,3 +164,13 @@ func (c *Client) VoiceConvert(ctx context.Context, jobID int64, p VoiceParams) (
 	}
 	return out.ID, nil
 }
+
+// ChordGrid — аккорды и секции плана по тактам звука (GET /jobs/{id}/chord_grid): такты — по долям звука,
+// сдвиг плана — по хроме. 404 — у трека нет плана, 422 — в звуке нет долей.
+func (c *Client) ChordGrid(ctx context.Context, id int64) (*ChordGrid, error) {
+	var out ChordGrid
+	if err := c.call(ctx, http.MethodGet, fmt.Sprintf("/jobs/%d/chord_grid", id), planTimeout, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

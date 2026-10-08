@@ -70,7 +70,8 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        → {file, duration_sec, clipped}; fade (0…0,5 с, только превью) — вход окна с
                        линейными краями: рост с from, спад после to (пересборка студии вклеивает кусок
                        вместо исходной дорожки с теми же фейдами); pad: true — файл от начала трека (до from —
-                       тишина), чтобы вставить его без задержки (adelay ffmpeg ошибается на сэмпл)
+                       тишина), чтобы вставить его без задержки (adelay ffmpeg ошибается на сэмпл); add: true — добавление
+                       (синт): output mix = трек + обработанное; ноты synth — от начала трека, воркер сдвигает их на from
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}], kits: [{name: «osdk/kick», samples}]} —
                        захваты NAM, IR и наборы сэмплов барабанов
 POST /fx/kits/install?name=osdk|growlybass  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
@@ -98,6 +99,9 @@ GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по такт
                        {bars:[{index,start,end,notes[4]}], median_hz, low_hz, high_hz}; ноты по
                        четвертям такта («D4», «·» — нет голоса); to=0 — до конца. 409 — нет стема
                        vocals (сначала stems). Сверка «спето ли по плану» и потолка голоса
+GET  /jobs/{id}/chord_grid  аккорды и секции плана по тактам звука: {bpm, bars [{start, end, chord, section}]}
+                       (доли — по барабанам, нет — по миксу; сдвиг плана — по хроме гармонии); нет плана → 404,
+                       нет долей → 422. Для синт-партии (блок synth, ноты — секунды трека)
 GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, builtin}]:
                        встроенные (slug transmission, sex-on-fire; при старте обновляются по slug из кода, id прежний) первыми
 POST /sound-presets    {name, note?, specs?, final?, reference_job_id?, target_lufs?} → пресет с id. target_lufs

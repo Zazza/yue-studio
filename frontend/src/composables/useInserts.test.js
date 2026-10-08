@@ -1362,3 +1362,45 @@ describe('carryTo: правки без рендера — сразу в реес
     expect(childIds(saved.Q || [])).toEqual([-31, -32].sort())
   })
 })
+
+// Карточка internal-own-track, этап 4 «Синты», условие 25 (тест-кейс ТК51): addStemEngine
+// с add — синт поверх трека: в rebuildSections уходит add: true и stems ['mix'];
+// без add поле не уходит (или false). Написаны по карточке, без чтения реализации.
+describe('addStemEngine с add — синт поверх трека (ТК51)', () => {
+  const synth = [{ type: 'synth', notes: [{ t: 12, d: 2, midi: [62, 65, 69], vel: 0.8 }], osc1: 0 },
+    { type: 'chorus', mix: 0.5 }]
+  const syn = (over = {}) => ({ stem: 'mix', chain: synth, from: 10, to: 30, label: 'Синт: пэд', add: true, ...over })
+  const lastCall = () => apiMock.rebuildSections.mock.calls.at(-1)[1]
+
+  it('в api — add: true, stems [mix], engine как есть, окно', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', syn())
+    await flush()
+    expect(apiMock.rebuildSections).toHaveBeenCalledTimes(1)
+    const s = lastCall()[0]
+    expect(s).toMatchObject({ child_id: 0, stems: ['mix'], from: 10, to: 30, add: true })
+    expect(s.engine).toEqual(synth)
+  })
+
+  it('без add — поле add не уходит (обычная запись движка)', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', { stem: 'other', chain: [{ type: 'reverb', wet: 0.2 }], from: 0, to: 0 })
+    await flush()
+    expect(lastCall()[0].add ?? false).toBe(false)
+  })
+
+  it('add сохраняется в реестре и уходит снова при следующей пересборке', async () => {
+    const ins = await load({})
+    await ins.addStemEngine('P', syn())
+    await flush()
+    const rec = ins.appliedFor('P').find(x => x.childId < 0)
+    expect(rec.add).toBe(true)
+    const saved = JSON.parse(localStorage.getItem('yue_insert_applied'))
+    expect(saved.P.find(x => x.childId < 0).add).toBe(true)
+    await ins.addMutes('P', [{ instId: 'm', from: 0, to: 5, stems: ['drums'], db: -100 }])
+    await flush()
+    const again = lastCall().find(s => Array.isArray(s.engine) && s.engine.length)
+    expect(again).toMatchObject({ stems: ['mix'], add: true })
+    expect(lastCall().find(s => !s.engine).add ?? false).toBe(false)
+  })
+})

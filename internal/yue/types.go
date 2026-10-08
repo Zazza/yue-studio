@@ -62,6 +62,8 @@ type Service interface {
 	JobTones(ctx context.Context, id int64, from, to float64, stem string) ([]Tone, error)
 	// JobGrid — сетка долей (темп и сильная доля) в окне [from, to) (to 0 — до конца).
 	JobGrid(ctx context.Context, id int64, from, to float64) (*BeatGrid, error)
+	// ChordGrid — аккорды и секции плана по тактам звука (синт по аккордам)
+	ChordGrid(ctx context.Context, id int64) (*ChordGrid, error)
 	PlanCheck(ctx context.Context, id int64, abc string, fromSec float64) (*PlanCheck, error)
 	// ContinueJob — «продолжение с места»: новый трек-вложение = джоба до
 	// fromSec + продолжение моделью (seed 0 — случайный, abc — изменённый план,
@@ -169,6 +171,20 @@ type StatsInfo struct {
 	Queue       map[string]int `json:"queue"`
 	Running     *StatsRunning  `json:"running"`
 	GpuWaiting  int            `json:"gpu_waiting"`
+}
+
+// ChordBar — такт звука с аккордом и секцией плана (секунды трека).
+type ChordBar struct {
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+	Chord   string  `json:"chord"`
+	Section string  `json:"section"`
+}
+
+// ChordGrid — сетка аккордов трека: темп звука и такты (GET /jobs/{id}/chord_grid).
+type ChordGrid struct {
+	BPM  float64    `json:"bpm"`
+	Bars []ChordBar `json:"bars"`
 }
 
 // PresetStep — шаг ffmpeg-цепочки пресета (как dsp.Step: цепочка, крутилки, выключен).

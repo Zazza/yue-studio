@@ -218,7 +218,8 @@ func TestFxAssetUploadMissingFile(t *testing.T) {
 // preview; fx_blocks — описание блоков из встроенной копии worker/fx_blocks.json;
 // fx_presets — готовые цепочки (встроенный fx_presets.json из frontend/src/fxPresets.js).
 
-var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass"}
+var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass",
+	"synth", "chorus", "phaser", "flanger", "tape", "spring"} // этап 4 (синты): синтезатор и эффекты к нему
 
 func TestFxApplyPassesPreview(t *testing.T) {
 	s, fake := newFxServer(t)

@@ -174,7 +174,8 @@ describe('fxPresets: гитары (условие 13) и наборы бараб
 // Карточка internal-own-track, этап 0, условие 3 (тест-кейс ТК12): готовые цепочки знают
 // дорожки — у каждого пресета поле stems (список дорожек), кроме мастер-склейки.
 describe('fxPresets: дорожки пресетов (stems)', () => {
-  const KNOWN = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other']
+  // 'synth' — готовые синты поверх трека (internal-own-track, этап 4, условие 26)
+  const KNOWN = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other', 'synth']
   const MASTER = 'master-glue'
   const byId = (id) => fxPresets.find((p) => p.id === id)
 
@@ -215,5 +216,42 @@ describe('fxPresets: дорожки пресетов (stems)', () => {
     const p = byId(id)
     expect(p, `нет пресета ${id}`).toBeTruthy()
     expect([...(p.stems || [])].sort()).toEqual([...want].sort())
+  })
+})
+
+// Карточка internal-own-track, этап 4 «Синты», условие 26 (тест-кейс ТК52): восемь готовых
+// синтов со stems ['synth'], у каждого стиль по умолчанию (pad/pulse/arp/drone) и октава
+// (−2…+2), цепочка начинается с блока synth. Написаны по карточке, без чтения реализации.
+describe('fxPresets: готовые синты (ТК52)', () => {
+  const NAMES = [
+    'Струнный ансамбль (Solina)', 'Пэд с хорусом (Juno)', 'Синт-бас (Moog)', 'Лид (Moog)',
+    'Медь (CS-80)', 'Орган (Farfisa)', 'Орган (Vox Continental)', 'Игрушка (VL-Tone)',
+  ]
+  const synths = fxPresets.filter((p) => (p.stems || []).includes('synth'))
+
+  it('восемь синтов со stems [synth]', () => {
+    expect(synths.length).toBe(8)
+    for (const p of synths) expect(p.stems, p.id).toEqual(['synth'])
+  })
+
+  it('названия — из карточки', () => {
+    expect(synths.map((p) => p.name.ru).sort()).toEqual([...NAMES].sort())
+  })
+
+  it.each(synths.map((p) => [p.id, p]))('%s: style и octave', (_, p) => {
+    expect(['pad', 'pulse', 'arp', 'drone']).toContain(p.style)
+    expect(Number.isInteger(p.octave), `${p.id}: octave ${p.octave}`).toBe(true)
+    expect(p.octave).toBeGreaterThanOrEqual(-2)
+    expect(p.octave).toBeLessThanOrEqual(2)
+  })
+
+  it.each(synths.map((p) => [p.id, p]))('%s: цепочка начинается с synth', (_, p) => {
+    expect(p.chain[0].type).toBe('synth')
+  })
+
+  it('синты не подсовываются обычным дорожкам: у прочих пресетов нет synth в цепочке', () => {
+    for (const p of fxPresets.filter((x) => !(x.stems || []).includes('synth'))) {
+      expect(p.chain.some((b) => b.type === 'synth'), p.id).toBe(false)
+    }
   })
 })
