@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -18,6 +19,13 @@ import (
 // Пресеты звука: рецепт обработки готового трека (правки дорожек на весь трек + финальная
 // цепочка ffmpeg на весь микс) → новая версия-трек «<трек> · <пресет>». Применяет приложение
 // (и MCP вручную): пересборка дорожек и ffmpeg живут на ПК, воркер хранит рецепты и статусы.
+
+const (
+	// maxTargetGain — сколько дБ финал по целевой громкости может добавить или снять (граница цепочки level)
+	maxTargetGain = 12.0
+	// targetCeiling — потолок пиков после целевой громкости, дБ
+	targetCeiling = -1.0
+)
 
 // PresetResult — версия, которую сделал пресет: ChildID — трек-версия, File — вариант-источник.
 type PresetResult struct {
@@ -46,6 +54,7 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 		return nil, err
 	}
 	file := job.AudioFile
+	var mixMetrics map[string]any // замер громкости того, на что ляжет финал
 	if len(p.Specs) > 0 {
 		specs := make([]SectionSpec, 0, len(p.Specs))
 		for _, s := range p.Specs {
@@ -55,9 +64,23 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 		if err != nil {
 			return nil, fmt.Errorf("пересборка дорожек: %w", err)
 		}
-		file = res.Variant.File
+		file, mixMetrics = res.Variant.File, res.Variant.Metrics
 	}
-	if steps := activeSteps(p.Final); len(steps) > 0 {
+	steps := activeSteps(p.Final)
+	if p.TargetLUFS != nil {
+		if len(p.Specs) == 0 {
+			if mixMetrics, err = svc.AnalyzeJob(ctx, jobID); err != nil {
+				return nil, fmt.Errorf("громкость трека: %w", err)
+			}
+		}
+		lufs, ok := mixMetrics["lufs"].(float64)
+		if !ok {
+			return nil, errors.New("нет замера громкости микса — целевую громкость не выставить")
+		}
+		gain := math.Max(-maxTargetGain, math.Min(maxTargetGain, *p.TargetLUFS-lufs))
+		steps = append(steps, dsp.Step{Chain: "level", Params: map[string]float64{"gain": math.Round(gain*10) / 10, "ceiling": targetCeiling}})
+	}
+	if len(steps) > 0 {
 		graph, _, err := dsp.StepsGraph(steps)
 		if err != nil {
 			return nil, fmt.Errorf("финал: %w", err)

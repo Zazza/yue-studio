@@ -64,7 +64,7 @@ func presetBody(p SoundPreset) map[string]any {
 	if final == nil {
 		final = []PresetStep{}
 	}
-	body := map[string]any{"name": p.Name, "note": p.Note, "specs": specs, "final": final}
+	body := map[string]any{"name": p.Name, "note": p.Note, "specs": specs, "final": final, "target_lufs": p.TargetLUFS}
 	if p.ReferenceJobID > 0 {
 		body["reference_job_id"] = p.ReferenceJobID
 	}

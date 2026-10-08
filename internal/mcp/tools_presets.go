@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"yue-studio/internal/studio"
 	"yue-studio/internal/yue"
@@ -31,6 +32,9 @@ func argPreset(args map[string]any) (yue.SoundPreset, error) {
 	p := yue.SoundPreset{Name: argString(args, "name"), Note: argString(args, "note"),
 		ReferenceJobID: argInt(args, "reference_job_id")}
 	if err := argJSON(args, "specs", &p.Specs); err != nil {
+		return p, err
+	}
+	if err := argJSON(args, "target_lufs", &p.TargetLUFS); err != nil {
 		return p, err
 	}
 	err := argJSON(args, "final", &p.Final)
@@ -64,6 +68,7 @@ func registerPresetTools(s *Server) {
 			"note":             prop("описание: какой звук получается", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
+			"target_lufs":      prop("громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; null — без цели", "number"),
 			"reference_job_id": prop("трек-эталон, по которому настраивался (необязательно)", "integer"),
 		}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -87,12 +92,25 @@ func registerPresetTools(s *Server) {
 			"note":             prop("описание", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
+			"target_lufs":      prop("громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; не передан — прежняя, null — снять", "number"),
 			"reference_job_id": prop("трек-эталон (необязательно)", "integer"),
 		}, "preset_id", "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			p, err := argPreset(args)
 			if err != nil {
 				return "", err
+			}
+			// цель не передана — прежняя: правка описания не должна стирать громкость пресета
+			if _, given := args["target_lufs"]; !given {
+				list, err := s.client.SoundPresets(context.Background())
+				if err != nil {
+					return "", err
+				}
+				for _, old := range list {
+					if old.ID == argInt(args, "preset_id") {
+						p.TargetLUFS = old.TargetLUFS
+					}
+				}
 			}
 			out, err := s.client.SoundPresetUpdate(context.Background(), argInt(args, "preset_id"), p)
 			if err != nil {
@@ -126,6 +144,8 @@ func registerPresetTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id":    prop("ID трека", "integer"),
 			"preset_id": prop("id пресета (sound_presets)", "integer"),
+			"db": prop("громкость записей пресета поверх рецепта: {\"индекс записи specs\": дБ −24…24}, напр. "+
+				"{\"2\": 3} — бас громче на этот раз (пресет не меняется)", "object"),
 		}, "job_id", "preset_id"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			ctx := context.Background()
@@ -136,6 +156,9 @@ func registerPresetTools(s *Server) {
 			pid := argInt(args, "preset_id")
 			for _, p := range list {
 				if p.ID == pid {
+					if err := applyDbOverrides(&p, args["db"]); err != nil {
+						return "", err
+					}
 					res, err := studio.ApplySoundPreset(ctx, s.client, argInt(args, "job_id"), p)
 					if err != nil {
 						return "", err
@@ -146,4 +169,30 @@ func registerPresetTools(s *Server) {
 			return "", fmt.Errorf("нет пресета %d (см. sound_presets)", pid)
 		},
 	})
+}
+
+// applyDbOverrides — громкость записей пресета на это применение: {"индекс": дБ} заменяет Db записи
+// (копия пресета из списка; сам пресет на воркере не меняется). Ошибка — до любой работы.
+func applyDbOverrides(p *yue.SoundPreset, raw any) error {
+	if raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("db — объект {\"индекс записи\": дБ}")
+	}
+	specs := append([]yue.PresetSpec(nil), p.Specs...)
+	for k, v := range m {
+		i, err := strconv.Atoi(k)
+		if err != nil || i < 0 || i >= len(specs) {
+			return fmt.Errorf("db: нет записи %q (у пресета %d записей, индексы с 0)", k, len(specs))
+		}
+		db, ok := v.(float64)
+		if !ok || db < -24 || db > 24 {
+			return fmt.Errorf("db[%s]: число −24…24", k)
+		}
+		specs[i].Db = db
+	}
+	p.Specs = specs
+	return nil
 }

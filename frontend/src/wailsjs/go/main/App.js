@@ -26,6 +26,10 @@ export function YueApplySoundPreset(arg1, arg2) {
   return window['go']['main']['App']['YueApplySoundPreset'](arg1, arg2);
 }
 
+export function YueApplySoundPresetWith(arg1, arg2) {
+  return window['go']['main']['App']['YueApplySoundPresetWith'](arg1, arg2);
+}
+
 export function YueApplySteps(arg1, arg2, arg3) {
   return window['go']['main']['App']['YueApplySteps'](arg1, arg2, arg3);
 }

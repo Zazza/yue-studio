@@ -68,6 +68,7 @@ function remove(p) {
     <div v-if="open === p.id" class="preset-body muted">
       <div v-for="(s, i) in p.specs" :key="i">{{ specLine(s) }}</div>
       <div v-if="finalLine(p)">{{ t('preset.lib.final') }} {{ finalLine(p) }}</div>
+      <div v-if="p.target_lufs != null">{{ t('preset.lib.target', { lufs: p.target_lufs }) }}</div>
       <div v-if="p.reference_job_id">{{ t('preset.lib.ref', { id: p.reference_job_id }) }}</div>
     </div>
   </div>

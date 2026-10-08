@@ -48,3 +48,19 @@ export function togglePreset(ids, id, max = 3) {
   if (cur.includes(id)) return cur.filter((x) => x !== id)
   return cur.length >= max ? [...cur] : [...cur, id]
 }
+
+const LEVEL_MIN = -24
+const LEVEL_MAX = 24
+
+/** Копия пресета с громкостью записей на это применение: levels {индекс записи: дБ} заменяет db
+ *  записи (зажим −24…24); индекс вне записей — мимо; исходный пресет не меняется. */
+export function withLevels(preset, levels) {
+  const out = JSON.parse(JSON.stringify(preset || {}))
+  const specs = out.specs || []
+  for (const [k, v] of Object.entries(levels || {})) {
+    const i = Number(k)
+    if (!Number.isInteger(i) || i < 0 || i >= specs.length) continue
+    specs[i].db = Math.min(LEVEL_MAX, Math.max(LEVEL_MIN, Number(v) || 0))
+  }
+  return out
+}

@@ -199,7 +199,10 @@ type SoundPreset struct {
 	Specs          []PresetSpec `json:"specs"`
 	Final          []PresetStep `json:"final"`
 	ReferenceJobID int64        `json:"reference_job_id,omitempty"`
-	Builtin        bool         `json:"builtin,omitempty"`
+	// TargetLUFS — громкость результата: после финала приложение добавляет level с усилением
+	// «цель − громкость микса» (nil — финал как есть)
+	TargetLUFS *float64 `json:"target_lufs"`
+	Builtin    bool     `json:"builtin,omitempty"`
 }
 
 // JobPreset — пресет у трека: pending (ждёт) → running (применяется) → done (ChildID — версия) | error.

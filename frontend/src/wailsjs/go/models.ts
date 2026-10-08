@@ -802,6 +802,7 @@ export namespace yue {
 	    specs: PresetSpec[];
 	    final: PresetStep[];
 	    reference_job_id?: number;
+	    target_lufs?: number;
 	    builtin?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -817,6 +818,7 @@ export namespace yue {
 	        this.specs = this.convertValues(source["specs"], PresetSpec);
 	        this.final = this.convertValues(source["final"], PresetStep);
 	        this.reference_job_id = source["reference_job_id"];
+	        this.target_lufs = source["target_lufs"];
 	        this.builtin = source["builtin"];
 	    }
 	

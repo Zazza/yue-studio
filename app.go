@@ -108,6 +108,16 @@ func (a *App) YueApplySoundPreset(jobID, presetID int64) (int64, error) {
 	return 0, fmt.Errorf("нет пресета %d", presetID)
 }
 
+// YueApplySoundPresetWith — применить копию пресета (громкость записей поправлена в студии) → id версии;
+// пресет на воркере не меняется.
+func (a *App) YueApplySoundPresetWith(jobID int64, p yue.SoundPreset) (int64, error) {
+	res, err := studio.ApplySoundPreset(a.ctx, a.yue, jobID, p)
+	if err != nil {
+		return 0, err
+	}
+	return res.ChildID, nil
+}
+
 // YueSoundPresetRetry — повторить пресет у трека (ошибка или застрял «применяется»): снова в ожидание.
 func (a *App) YueSoundPresetRetry(jobID, presetID int64) error {
 	_, err := a.yue.SoundPresetState(a.ctx, jobID, presetID, yue.JobPreset{Status: "pending"})

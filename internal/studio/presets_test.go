@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +64,11 @@ type psFake struct {
 	promoted   []psPromote
 	promoteErr error
 	deleted    []string // любые удаления (их быть не должно)
+
+	// этап 1б (условие 11): замеры громкости, которые отдаёт воркер
+	uploadMetrics map[string]any // Metrics варианта из UploadDsp (nil — замера нет)
+	analyze       map[string]any // ответ AnalyzeJob (nil — замера нет)
+	analyzed      []int64        // у каких джоб звали AnalyzeJob
 }
 
 func (f *psFake) Jobs(context.Context) ([]yue.Job, error) { return f.jobs, nil }
@@ -125,7 +131,18 @@ func (f *psFake) UploadDsp(ctx context.Context, id int64, fname, label string, d
 		return nil, err
 	}
 	f.files[key(id, fname)] = p
-	return f.secFake.UploadDsp(ctx, id, fname, label, data)
+	v, err := f.secFake.UploadDsp(ctx, id, fname, label, data)
+	if v != nil && f.uploadMetrics != nil {
+		v.Metrics = f.uploadMetrics
+	}
+	return v, err
+}
+
+// AnalyzeJob — метрики трека (этап 1б: LUFS трека, когда правок дорожек нет).
+func (f *psFake) AnalyzeJob(_ context.Context, id int64) (map[string]any, error) {
+	f.analyzed = append(f.analyzed, id)
+	f.log = append(f.log, fmt.Sprintf("analyze:%d", id))
+	return f.analyze, nil
 }
 
 func (f *psFake) VariantToTrack(_ context.Context, jobID int64, file, title string, _ int64) (int64, error) {
@@ -828,4 +845,262 @@ func TestApplySoundPresetFfmpegOnDrumPartIsError(t *testing.T) {
 	if len(f.promoted) != 0 || len(f.splits) != 0 {
 		t.Fatalf("работа началась: promoted %v splits %v", f.promoted, f.splits)
 	}
+}
+
+// ---------- Этап 1б. ТК29: финал по целевой громкости (условие 11) ----------
+//
+// target_lufs задан → после шагов финала пресета добавляется level с усилением
+// target − LUFS микса (зажим −12…+12) и потолком −1 дБ. LUFS микса — Metrics["lufs"]
+// варианта пересборки (UploadDsp); без правок дорожек — AnalyzeJob(трек). Замера нет —
+// ошибка «нет замера громкости», версия не создаётся. target nil — как раньше.
+//
+// Усиление проверяется по звуку: тот же пресет без цели (nil) — опора; с целью —
+// амплитуда тона 500 Гц варианта финала отличается на ожидаемые дБ.
+
+func psTarget(v float64) *float64 { return &v }
+
+func psWidth() []yue.PresetStep {
+	return []yue.PresetStep{{Chain: "width", Params: map[string]float64{"width": 1.1, "bass": 120}}}
+}
+
+// psFinalAmp — амплитуда 500 Гц в загруженном варианте финала dsp-preset-<id>.flac.
+func psFinalAmp(t *testing.T, f *psFake, id int64) float64 {
+	t.Helper()
+	name := fmt.Sprintf("dsp-preset-%d.flac", id)
+	data := f.uploads[name]
+	if len(data) == 0 {
+		t.Fatalf("вариант финала %s не загружен: %v", name, keys(f.uploads))
+	}
+	return toneAmp(decodeBytes(t, data), 500, 2, 8)
+}
+
+func psDb(a, ref float64) float64 { return 20 * math.Log10(a/ref) }
+
+// psQuietAudio — заменить звук трека тихим 500 Гц (амплитуда 0.01), чтобы +12 дБ не упирались в потолок.
+func psQuietAudio(t *testing.T, f *psFake) {
+	t.Helper()
+	f.files[key(psJobID, "audio.flac")] = lavfi(t, aeval("0.01*sin(2*PI*500*t)", psDur),
+		filepath.Join(t.TempDir(), "ps-quiet.flac"))
+}
+
+// ТК29: правка на голос + финал [width], цель −13, LUFS пересборки −15 → level +2 дБ
+// поверх финала; вариант dsp-preset-<id>.flac, версия из него. AnalyzeJob отвечает
+// другим числом (−30): LUFS берётся у микса пересборки, а не у исходного трека.
+func TestApplySoundPresetTargetLUFSFromRebuildMetrics(t *testing.T) {
+	specs := []yue.PresetSpec{psVocalCut()}
+
+	base := psSetup(t, nil)
+	base.uploadMetrics = map[string]any{"lufs": -15.0}
+	base.analyze = map[string]any{"lufs": -30.0}
+	pb := psPreset(31, specs, psWidth())
+	psApply(t, base, pb)
+	ref := psFinalAmp(t, base, pb.ID)
+
+	f := psSetup(t, nil)
+	f.uploadMetrics = map[string]any{"lufs": -15.0}
+	f.analyze = map[string]any{"lufs": -30.0}
+	p := psPreset(31, specs, psWidth())
+	p.TargetLUFS = psTarget(-13)
+	res := psApply(t, f, p)
+
+	final := fmt.Sprintf("dsp-preset-%d.flac", p.ID)
+	if got := psDb(psFinalAmp(t, f, p.ID), ref); !near(got, 2, 0.5) {
+		t.Errorf("усиление финала %.2f дБ относительно пресета без цели, want +2 (−13 − (−15))", got)
+	}
+	if len(f.promoted) != 1 || f.promoted[0].file != final || f.promoted[0].title != psTrackTitle(p) {
+		t.Errorf("VariantToTrack %+v, want один вызов (%s, %q)", f.promoted, final, psTrackTitle(p))
+	}
+	if res.ChildID != psChild || res.File != final {
+		t.Errorf("результат %+v, want ChildID %d File %s", *res, psChild, final)
+	}
+}
+
+// ТК29: только цель (финал пуст) → вариант финала всё равно есть: один level поверх
+// результата пересборки (+2 дБ к файлу пересборки).
+func TestApplySoundPresetTargetLUFSWithEmptyFinal(t *testing.T) {
+	f := psSetup(t, nil)
+	f.uploadMetrics = map[string]any{"lufs": -15.0}
+	p := psPreset(32, []yue.PresetSpec{psVocalCut()}, nil)
+	p.TargetLUFS = psTarget(-13)
+	res := psApply(t, f, p)
+
+	rebuilt := fmt.Sprintf("dsp-preset-%d-mix.flac", p.ID)
+	final := fmt.Sprintf("dsp-preset-%d.flac", p.ID)
+	mix := f.uploads[rebuilt]
+	if len(mix) == 0 {
+		t.Fatalf("пересборка не загружена: %v", keys(f.uploads))
+	}
+	ref := toneAmp(decodeBytes(t, mix), 500, 2, 8)
+	if got := psDb(psFinalAmp(t, f, p.ID), ref); !near(got, 2, 0.5) {
+		t.Errorf("вариант финала %.2f дБ к пересборке, want +2", got)
+	}
+	if res.File != final || len(f.promoted) != 1 || f.promoted[0].file != final {
+		t.Errorf("версия из %q (promoted %+v), want из %s", res.File, f.promoted, final)
+	}
+}
+
+// ТК29: без правок дорожек — LUFS трека через AnalyzeJob(трек): −10 при цели −13 → −3 дБ.
+func TestApplySoundPresetTargetLUFSFinalOnlyUsesAnalyze(t *testing.T) {
+	base := psSetup(t, nil)
+	pb := psPreset(33, nil, psWidth())
+	psApply(t, base, pb)
+	ref := psFinalAmp(t, base, pb.ID)
+
+	f := psSetup(t, nil)
+	f.analyze = map[string]any{"lufs": -10.0}
+	p := psPreset(33, nil, psWidth())
+	p.TargetLUFS = psTarget(-13)
+	psApply(t, f, p)
+
+	if !reflect.DeepEqual(f.analyzed, []int64{psJobID}) {
+		t.Errorf("AnalyzeJob вызван для %v, want [%d] (трек без правок дорожек)", f.analyzed, psJobID)
+	}
+	if got := psDb(psFinalAmp(t, f, p.ID), ref); !near(got, -3, 0.5) {
+		t.Errorf("усиление финала %.2f дБ, want −3 (−13 − (−10))", got)
+	}
+	if len(f.calls) != 0 || psCount(f.log, "upload:dsp-preset-33-mix") != 0 {
+		t.Errorf("пересборка шла без specs: ApplyFx %d, лог %v", len(f.calls), f.log)
+	}
+}
+
+// ТК29: нужно +20 → зажим +12; нужно −22 → зажим −12.
+func TestApplySoundPresetTargetLUFSClamp(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		quiet        bool
+		target, lufs float64
+		wantDb       float64
+	}{
+		{"+20 → +12", true, -13, -33, 12},
+		{"−22 → −12", false, -24, -2, -12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := psSetup(t, nil)
+			if tc.quiet {
+				psQuietAudio(t, base)
+			}
+			pb := psPreset(34, nil, psWidth())
+			psApply(t, base, pb)
+			ref := psFinalAmp(t, base, pb.ID)
+
+			f := psSetup(t, nil)
+			if tc.quiet {
+				psQuietAudio(t, f)
+			}
+			f.analyze = map[string]any{"lufs": tc.lufs}
+			p := psPreset(34, nil, psWidth())
+			p.TargetLUFS = psTarget(tc.target)
+			psApply(t, f, p)
+
+			if got := psDb(psFinalAmp(t, f, p.ID), ref); !near(got, tc.wantDb, 0.6) {
+				t.Errorf("усиление %.2f дБ, want %+.0f (зажим −12…+12)", got, tc.wantDb)
+			}
+		})
+	}
+}
+
+// ТК29: граф финала с целью = шаги пресета → level(gain, ceiling −1). Проверка по звуку:
+// пресет [width] с целью −13 при LUFS −25 (усиление +12 упирается в потолок) звучит так же,
+// как пресет без цели с финалом [width, level{gain 12, ceiling −1}]. Потолок −0.5 или 0
+// дал бы громче на 0.5–1 дБ (опорный замер на этом звуке).
+func TestApplySoundPresetTargetLUFSGraphIsFinalThenLevel(t *testing.T) {
+	ref := psSetup(t, nil)
+	explicit := append(psWidth(), yue.PresetStep{Chain: "level", Params: map[string]float64{"gain": 12, "ceiling": -1}})
+	pr := psPreset(35, nil, explicit)
+	psApply(t, ref, pr)
+	want := decodeBytes(t, ref.uploads[fmt.Sprintf("dsp-preset-%d.flac", pr.ID)])
+
+	f := psSetup(t, nil)
+	f.analyze = map[string]any{"lufs": -25.0}
+	p := psPreset(35, nil, psWidth())
+	p.TargetLUFS = psTarget(-13)
+	psApply(t, f, p)
+
+	data := f.uploads[fmt.Sprintf("dsp-preset-%d.flac", p.ID)]
+	if len(data) == 0 {
+		t.Fatalf("вариант финала не загружен: %v", keys(f.uploads))
+	}
+	got := decodeBytes(t, data)
+	gw, ww := rms(slice(got, 1, 9)), rms(slice(want, 1, 9))
+	if ww == 0 || !near(psDb(gw, ww), 0, 0.2) {
+		t.Errorf("громкость варианта %.4f, want как у финала width → level(+12, −1) %.4f (%.2f дБ)",
+			gw, ww, psDb(gw, ww))
+	}
+	var gp, wp float64
+	for _, v := range slice(got, 1, 9) {
+		gp = math.Max(gp, math.Abs(float64(v)))
+	}
+	for _, v := range slice(want, 1, 9) {
+		wp = math.Max(wp, math.Abs(float64(v)))
+	}
+	if !near(psDb(gp, wp), 0, 0.2) {
+		t.Errorf("пик варианта %.3f, want как у width → level(+12, −1) %.3f", gp, wp)
+	}
+}
+
+// ТК29: замера громкости нет → ошибка «нет замера громкости», версия не создаётся,
+// вариант финала не загружается (не применение вслепую).
+func TestApplySoundPresetTargetLUFSNoMetricsIsError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		specs []yue.PresetSpec
+		up    map[string]any
+		an    map[string]any
+	}{
+		{"с правками: у пересборки нет lufs", []yue.PresetSpec{psVocalCut()}, nil, nil},
+		{"с правками: metrics без lufs", []yue.PresetSpec{psVocalCut()}, map[string]any{"peak": -1.0}, map[string]any{}},
+		{"без правок: AnalyzeJob без lufs", nil, nil, map[string]any{"bpm": 120.0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := psSetup(t, nil)
+			f.uploadMetrics, f.analyze = tc.up, tc.an
+			p := psPreset(36, tc.specs, psWidth())
+			p.TargetLUFS = psTarget(-13)
+
+			res, err := ApplySoundPreset(context.Background(), f, psJobID, p)
+			if err == nil {
+				t.Fatalf("ApplySoundPreset без замера громкости прошёл: %+v", res)
+			}
+			if !strings.Contains(err.Error(), "нет замера громкости") {
+				t.Errorf("ошибка %q, want с «нет замера громкости»", err)
+			}
+			if len(f.promoted) != 0 {
+				t.Errorf("VariantToTrack вызван: %+v", f.promoted)
+			}
+			if _, ok := f.uploads[fmt.Sprintf("dsp-preset-%d.flac", p.ID)]; ok {
+				t.Errorf("вариант финала загружен без замера громкости")
+			}
+		})
+	}
+}
+
+// ТК29: target nil — поведение прежнее: замеры не нужны (их нет — не ошибка), AnalyzeJob
+// не зовётся; финал пуст → без варианта финала, версия из пересборки.
+func TestApplySoundPresetNoTargetNeedsNoMetrics(t *testing.T) {
+	t.Run("финал пуст", func(t *testing.T) {
+		f := psSetup(t, nil)
+		p := psPreset(37, []yue.PresetSpec{psVocalCut()}, nil)
+		res := psApply(t, f, p)
+		rebuilt := fmt.Sprintf("dsp-preset-%d-mix.flac", p.ID)
+		if res.File != rebuilt {
+			t.Errorf("версия из %q, want %s (финала нет)", res.File, rebuilt)
+		}
+		if _, ok := f.uploads[fmt.Sprintf("dsp-preset-%d.flac", p.ID)]; ok {
+			t.Errorf("загружен вариант финала без финала и цели")
+		}
+		if len(f.analyzed) != 0 {
+			t.Errorf("AnalyzeJob вызван %v, want нет (цели нет)", f.analyzed)
+		}
+	})
+	t.Run("финал [width] без правок", func(t *testing.T) {
+		f := psSetup(t, nil)
+		p := psPreset(38, nil, psWidth())
+		res := psApply(t, f, p)
+		if res.File != fmt.Sprintf("dsp-preset-%d.flac", p.ID) {
+			t.Errorf("версия из %q, want вариант финала", res.File)
+		}
+		if len(f.analyzed) != 0 {
+			t.Errorf("AnalyzeJob вызван %v, want нет (цели нет)", f.analyzed)
+		}
+	})
 }

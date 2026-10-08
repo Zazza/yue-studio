@@ -17,6 +17,8 @@ export function YueApplyFx(arg1:number,arg2:yue.FxRequest):Promise<yue.DspVarian
 
 export function YueApplySoundPreset(arg1:number,arg2:number):Promise<number>;
 
+export function YueApplySoundPresetWith(arg1:number,arg2:yue.SoundPreset):Promise<number>;
+
 export function YueApplySteps(arg1:number,arg2:Array<dsp.Step>,arg3:string):Promise<yue.DspVariant>;
 
 export function YueAudioState():Promise<main.YuePlayerState>;

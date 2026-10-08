@@ -99,8 +99,10 @@ GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по такт
                        четвертям такта («D4», «·» — нет голоса); to=0 — до конца. 409 — нет стема
                        vocals (сначала stems). Сверка «спето ли по плану» и потолка голоса
 GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, builtin}]:
-                       встроенные (slug transmission, sex-on-fire; досеиваются при старте) первыми
-POST /sound-presets    {name, note?, specs?, final?, reference_job_id?} → пресет с id. specs — до 16 правок
+                       встроенные (slug transmission, sex-on-fire; при старте обновляются по slug из кода, id прежний) первыми
+POST /sound-presets    {name, note?, specs?, final?, reference_job_id?, target_lufs?} → пресет с id. target_lufs
+                       (−24…−6 или null) — громкость результата: после финала приложение добавляет level с
+                       усилением «цель − громкость микса» (±12 дБ, потолок −1). specs — до 16 правок
                        на весь трек: {stems: [vocals|drums|bass|other|guitar|piano|kick|snare|toms|hh|ride|crash],
                        ровно одно из engine (цепочка движка, проверка как у /fx) | chain+params (dsp-цепочка) |
                        steps [{chain, params, off}] (до 12), db −24…24}; final — до 12 шагов {chain, params, off}

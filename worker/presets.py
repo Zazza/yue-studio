@@ -17,6 +17,7 @@ FINAL_MAX = 12
 CHAIN_ID_MAX = 40
 DB_RANGE = (-24.0, 24.0)
 ERROR_MAX = 500
+TARGET_LUFS_RANGE = (-24.0, -6.0)
 JOB_PRESETS_MAX = 3
 KNOWN_STEMS = ("vocals", "drums", "bass", "other", "guitar", "piano",
                "kick", "snare", "toms", "hh", "ride", "crash")
@@ -118,6 +119,9 @@ def validate(p: dict, parse_engine) -> dict:
     if len(specs) > SPECS_MAX:
         raise PresetError(f"specs: не больше {SPECS_MAX} записей (сейчас {len(specs)})")
     final = p.get("final", [])
+    target = p.get("target_lufs")
+    if target is not None and (not _num(target) or not TARGET_LUFS_RANGE[0] <= target <= TARGET_LUFS_RANGE[1]):
+        raise PresetError(f"target_lufs — число {TARGET_LUFS_RANGE[0]:g}…{TARGET_LUFS_RANGE[1]:g} или null")
     ref = p.get("reference_job_id")
     if ref is not None and (not isinstance(ref, int) or isinstance(ref, bool)):
         raise PresetError("reference_job_id — номер трека или null")
@@ -126,10 +130,12 @@ def validate(p: dict, parse_engine) -> dict:
         "specs": [_spec(f"запись {i + 1}", s, parse_engine) for i, s in enumerate(specs)],
         "final": _steps("финал", final, FINAL_MAX, allow_empty=True),
         "reference_job_id": ref,
+        "target_lufs": None if target is None else float(target),
     }
-    # финал из одних выключенных шагов ничего не делает — как пустой (иначе версия = исходный звук)
-    if not out["specs"] and not any(not st["off"] for st in out["final"]):
-        raise PresetError("пустой пресет: нет ни правок дорожек, ни включённого финала")
+    # финал из одних выключенных шагов ничего не делает — как пустой (иначе версия = исходный звук);
+    # одна целевая громкость — уже обработка (выравнивание)
+    if not out["specs"] and not any(not st["off"] for st in out["final"]) and target is None:
+        raise PresetError("пустой пресет: нет ни правок дорожек, ни включённого финала, ни целевой громкости")
     return out
 
 
@@ -198,13 +204,14 @@ BUILTIN = [
         "specs": [
             {"stems": ["kick"], "engine": [{"type": "sampler", "kit": "osdk/kick", "output_db": 0}]},
             {"stems": ["snare"], "engine": [{"type": "sampler", "kit": "osdk/snare", "output_db": 2.5}]},
-            {"stems": ["bass"], "engine": [{"type": "bass", "kit": "growlybass/bass", "division": 2, "output_db": -6},
-                                           _eq((800, 4), (150, -3), highpass=80), {"type": "comp"}]},
+            # бас ведёт атмосферу пост-панка: громче (прослушивание 2026-10-08: было −6 и −3 на 150 Гц — тихо)
+            {"stems": ["bass"], "engine": [{"type": "bass", "kit": "growlybass/bass", "division": 2, "output_db": 0},
+                                           _eq((800, 4), highpass=80), {"type": "comp"}]},
             {"stems": ["other"], "engine": [_eq((2500, -3), (1200, 3), (4000, 2)), {"type": "comp"}]},
             {"stems": ["vocals"], "engine": [_eq((650, 3), (8000, 2)), {"type": "comp", "makeup_db": 6}]},
         ],
-        "final": [{"chain": "width", "params": {"width": 1.1, "bass": 120}},
-                  {"chain": "level", "params": {"gain": 5.5, "ceiling": -1}}],
+        # громкость — целью, а не «+5,5 дБ в ограничитель»: на громком треке это был перегруз (#666)
+        "final": [{"chain": "width", "params": {"width": 1.1, "bass": 120}}], "target_lufs": -13.0,
     },
     {
         "slug": "sex-on-fire", "name": "Инди-рок · Sex on Fire", "reference_job_id": 383,
@@ -218,7 +225,6 @@ BUILTIN = [
             {"stems": ["vocals"], "engine": [_eq((2500, 2), (200, 2)), {"type": "comp", "makeup_db": 4}]},
         ],
         "final": [{"chain": "eq", "params": {"high": -3.5, "highf": 6500}},
-                  {"chain": "width", "params": {"width": 1.2, "bass": 150}},
-                  {"chain": "level", "params": {"gain": 7, "ceiling": -0.5}}],
+                  {"chain": "width", "params": {"width": 1.2, "bass": 150}}], "target_lufs": -12.0,
     },
 ]

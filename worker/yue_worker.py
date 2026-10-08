@@ -229,13 +229,18 @@ def _migrate():
             created_at TEXT NOT NULL
         );
         """)
-        # встроенные — по slug: удалить/изменить их нельзя, повторный старт не дублирует
+        if "target_lufs" not in [r[1] for r in conn.execute("PRAGMA table_info(sound_presets)")]:
+            conn.execute("ALTER TABLE sound_presets ADD COLUMN target_lufs REAL")
+        # встроенные — upsert по slug: рецепт из кода (правка встроенного доходит до старой базы), id
+        # прежний; пользователь их не меняет и не удаляет, свои пресеты (slug NULL) не трогаются
         for b in sound_presets.BUILTIN:
             conn.execute(
-                "INSERT OR IGNORE INTO sound_presets(slug,name,note,specs,final,reference_job_id,builtin,created_at) "
-                "VALUES(?,?,?,?,?,?,1,?)",
+                "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,builtin,created_at) "
+                "VALUES(?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name, note=excluded.note, "
+                "specs=excluded.specs, final=excluded.final, reference_job_id=excluded.reference_job_id, "
+                "target_lufs=excluded.target_lufs, builtin=1",
                 (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
-                 b["reference_job_id"], "2026-10-08T00:00:00"))
+                 b["reference_job_id"], b.get("target_lufs"), "2026-10-08T00:00:00"))
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1124,7 +1129,8 @@ def set_head(job_id: int, req: HeadIn):
 def _preset_dict(row) -> dict:
     return {"id": row["id"], "slug": row["slug"] or "", "name": row["name"], "note": row["note"],
             "specs": json.loads(row["specs"] or "[]"), "final": json.loads(row["final"] or "[]"),
-            "reference_job_id": row["reference_job_id"], "builtin": bool(row["builtin"])}
+            "reference_job_id": row["reference_job_id"], "target_lufs": row["target_lufs"],
+            "builtin": bool(row["builtin"])}
 
 
 def _parse_engine(chain):
@@ -1154,9 +1160,10 @@ async def create_sound_preset(request: Request):
     p = _preset_body(await request.json())
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,created_at) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,target_lufs,created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
             (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]), p["reference_job_id"],
-             time.strftime("%Y-%m-%dT%H:%M:%S")))
+             p["target_lufs"], time.strftime("%Y-%m-%dT%H:%M:%S")))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (cur.lastrowid,)).fetchone()
     return _preset_dict(row)
 
@@ -1178,9 +1185,10 @@ async def update_sound_preset(preset_id: int, request: Request):
     p = _preset_body(body)
     with db_lock, db() as conn:
         _own_preset(conn, preset_id)
-        conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=? WHERE id=?",
+        conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=?, target_lufs=? "
+                     "WHERE id=?",
                      (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]),
-                      p["reference_job_id"], preset_id))
+                      p["reference_job_id"], p["target_lufs"], preset_id))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (preset_id,)).fetchone()
     return _preset_dict(row)
 

@@ -3,7 +3,7 @@
 // строка статуса пресета в карточке трека, выбор пресетов чипами в форме нового трека.
 // Написаны по карточке, без чтения реализации.
 import { describe, it, expect } from 'vitest'
-import { presetFromEdits, presetLine, togglePreset } from './soundPresets.js'
+import { presetFromEdits, presetLine, togglePreset, withLevels } from './soundPresets.js'
 
 // записи реестра правок в форме useInserts (у правок без рендера childId < 0)
 const base = (childId, stems, over = {}) => ({
@@ -188,5 +188,83 @@ describe('togglePreset — выбор пресетов чипами (ТК25)', (
     const out2 = togglePreset(ids, 1)
     expect(out2).not.toBe(ids)
     expect(ids).toEqual([1, 2])
+  })
+})
+
+// Этап 1б, условие 12 (ТК31): withLevels(preset, levels) — копия пресета с громкостью
+// записей из ползунков студии; levels {индекс записи: дБ}, зажим −24…24; исходный не меняется.
+describe('withLevels — громкость записей пресета при применении (ТК31)', () => {
+  const preset = () => ({
+    id: 7, name: 'Пост-панк', builtin: true, target_lufs: -13,
+    specs: [
+      { stems: ['bass'], engine: [{ type: 'bass', kit: 'growlybass/bass', output_db: 0 }], db: -3 },
+      { stems: ['vocals'], chain: 'eq', params: { high: 2, highf: 8000 }, db: 0 },
+      { stems: ['other', 'guitar'], steps: [{ chain: 'soften', params: { strength: 0.4 } }], db: 1 },
+    ],
+    final: [{ chain: 'width', params: { width: 1.1, bass: 120 } }],
+  })
+
+  it('{0: 3} меняет db записи 0 в копии, прочее как было', () => {
+    const p = preset()
+    const out = withLevels(p, { 0: 3 })
+    expect(out.specs[0].db).toBe(3)
+    expect(out.specs[1].db).toBe(0)
+    expect(out.specs[2].db).toBe(1)
+    const want = preset()
+    want.specs[0].db = 3
+    expect(out).toEqual(want)
+  })
+
+  it('исходный пресет не меняется', () => {
+    const p = preset()
+    withLevels(p, { 0: 3, 2: -6 })
+    expect(p).toEqual(preset())
+  })
+
+  it('копия глубокая: правка копии не трогает исходный', () => {
+    const p = preset()
+    const out = withLevels(p, { 1: 2 })
+    out.specs[1].params.high = 99
+    out.specs[0].engine[0].output_db = 5
+    out.final[0].params.width = 2
+    out.specs.push({ stems: ['drums'], chain: 'eq', params: {}, db: 0 })
+    expect(p).toEqual(preset())
+  })
+
+  it('40 → 24, −40 → −24 (зажим)', () => {
+    expect(withLevels(preset(), { 0: 40 }).specs[0].db).toBe(24)
+    expect(withLevels(preset(), { 0: -40 }).specs[0].db).toBe(-24)
+  })
+
+  it('края −24 и 24 — как есть', () => {
+    const out = withLevels(preset(), { 0: 24, 1: -24 })
+    expect(out.specs[0].db).toBe(24)
+    expect(out.specs[1].db).toBe(-24)
+  })
+
+  it('индекс вне записей игнорируется', () => {
+    const out = withLevels(preset(), { 3: 5, 9: 5, '-1': 5 })
+    expect(out).toEqual(preset())
+    expect(out.specs).toHaveLength(3)
+  })
+
+  it('ключи-строки (из JSON/ползунков) работают как числа', () => {
+    expect(withLevels(preset(), { '2': -4 }).specs[2].db).toBe(-4)
+  })
+
+  it('пустые levels — глубокая копия как есть', () => {
+    const p = preset()
+    const out = withLevels(p, {})
+    expect(out).toEqual(p)
+    expect(out).not.toBe(p)
+    expect(out.specs).not.toBe(p.specs)
+    expect(out.specs[0]).not.toBe(p.specs[0])
+    expect(out.final).not.toBe(p.final)
+  })
+
+  it('запись без db получает уровень из levels', () => {
+    const p = preset()
+    delete p.specs[1].db
+    expect(withLevels(p, { 1: 2 }).specs[1].db).toBe(2)
   })
 })
