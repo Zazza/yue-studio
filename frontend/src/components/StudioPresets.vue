@@ -84,7 +84,7 @@ async function saveLevels() {
   try {
     const c = withLevels(p, levels.value)    // свой пресет: без id/slug/builtin встроенного
     const saved = await api.soundPresetCreate({ name: (p.name + ' · ' + t('preset.mine')).slice(0, 80), note: c.note || '',
-      specs: c.specs, final: c.final, master: c.master || [], target_lufs: c.target_lufs ?? null,
+      specs: c.specs, final: c.final, master: c.master || [], parts: c.parts || [], target_lufs: c.target_lufs ?? null,
       reference_job_id: c.reference_job_id || 0 })
     msg.value = t('preset.saved', { name: saved.name })
     await load()

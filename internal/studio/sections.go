@@ -802,7 +802,8 @@ func muteInserts(s SectionSpec, parent stemSet, inputs *[]string) []dsp.Insert {
 	}
 	var out []dsp.Insert
 	for _, name := range s.Stems {
-		if !slices.Contains(mutable, name) || parent[name] == "" {
+		// части барабанов (хэт…) — тоже: часть внутри «барабанов», к треку добавляется сама часть (цель level_db пресета)
+		if (!slices.Contains(mutable, name) && !slices.Contains(drumParts, name)) || parent[name] == "" {
 			continue
 		}
 		from, dur := insertWindow(s, fadeIn, fadeOut)
@@ -854,7 +855,8 @@ func fetchDetailStems(ctx context.Context, svc yue.Service, id int64, specs []Se
 			continue
 		}
 		for _, n := range s.Stems {
-			part := (len(s.Engine) > 0 || s.isPlace()) && slices.Contains(drumParts, n) // части — движку и месту
+			// части — движку, месту и громкости (цель level_db пресета); эффектам ffmpeg — нет (их не пропускает проверка)
+			part := (len(s.Engine) > 0 || s.isPlace() || (s.Chain == "" && len(s.Steps) == 0)) && slices.Contains(drumParts, n)
 			if (slices.Contains(detailStems, n) || part) && !slices.Contains(need, n) {
 				need = append(need, n)
 			}

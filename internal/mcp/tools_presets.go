@@ -40,6 +40,9 @@ func argPreset(args map[string]any) (yue.SoundPreset, error) {
 	if err := argJSON(args, "master", &p.Master); err != nil {
 		return p, err
 	}
+	if err := argJSON(args, "parts", &p.Parts); err != nil {
+		return p, err
+	}
 	err := argJSON(args, "final", &p.Final)
 	return p, err
 }
@@ -49,7 +52,13 @@ const presetSpecHelp = "specs — правки дорожек на весь тр
 	"final — цепочка ffmpeg на весь микс после правок: [{chain, params, off}] (dsp_chains). " +
 	"Запись {stems: [одна дорожка], place: {pan −1…1, width 0…2}} без обработки — место дорожки в стерео. " +
 	"master — цепочка движка на весь микс на воркере после финала ([{type: glue|limiter|eq|comp…}], fx_blocks); " +
-	"target_lufs ложится в limiter (истинный пик −1 dBTP; нет limiter — дописывается)."
+	"target_lufs ложится в limiter (истинный пик −1 dBTP; нет limiter — дописывается). " +
+	"level_db у записи одной дорожки — цель громкости дорожки к треку (−40…+6): при применении громкость " +
+	"подстраивается по замеру дорожки (±12 дБ); запись {stems: [дорожка], level_db} — только громкость. " +
+	"parts — партии-рецепты поверх трека (≤ 8): [{kind: synth|perc, engine: цепочка (первый блок synth|perc, без notes; " +
+	"готовые — fx_presets synth-*/perc-*), style: pad|arp|pulse|drone, octave −2…2 (synth), pattern: " +
+	"fours|eighths|sixteenths|backbeat|offbeat, swing 0…0,5, accent 0…1 (perc), sections: [части песни] (пусто — все), " +
+	"place}] — ноты строятся при применении по аккордам (chord_grid) и сетке трека."
 
 func registerPresetTools(s *Server) {
 	s.Register(Tool{
@@ -75,6 +84,7 @@ func registerPresetTools(s *Server) {
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
 			"master":           map[string]any{"type": "array", "description": "мастер на воркере: блоки движка [{type, …}]", "items": map[string]any{"type": "object"}},
+			"parts":            map[string]any{"type": "array", "description": "партии-рецепты поверх трека [{kind, engine, style|pattern, …}]", "items": map[string]any{"type": "object"}},
 			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): ограничитель мастера доведёт по цели; null — без цели"},
 			"reference_job_id": prop("трек-эталон, по которому настраивался (необязательно)", "integer"),
 		}, "name"),
@@ -100,6 +110,7 @@ func registerPresetTools(s *Server) {
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
 			"master":           map[string]any{"type": "array", "description": "мастер на воркере: блоки движка; не передан — прежний, [] — снять", "items": map[string]any{"type": "object"}},
+			"parts":            map[string]any{"type": "array", "description": "партии-рецепты; не передан — прежние, [] — снять", "items": map[string]any{"type": "object"}},
 			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): ограничитель мастера доведёт по цели; не передан — прежняя, null — снять"},
 			"reference_job_id": prop("трек-эталон (необязательно)", "integer"),
 		}, "preset_id", "name"),
@@ -111,7 +122,8 @@ func registerPresetTools(s *Server) {
 			// цель и мастер не переданы — прежние: правка описания не должна стирать громкость пресета
 			_, givenTarget := args["target_lufs"]
 			_, givenMaster := args["master"]
-			if !givenTarget || !givenMaster {
+			_, givenParts := args["parts"]
+			if !givenTarget || !givenMaster || !givenParts {
 				list, err := s.client.SoundPresets(context.Background())
 				if err != nil {
 					return "", err
@@ -125,6 +137,9 @@ func registerPresetTools(s *Server) {
 					}
 					if !givenMaster {
 						p.Master = old.Master
+					}
+					if !givenParts {
+						p.Parts = old.Parts
 					}
 				}
 			}

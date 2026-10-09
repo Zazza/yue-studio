@@ -206,6 +206,24 @@ type PresetSpec struct {
 	Db     float64            `json:"db,omitempty"`
 	// Place — место дорожки в стерео (запись «место»: без engine/chain/steps) или партии
 	Place *Place `json:"place,omitempty"`
+	// LevelDb — цель громкости дорожки к треку, дБ (−40…+6): при применении Db подстраивается по замеру дорожки
+	// (nil — громкость как в Db)
+	LevelDb *float64 `json:"level_db,omitempty"`
+}
+
+// PresetPart — партия-рецепт пресета: добавляется поверх трека, ноты/удары строятся при применении по аккордам
+// и сетке трека. Engine — цепочка движка (первый блок synth|perc, без notes); Style/Octave — для synth,
+// Pattern/Swing/Accent — для perc; Sections — части песни (пусто — все); Place — место партии.
+type PresetPart struct {
+	Kind     string           `json:"kind"`
+	Engine   []map[string]any `json:"engine"`
+	Style    string           `json:"style,omitempty"`
+	Octave   int              `json:"octave,omitempty"`
+	Pattern  string           `json:"pattern,omitempty"`
+	Swing    float64          `json:"swing,omitempty"`
+	Accent   *float64         `json:"accent,omitempty"`
+	Sections []string         `json:"sections,omitempty"`
+	Place    *Place           `json:"place,omitempty"`
 }
 
 // Place — место звука в стерео: Pan −1 (лево)…1 (право), Width 0 (моно)…2 (шире); 1 — как есть.
@@ -239,8 +257,10 @@ type SoundPreset struct {
 	// до цели по истинному пику −1 dBTP (nil — громкость как есть)
 	TargetLUFS *float64 `json:"target_lufs"`
 	// Master — цепочка движка на весь микс на воркере после финала (glue, limiter…); пусто — нет
-	Master  []map[string]any `json:"master"`
-	Builtin bool             `json:"builtin,omitempty"`
+	Master []map[string]any `json:"master"`
+	// Parts — партии-рецепты (синт по аккордам, перкуссия по сетке), добавляются поверх трека
+	Parts   []PresetPart `json:"parts,omitempty"`
+	Builtin bool         `json:"builtin,omitempty"`
 }
 
 // JobPreset — пресет у трека: pending (ждёт) → running (применяется) → done (ChildID — версия) | error.

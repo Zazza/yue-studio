@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -35,23 +37,40 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 	}
 	// части барабанов пересборка обрабатывает только движком: эффект/педали на них молча пропали бы
 	for _, sp := range p.Specs {
-		placeOnly := sp.Place != nil && sp.Chain == "" && len(sp.Steps) == 0 // место части — без обработки, можно
-		if len(sp.Engine) == 0 && !placeOnly && slices.ContainsFunc(sp.Stems, func(n string) bool { return slices.Contains(drumParts, n) }) {
+		// место и громкость части — без обработки, можно (не эффект ffmpeg)
+		bare := (sp.Place != nil || sp.LevelDb != nil) && sp.Chain == "" && len(sp.Steps) == 0
+		if len(sp.Engine) == 0 && !bare && slices.ContainsFunc(sp.Stems, func(n string) bool { return slices.Contains(drumParts, n) }) {
 			return nil, fmt.Errorf("пресет «%s»: на частях барабанов (%s) — только цепочка движка", p.Name, strings.Join(sp.Stems, ", "))
 		}
 	}
 	if err := ensurePresetStems(ctx, svc, jobID, p.Specs); err != nil {
 		return nil, err
 	}
-	if err := ensurePresetKits(ctx, svc, p.Specs); err != nil {
+	// партии — до наборов: пропущенная (нет нот, нет аккордов) свой набор не качает и ошибкой не роняет пресет
+	parts, err := presetParts(ctx, svc, job, p.Parts)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensurePresetKits(ctx, svc, p.Specs, parts); err != nil {
+		return nil, err
+	}
+	levels, err := presetLevels(ctx, svc, jobID, p.Specs)
+	if err != nil {
 		return nil, err
 	}
 	file := job.AudioFile
-	if len(p.Specs) > 0 {
-		specs := make([]SectionSpec, 0, len(p.Specs))
+	if len(p.Specs)+len(parts) > 0 {
+		specs := make([]SectionSpec, 0, len(p.Specs)+len(parts))
 		for _, s := range p.Specs {
-			specs = append(specs, presetSection(s))
+			sec := presetSection(s)
+			if s.LevelDb != nil && len(s.Stems) == 1 {
+				if lv, ok := levels[s.Stems[0]]; ok {
+					sec.Db += max(-presetLevelMax, min(presetLevelMax, *s.LevelDb-lv))
+				}
+			}
+			specs = append(specs, sec)
 		}
+		specs = append(specs, parts...)
 		res, err := rebuildSections(ctx, svc, jobID, specs, fmt.Sprintf("dsp-preset-%d-mix.flac", p.ID))
 		if err != nil {
 			return nil, fmt.Errorf("пересборка дорожек: %w", err)
@@ -227,10 +246,17 @@ func ensurePresetStems(ctx context.Context, svc yue.Service, id int64, specs []y
 
 // ensurePresetKits — наборы сэмплов цепочек движка (kit/kit_open/kit_mid/kit_low у sampler, kit у bass и perc:
 // «<набор>/<часть>»), которых нет на воркере, — установить по разу на набор
-func ensurePresetKits(ctx context.Context, svc yue.Service, specs []yue.PresetSpec) error {
+func ensurePresetKits(ctx context.Context, svc yue.Service, specs []yue.PresetSpec, parts []SectionSpec) error {
 	var need []string
+	chains := make([][]map[string]any, 0, len(specs)+len(parts))
 	for _, s := range specs {
-		for _, b := range s.Engine {
+		chains = append(chains, s.Engine)
+	}
+	for _, pt := range parts {
+		chains = append(chains, pt.Engine)
+	}
+	for _, chain := range chains {
+		for _, b := range chain {
 			for _, k := range []string{"kit", "kit_open", "kit_mid", "kit_low"} {
 				if v, _ := b[k].(string); v != "" && !slices.Contains(need, v) {
 					need = append(need, v)
@@ -389,4 +415,124 @@ func (r *PresetRunner) finish(ctx context.Context, jobID, pid int64, st yue.JobP
 	if _, err := r.Svc.SoundPresetState(ctx, jobID, pid, st); err != nil {
 		log.Printf("пресеты звука: итог #%d/%d: %v", jobID, pid, err)
 	}
+}
+
+// presetLevelMax — подстройка громкости дорожки к цели level_db не больше ±12 дБ
+const presetLevelMax = 12.0
+
+// presetMainStems — основные дорожки: сумма их мощностей — весь трек (части барабанов, гитара, клавиши — внутри)
+var presetMainStems = []string{"vocals", "drums", "bass", "other"}
+
+// presetLevels — громкость дорожек к треку по замерам воркера (rms_p95_db дорожки − сумма мощностей основных),
+// как trackDesk.stemLevels; только если у пресета есть цели level_db. Нет замеров — пусто (громкость как в Db).
+func presetLevels(ctx context.Context, svc yue.Service, jobID int64, specs []yue.PresetSpec) (map[string]float64, error) {
+	if !slices.ContainsFunc(specs, func(s yue.PresetSpec) bool { return s.LevelDb != nil }) {
+		return nil, nil
+	}
+	list, err := svc.JobStems(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("замер дорожек: %w", err)
+	}
+	p95 := map[string]float64{}
+	for _, s := range list {
+		name, _ := s["name"].(string)
+		m, _ := s["metrics"].(map[string]any)
+		mm, _ := m["metrics"].(map[string]any)
+		if v, ok := mm["rms_p95_db"].(float64); ok && name != "" && !math.IsNaN(v) && !math.IsInf(v, 0) {
+			p95[name] = v
+		}
+	}
+	sum := 0.0
+	for _, n := range presetMainStems {
+		if v, ok := p95[n]; ok {
+			sum += math.Pow(10, v/10)
+		}
+	}
+	if sum <= 0 {
+		return nil, nil
+	}
+	total := 10 * math.Log10(sum)
+	out := map[string]float64{}
+	for n, v := range p95 {
+		out[n] = v - total
+	}
+	return out, nil
+}
+
+// presetParts — записи-добавления пересборки из партий-рецептов: такты — аккорды трека (ChordGrid); у трека без
+// аккордов перкуссия — по сетке долей (JobGrid), синт пропускается; партия без нот пропускается (не ошибка).
+func presetParts(ctx context.Context, svc yue.Service, job *yue.Job, parts []yue.PresetPart) ([]SectionSpec, error) {
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	grid, err := svc.ChordGrid(ctx, job.ID)
+	var se *yue.StatusError
+	if errors.As(err, &se) && se.Code == http.StatusNotFound {
+		grid, err = nil, nil // у трека нет плана — аккордов нет: перкуссия по сетке долей, синт пропускается
+	}
+	if err != nil {
+		return nil, fmt.Errorf("аккорды трека: %w", err)
+	}
+	var bars []yue.ChordBar
+	if grid != nil {
+		for _, b := range grid.Bars {
+			if chordPcs(b.Chord) != nil {
+				bars = grid.Bars
+				break
+			}
+		}
+	}
+	var beatBars []yue.ChordBar
+	beatDone := false
+	var out []SectionSpec
+	for _, pt := range parts {
+		if len(pt.Engine) == 0 {
+			continue
+		}
+		var notes any
+		switch pt.Kind {
+		case "synth":
+			if bars == nil {
+				continue
+			}
+			n := PartNotes(bars, PartOpts{Style: pt.Style, Octave: pt.Octave, Sections: pt.Sections})
+			if len(n) == 0 {
+				continue
+			}
+			notes = n
+		case "perc":
+			src := bars
+			if src == nil {
+				if !beatDone {
+					beatDone = true
+					g, err := svc.JobGrid(ctx, job.ID, 0, 0)
+					if err != nil {
+						return nil, fmt.Errorf("сетка долей: %w", err)
+					}
+					if g != nil {
+						beatBars = BarsFromBeat(*g, job.DurationSec, 0)
+					}
+				}
+				src = beatBars
+			}
+			accent := 1.0
+			if pt.Accent != nil {
+				accent = *pt.Accent
+			}
+			h := PercHits(src, PercOpts{Pattern: pt.Pattern, Sections: pt.Sections, Swing: pt.Swing, Accent: accent})
+			if len(h) == 0 {
+				continue
+			}
+			notes = h
+		default:
+			continue
+		}
+		chain := make([]map[string]any, len(pt.Engine))
+		for i, b := range pt.Engine {
+			chain[i] = maps.Clone(b)
+		}
+		chain[0]["notes"] = notes
+		out = append(out, SectionSpec{Stems: []string{"mix"}, Add: true, Engine: chain, Place: pt.Place})
+	}
+	return out, nil
 }

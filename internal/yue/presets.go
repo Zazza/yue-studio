@@ -64,7 +64,16 @@ func presetBody(p SoundPreset) map[string]any {
 	if final == nil {
 		final = []PresetStep{}
 	}
-	body := map[string]any{"name": p.Name, "note": p.Note, "specs": specs, "final": final, "target_lufs": p.TargetLUFS}
+	// мастер и партии — тоже: без них воркер сохранял пресет без мастера (этап 6) и без партий
+	master, parts := p.Master, p.Parts
+	if master == nil {
+		master = []map[string]any{}
+	}
+	if parts == nil {
+		parts = []PresetPart{}
+	}
+	body := map[string]any{"name": p.Name, "note": p.Note, "specs": specs, "final": final, "target_lufs": p.TargetLUFS,
+		"master": master, "parts": parts}
 	if p.ReferenceJobID > 0 {
 		body["reference_job_id"] = p.ReferenceJobID
 	}

@@ -106,9 +106,15 @@ GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по такт
 GET  /jobs/{id}/chord_grid  аккорды и секции плана по тактам звука: {bpm, bars [{start, end, chord, section}]}
                        (доли — по барабанам, нет — по миксу; сдвиг плана — по хроме гармонии); нет плана → 404,
                        нет долей → 422. Для синт-партии (блок synth, ноты — секунды трека)
-GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, target_lufs, master, builtin}]:
+GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, target_lufs, master, parts, builtin}]:
                        встроенные (slug transmission, sex-on-fire; при старте обновляются по slug из кода, id прежний) первыми
-POST /sound-presets    {name, note?, specs?, final?, master?, reference_job_id?, target_lufs?} → пресет с id.
+POST /sound-presets    {name, note?, specs?, final?, master?, parts?, reference_job_id?, target_lufs?} → пресет с id.
+                       level_db у записи одной дорожки (−40…+6) — цель громкости дорожки к треку: приложение при
+                       применении подстраивает db по замеру дорожки (±12 дБ); {stems: [одна], level_db} — только
+                       громкость (и на частях барабанов). parts (до 8) — партии-рецепты поверх трека: {kind synth|perc,
+                       engine (первый блок synth|perc, без notes), style pad|arp|pulse|drone, octave −2…2 | pattern
+                       fours|eighths|sixteenths|backbeat|offbeat, swing 0…0,5, accent 0…1, sections [], place}; ноты
+                       строит приложение по аккордам (chord_grid) и сетке трека.
                        master — цепочка движка (до 16 блоков, проверка как у /fx) на весь микс на воркере после
                        финала; target_lufs (−24…−6 или null) — громкость результата: ложится в limiter мастера
                        (истинный пик −1 dBTP; нет limiter — дописывается). Запись specs {stems: [одна], place:

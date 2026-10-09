@@ -27,6 +27,14 @@ KNOWN_STEMS = ("vocals", "drums", "bass", "other", "guitar", "piano",
 # части барабанов пересборка обрабатывает только движком: эффект ffmpeg/педали на них молча пропали бы
 DRUM_PARTS = ("kick", "snare", "toms", "hh", "ride", "crash")
 KINDS = ("engine", "chain", "steps")
+LEVEL_RANGE = (-40.0, 6.0)     # цель громкости дорожки к треку, дБ (level_db)
+PARTS_MAX = 8                  # партий-рецептов не больше
+PART_KINDS = ("synth", "perc")
+PART_STYLES = ("pad", "arp", "pulse", "drone")
+PART_PATTERNS = ("fours", "eighths", "sixteenths", "backbeat", "offbeat")
+OCTAVE_RANGE = (-2, 2)
+SWING_RANGE = (0.0, 0.5)
+ACCENT_RANGE = (0.0, 1.0)
 
 
 class PresetError(ValueError):
@@ -82,10 +90,24 @@ def _spec(where: str, s, parse_engine) -> dict:
             raise PresetError(f"{where}: неизвестная дорожка {st!r} (есть: {', '.join(KNOWN_STEMS)})")
     kinds = [k for k in KINDS if s.get(k) not in (None, "", [])]
     place = _place(where, s.get("place"))
+    level = s.get("level_db")
+    if level is not None:
+        if not _num(level) or not LEVEL_RANGE[0] <= level <= LEVEL_RANGE[1]:
+            raise PresetError(f"{where}: level_db — число {LEVEL_RANGE[0]:g}…{LEVEL_RANGE[1]:g}")
+        if len(set(stems)) != 1:
+            raise PresetError(f"{where}: level_db — цель громкости одной дорожки")
+    if not kinds and place is None and level is not None:
+        # запись «громкость дорожки»: цель level_db, без обработки (части барабанов — тоже)
+        db = s.get("db", 0)
+        if not _num(db) or not DB_RANGE[0] <= db <= DB_RANGE[1]:
+            raise PresetError(f"{where}: db — число {DB_RANGE[0]:g}…{DB_RANGE[1]:g}")
+        return {"stems": [stems[0]], "db": float(db), "level_db": float(level)}
     if not kinds and place is not None:
         # запись «место дорожки»: одна дорожка, без обработки
         if len(set(stems)) != 1:
             raise PresetError(f"{where}: место — одной дорожке")
+        if level is not None:   # пересборка места громкость не применяет — цель отдельной записью
+            raise PresetError(f"{where}: level_db — отдельной записью, не вместе с place")
         return {"stems": [stems[0]], "db": 0.0, "place": place}
     if len(kinds) != 1:
         raise PresetError(f"{where}: нужно ровно одно из engine, chain, steps (или place — место дорожки)")
@@ -95,6 +117,8 @@ def _spec(where: str, s, parse_engine) -> dict:
     if not _num(db) or not DB_RANGE[0] <= db <= DB_RANGE[1]:
         raise PresetError(f"{where}: db — число {DB_RANGE[0]:g}…{DB_RANGE[1]:g}")
     out = {"stems": list(dict.fromkeys(stems)), "db": float(db)}
+    if level is not None:
+        out["level_db"] = float(level)
     kind = kinds[0]
     parts = [st for st in stems if st in DRUM_PARTS]
     if kind != "engine" and parts:
@@ -113,6 +137,62 @@ def _spec(where: str, s, parse_engine) -> dict:
     else:
         out["steps"] = _steps(where, s["steps"], STEPS_MAX, allow_empty=False)
     return out
+
+
+def _recipe_part(where: str, pt, parse_engine) -> dict:
+    """Партия-рецепт: {kind, engine (первый блок — synth|perc, без notes), style/octave (synth),
+    pattern/swing/accent (perc), sections, place}; ноты строит приложение при применении."""
+    if not isinstance(pt, dict):
+        raise PresetError(f"{where}: партия — объект {{kind, engine, …}}")
+    kind = pt.get("kind")
+    if kind not in PART_KINDS:
+        raise PresetError(f"{where}: kind — {' | '.join(PART_KINDS)}")
+    engine = pt.get("engine")
+    if not isinstance(engine, list) or not engine or not isinstance(engine[0], dict) or engine[0].get("type") != kind:
+        raise PresetError(f"{where}: engine — цепочка движка, первый блок {kind}")
+    if any(isinstance(b, dict) and "notes" in b for b in engine):
+        raise PresetError(f"{where}: в рецепте нет нот — их строит приложение по аккордам/сетке трека")
+    try:
+        parse_engine(engine)
+    except ValueError as e:
+        raise PresetError(f"{where}: {e}") from e
+    out = {"kind": kind, "engine": [dict(b) for b in engine]}
+    if kind == "synth":
+        style = pt.get("style", "pad")
+        if style not in PART_STYLES:
+            raise PresetError(f"{where}: style — {' | '.join(PART_STYLES)}")
+        octave = pt.get("octave", 0)
+        if not isinstance(octave, int) or isinstance(octave, bool) or not OCTAVE_RANGE[0] <= octave <= OCTAVE_RANGE[1]:
+            raise PresetError(f"{where}: octave — целое {OCTAVE_RANGE[0]}…{OCTAVE_RANGE[1]}")
+        out.update(style=style, octave=octave)
+    else:
+        pattern = pt.get("pattern", "eighths")
+        if pattern not in PART_PATTERNS:
+            raise PresetError(f"{where}: pattern — {' | '.join(PART_PATTERNS)}")
+        out["pattern"] = pattern
+        for key, rng, dflt in (("swing", SWING_RANGE, 0.0), ("accent", ACCENT_RANGE, 1.0)):
+            v = pt.get(key, dflt)
+            if not _num(v) or not rng[0] <= v <= rng[1]:
+                raise PresetError(f"{where}: {key} — число {rng[0]:g}…{rng[1]:g}")
+            out[key] = float(v)
+    sections = pt.get("sections", [])
+    if not isinstance(sections, list) or not all(isinstance(x, str) and x.strip() for x in sections):
+        raise PresetError(f"{where}: sections — список имён частей песни (пусто — все)")
+    out["sections"] = list(sections)
+    place = _place(where, pt.get("place"))
+    if place is not None:
+        out["place"] = place
+    return out
+
+
+def _parts(v, parse_engine) -> list:
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise PresetError("parts — список партий-рецептов")
+    if len(v) > PARTS_MAX:
+        raise PresetError(f"parts: не больше {PARTS_MAX} партий (сейчас {len(v)})")
+    return [_recipe_part(f"партия {i + 1}", pt, parse_engine) for i, pt in enumerate(v)]
 
 
 def _place(where: str, v) -> dict | None:
@@ -172,6 +252,7 @@ def validate(p: dict, parse_engine) -> dict:
         "reference_job_id": ref,
         "target_lufs": None if target is None else float(target),
         "master": _master(p.get("master"), parse_engine),
+        "parts": _parts(p.get("parts"), parse_engine),
     }
     # цель громкости дописывает ограничитель в конец мастера — итоговая цепочка не длиннее предела движка
     if target is not None and not any(isinstance(b, dict) and b.get("type") == "limiter" for b in out["master"]) \
@@ -179,8 +260,9 @@ def validate(p: dict, parse_engine) -> dict:
         raise PresetError(f"master: с target_lufs — не больше {MASTER_MAX - 1} блоков (ограничитель добавится сам)")
     # финал из одних выключенных шагов ничего не делает — как пустой (иначе версия = исходный звук);
     # одна целевая громкость — уже обработка (выравнивание)
-    if not out["specs"] and not any(not st["off"] for st in out["final"]) and target is None and not out["master"]:
-        raise PresetError("пустой пресет: нет ни правок дорожек, ни включённого финала, ни мастера, "
+    if not out["specs"] and not any(not st["off"] for st in out["final"]) and target is None and not out["master"] \
+            and not out["parts"]:
+        raise PresetError("пустой пресет: нет ни правок дорожек, ни партий, ни включённого финала, ни мастера, "
                           "ни целевой громкости")
     return out
 

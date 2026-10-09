@@ -234,18 +234,20 @@ def _migrate():
             conn.execute("ALTER TABLE sound_presets ADD COLUMN target_lufs REAL")
         if "master" not in cols:   # мастер на воркере (этап 6): цепочка движка на весь микс
             conn.execute("ALTER TABLE sound_presets ADD COLUMN master TEXT NOT NULL DEFAULT '[]'")
+        if "parts" not in cols:    # партии-рецепты (этап 8): синт по аккордам, перкуссия по сетке
+            conn.execute("ALTER TABLE sound_presets ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'")
         # встроенные — upsert по slug: рецепт из кода (правка встроенного доходит до старой базы), id
         # прежний; пользователь их не меняет и не удаляет, свои пресеты (slug NULL) не трогаются
         for b in sound_presets.BUILTIN:
             conn.execute(
-                "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,master,builtin,"
-                "created_at) VALUES(?,?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name, "
-                "note=excluded.note, specs=excluded.specs, final=excluded.final, "
+                "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,master,parts,"
+                "builtin,created_at) VALUES(?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET "
+                "name=excluded.name, note=excluded.note, specs=excluded.specs, final=excluded.final, "
                 "reference_job_id=excluded.reference_job_id, target_lufs=excluded.target_lufs, "
-                "master=excluded.master, builtin=1",
+                "master=excluded.master, parts=excluded.parts, builtin=1",
                 (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
                  b["reference_job_id"], b.get("target_lufs"), json.dumps(b.get("master", [])),
-                 "2026-10-08T00:00:00"))
+                 json.dumps(b.get("parts", [])), "2026-10-08T00:00:00"))
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1135,7 +1137,8 @@ def _preset_dict(row) -> dict:
     return {"id": row["id"], "slug": row["slug"] or "", "name": row["name"], "note": row["note"],
             "specs": json.loads(row["specs"] or "[]"), "final": json.loads(row["final"] or "[]"),
             "reference_job_id": row["reference_job_id"], "target_lufs": row["target_lufs"],
-            "master": json.loads(row["master"] or "[]"), "builtin": bool(row["builtin"])}
+            "master": json.loads(row["master"] or "[]"), "parts": json.loads(row["parts"] or "[]"),
+            "builtin": bool(row["builtin"])}
 
 
 def _parse_engine(chain):
@@ -1165,10 +1168,10 @@ async def create_sound_preset(request: Request):
     p = _preset_body(await request.json())
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,target_lufs,master,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,target_lufs,master,parts,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
             (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]), p["reference_job_id"],
-             p["target_lufs"], json.dumps(p["master"]), time.strftime("%Y-%m-%dT%H:%M:%S")))
+             p["target_lufs"], json.dumps(p["master"]), json.dumps(p["parts"]), time.strftime("%Y-%m-%dT%H:%M:%S")))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (cur.lastrowid,)).fetchone()
     return _preset_dict(row)
 
@@ -1191,9 +1194,10 @@ async def update_sound_preset(preset_id: int, request: Request):
     with db_lock, db() as conn:
         _own_preset(conn, preset_id)
         conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=?, target_lufs=?, "
-                     "master=? WHERE id=?",
+                     "master=?, parts=? WHERE id=?",
                      (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]),
-                      p["reference_job_id"], p["target_lufs"], json.dumps(p["master"]), preset_id))
+                      p["reference_job_id"], p["target_lufs"], json.dumps(p["master"]), json.dumps(p["parts"]),
+                      preset_id))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (preset_id,)).fetchone()
     return _preset_dict(row)
 
