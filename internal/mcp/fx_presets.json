@@ -336,6 +336,10 @@
     "predelay_ms": 5,
     "lowpass_hz": 8000,
     "wet": 0.18
+   },
+   {
+    "type": "gain",
+    "gain_db": 3.5
    }
   ]
  },
@@ -489,6 +493,10 @@
     "ratio": 4,
     "attack_ms": 5,
     "release_ms": 80
+   },
+   {
+    "type": "gain",
+    "gain_db": 3
    }
   ]
  },
@@ -810,6 +818,10 @@
     "feedback": 0.2,
     "lowpass_hz": 4000,
     "wet": 0.12
+   },
+   {
+    "type": "gain",
+    "gain_db": 4
    }
   ]
  },

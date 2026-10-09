@@ -115,6 +115,8 @@ export const fxPresets = [
       { type: 'comp', threshold_db: -28, ratio: 6, attack_ms: 3, makeup_db: 5 },
       { type: 'chorus', voices: 1, depth_ms: 2, rate_hz: 0.4, mix: 0.25 },
       { type: 'reverb', decay_s: 1.0, predelay_ms: 5, lowpass_hz: 8000, wet: 0.18 },
+      // срез низа и компрессор уводили гитару на 3,6 дБ тише исходной («Gone») — громкость обратно
+      { type: 'gain', gain_db: 3.5 },
     ],
   },
   {
@@ -161,6 +163,7 @@ export const fxPresets = [
       { type: 'drive', gain_db: 38, mix: 1 },
       { type: 'eq', lowpass_hz: 6500, bands: [{ freq_hz: 750, gain_db: -6, q: 0.7 }, { freq_hz: 110, gain_db: 3, q: 0.9 }, { freq_hz: 2800, gain_db: 3, q: 1 }] },
       { type: 'comp', threshold_db: -20, ratio: 4, attack_ms: 5, release_ms: 80 },
+      { type: 'gain', gain_db: 3 },   // вырезанная середина и гейт — на 2,8 дБ тише исходной («Gone»)
     ],
   },
   {
@@ -269,6 +272,7 @@ export const fxPresets = [
       { type: 'drive', gain_db: 8, mix: 0.25 },
       { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.7, mix: 0.5 },
       { type: 'delay', time_ms: 280, feedback: 0.2, lowpass_hz: 4000, wet: 0.12 },
+      { type: 'gain', gain_db: 4 },   // срез низа — бас на 4,4 дБ тише исходного («Gone»): громкость обратно
     ],
   },
   {
