@@ -674,7 +674,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-clavinet', stems: ['synth'], group: 'synth-keys', style: 'pulse', octave: 0,
+    id: 'synth-clavinet', stems: ['synth'], group: 'synth-keys', style: 'pulse', octave: 2,   // пульс считается от C2 (бас) — клавинет на 2 октавы выше, C4
     name: { ru: 'Клавинет', en: 'Clavinet' },
     note: { ru: 'Щёлкающая струна с «квакающим» фильтром короткими нотами — фанк (в духе Stevie Wonder «Superstition»).', en: 'A clicky string with a quacky filter in short notes — funk.' },
     chain: [
@@ -738,7 +738,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-casio', stems: ['synth'], group: 'synth-toy', style: 'pulse', octave: 1,
+    id: 'synth-casio', stems: ['synth'], group: 'synth-toy', style: 'pulse', octave: 2,   // от C2 — игрушка в среднем регистре
     name: { ru: 'Casio-игрушка', en: 'Casio toy keyboard' },
     note: { ru: 'Пищащий квадрат детского синтезатора через заезженную ленту — лоуфай и инди (в духе Trio «Da Da Da», Daniel Johnston).', en: 'The squeaky square of a kids keyboard through worn tape — lo-fi and indie.' },
     chain: [

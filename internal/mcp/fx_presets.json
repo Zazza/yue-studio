@@ -2940,7 +2940,7 @@
   ],
   "group": "synth-keys",
   "style": "pulse",
-  "octave": 0,
+  "octave": 2,
   "name": {
    "ru": "Клавинет",
    "en": "Clavinet"
@@ -3231,7 +3231,7 @@
   ],
   "group": "synth-toy",
   "style": "pulse",
-  "octave": 1,
+  "octave": 2,
   "name": {
    "ru": "Casio-игрушка",
    "en": "Casio toy keyboard"
