@@ -65,14 +65,38 @@ func registerPresetTools(s *Server) {
 		Name: "sound_presets",
 		Description: "Пресеты звука: сохранённые рецепты обработки трека (правки дорожек + финал на микс), " +
 			"встроенные первыми (builtin — не меняются). Применить — sound_preset_apply; при создании трека — " +
-			"submit с sound_preset_ids.",
-		InputSchema: props(nil),
-		Handler: func(s *Server, _ map[string]any) (string, error) {
+			"submit с sound_preset_ids. Без id — краткий список {id, slug, name, family, note, builtin} (встроенных больше " +
+			"сотни: жанровые, family — Рок | Тяжёлое | Электроника | Поп и другое, течение — название до « · »); " +
+			"с id — пресет целиком (specs, parts, master, final, target_lufs).",
+		InputSchema: props(map[string]any{"id": prop("id пресета — рецепт целиком (нет — краткий список)", "integer")}),
+		Handler: func(s *Server, args map[string]any) (string, error) {
 			list, err := s.client.SoundPresets(context.Background())
 			if err != nil {
 				return "", err
 			}
-			return toJSON(list), nil
+			if _, ok := args["id"]; ok {
+				id := argInt(args, "id")
+				for _, p := range list {
+					if p.ID == id {
+						return toJSON(p), nil
+					}
+				}
+				return "", fmt.Errorf("нет пресета звука #%d", id)
+			}
+			// краткий список: 100+ полных рецептов — сотни КБ на вызов
+			type brief struct {
+				ID      int64  `json:"id"`
+				Slug    string `json:"slug"`
+				Name    string `json:"name"`
+				Family  string `json:"family"`
+				Note    string `json:"note"`
+				Builtin bool   `json:"builtin"`
+			}
+			out := make([]brief, 0, len(list))
+			for _, p := range list {
+				out = append(out, brief{p.ID, p.Slug, p.Name, p.Family, p.Note, p.Builtin})
+			}
+			return toJSON(out), nil
 		},
 	})
 	s.Register(Tool{

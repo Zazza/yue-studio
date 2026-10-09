@@ -34,6 +34,9 @@ writeFileSync('internal/mcp/style_groups.json', JSON.stringify(groups, null, 1))
 const fxBlocks = readFileSync('worker/fx_blocks.json')
 writeFileSync('frontend/src/fxBlocks.json', fxBlocks)
 writeFileSync('internal/mcp/fx_blocks.json', fxBlocks)
-writeFileSync('internal/mcp/fx_presets.json', JSON.stringify(fxPresets, null, 1))
+const fxPresetsJSON = JSON.stringify(fxPresets, null, 1)
+writeFileSync('internal/mcp/fx_presets.json', fxPresetsJSON)
+// жанровые пресеты звука воркер собирает из готовых цепочек по id (worker/genres.py) — копия побайтно
+writeFileSync('worker/fx_presets.json', fxPresetsJSON)
 console.log('mcp data ok:', slotOptions ? Object.keys(slotOptions).length : 0, 'slots,', groups.length, 'groups')
 EOF

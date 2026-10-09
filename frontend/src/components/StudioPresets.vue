@@ -7,7 +7,7 @@ import { useI18n } from '../i18n/index.js'
 import { api } from '../api.js'
 import { useInserts } from '../composables/useInserts.js'
 import VSelect from '../VSelect.vue'
-import { presetFromEdits, withLevels } from '../soundPresets.js'
+import { presetFromEdits, withLevels, presetOptions } from '../soundPresets.js'
 import { placeLabel } from '../mixDesk.js'
 
 const props = defineProps({ job: { type: Object, required: true } })
@@ -26,9 +26,12 @@ const note = ref('')
 const finalFrom = ref(0)        // 0 — без финала, иначе id пресета, чей финал копируем
 const levels = ref({})         // громкость записей выбранного пресета на это применение {индекс: дБ}
 
-const options = computed(() => presets.value.map((p) => ({ value: p.id, label: p.name })))
+// по семьям и течениям: заголовки «— Рок · Пост-панк —» неактивны, поиск по названию
+const options = computed(() => presetOptions(presets.value))
+// финал «как у …»: пресетов с финалом/целью — около сотни, по семьям и течениям с поиском
 const finalOptions = computed(() => [{ value: 0, label: t('preset.final.none') },
-  ...presets.value.filter((p) => (p.final || []).length || p.target_lufs != null).map((p) => ({ value: p.id, label: t('preset.final.of', { name: p.name }) }))])
+  ...presetOptions(presets.value.filter((p) => (p.final || []).length || p.target_lufs != null))
+    .map((o) => (typeof o.value === 'number' ? { ...o, label: t('preset.final.of', { name: o.label }) } : o))])
 const fromEdits = computed(() => presetFromEdits(inserts.appliedFor(props.job.id)))
 const finalSteps = computed(() => (presets.value.find((p) => p.id === finalFrom.value) || {}).final || [])
 const current = computed(() => presets.value.find((p) => p.id === presetId.value) || null)
@@ -113,7 +116,7 @@ async function save() {
 
 <template>
   <div class="dsp-row">
-    <VSelect v-model="presetId" :options="options" :disabled="!!busy" style="max-width: 280px" />
+    <VSelect v-model="presetId" :options="options" :disabled="!!busy" searchable style="max-width: 320px" />
     <button class="primary small" :disabled="!!busy || presetId == null" :title="t('preset.apply.tip')" @click="apply">
       {{ busy === 'apply' ? t('instr.busy') : t('preset.apply') }}</button>
     <button class="ghost small-btn" :class="{ on: saveOpen }" :disabled="!!busy" @click="saveOpen = !saveOpen">{{ t('preset.save') }}</button>
@@ -141,7 +144,7 @@ async function save() {
     </div>
     <div class="dsp-row">
       <span class="muted">{{ t('preset.save.final') }}</span>
-      <VSelect v-model="finalFrom" :options="finalOptions" style="max-width: 280px" />
+      <VSelect v-model="finalFrom" :options="finalOptions" searchable style="max-width: 320px" />
       <button class="primary small" :disabled="!canSave" @click="save">{{ busy === 'save' ? '…' : t('common.save') }}</button>
     </div>
   </div>

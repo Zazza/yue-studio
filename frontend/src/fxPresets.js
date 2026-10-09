@@ -90,8 +90,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-clean',
     name: { ru: 'Чистая: хорус и дилей', en: 'Clean: chorus and delay' },
     note: {
-      ru: 'Ровная чистая гитара, хорус и короткое эхо восьмыми — холодный звенящий пост-панк (в духе Interpol, The Cure, Joy Division).',
-      en: 'An even clean guitar, chorus and a short eighth-note echo — cold ringing post-punk (Interpol, The Cure, Joy Division style).',
+      ru: 'Ровная чистая гитара, хорус и короткое эхо восьмыми — холодный звенящий пост-панк.',
+      en: 'An even clean guitar, chorus and a short eighth-note echo — cold ringing post-punk.',
     },
     chain: [
       { type: 'gate', threshold_db: -60 },
@@ -107,8 +107,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-clean',
     name: { ru: 'Звон: яркая и сжатая', en: 'Jangle: bright and squeezed' },
     note: {
-      ru: 'Сильный компрессор, яркий верх и убранный гул — перебор звенит ровно, как у брит-попа и инди 80-х (в духе The Smiths, R.E.M.).',
-      en: 'A strong compressor, bright top and less mud — picking rings evenly like 80s britpop and indie (The Smiths, R.E.M. style).',
+      ru: 'Сильный компрессор, яркий верх и убранный гул — перебор звенит ровно, как у брит-попа и инди 80-х.',
+      en: 'A strong compressor, bright top and less mud — picking rings evenly like 80s britpop and indie.',
     },
     chain: [
       { type: 'eq', highpass_hz: 150, bands: [{ freq_hz: 3500, gain_db: 4, q: 0.7 }, { freq_hz: 250, gain_db: -3, q: 1 }] },
@@ -124,8 +124,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-clean',
     name: { ru: 'Сёрф: пружина и тремоло', en: 'Surf: spring and tremolo' },
     note: {
-      ru: 'Яркая гитара, дрожащая громкость и мокрая «пружина» с длинным хвостом — сёрф-рок 60-х и саундтреки Тарантино.',
-      en: 'A bright guitar, trembling volume and a wet long spring — 60s surf rock and Tarantino soundtracks.',
+      ru: 'Яркая гитара, дрожащая громкость и мокрая «пружина» с длинным хвостом — сёрф-рок 60-х и криминальное кино.',
+      en: 'A bright guitar, trembling volume and a wet long spring — 60s surf rock and crime movie soundtracks.',
     },
     chain: [
       { type: 'eq', highpass_hz: 120, bands: [{ freq_hz: 3000, gain_db: 3, q: 1 }] },
@@ -138,8 +138,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-drive',
     name: { ru: 'Фузз: гаражный', en: 'Fuzz: garage' },
     note: {
-      ru: 'Перегруз до «рваного» фузза, выпяченная середина и почти без пространства — грязный гаражный рок (в духе Jack White, The White Stripes).',
-      en: 'Drive pushed into ragged fuzz, pushed mids and almost no space — dirty garage rock (Jack White, The White Stripes style).',
+      ru: 'Перегруз до «рваного» фузза, выпяченная середина и почти без пространства — грязный гаражный рок.',
+      en: 'Drive pushed into ragged fuzz, pushed mids and almost no space — dirty garage rock.',
     },
     chain: [
       { type: 'gate', threshold_db: -55 },
@@ -154,8 +154,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-drive',
     name: { ru: 'Индастриал-метал: плотная стена', en: 'Industrial metal: tight wall' },
     note: {
-      ru: 'Сильный перегруз, жёсткий гейт (паузы — тишина), вырезанная середина и плотный низ — рубленые риффы как машина (в духе Rammstein).',
-      en: 'Heavy drive, a hard gate (rests are silent), scooped mids and a tight low end — chopped machine-like riffs (Rammstein style).',
+      ru: 'Сильный перегруз, жёсткий гейт (паузы — тишина), вырезанная середина и плотный низ — рубленые риффы как машина.',
+      en: 'Heavy drive, a hard gate (rests are silent), scooped mids and a tight low end — chopped machine-like riffs.',
     },
     chain: [
       { type: 'gate', threshold_db: -45, range_db: -80, attack_ms: 0.5, release_ms: 40 },
@@ -171,8 +171,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-drive',
     name: { ru: 'Симфо-метал: хай-гейн и зал', en: 'Symphonic metal: high gain and hall' },
     note: {
-      ru: 'Плотный перегруз с ясной серединой, тихое эхо и большой зал — гитара за оркестром и хором (в духе Nightwish).',
-      en: 'Dense drive with clear mids, a quiet echo and a big hall — a guitar behind orchestra and choir (Nightwish style).',
+      ru: 'Плотный перегруз с ясной серединой, тихое эхо и большой зал — гитара за оркестром и хором.',
+      en: 'Dense drive with clear mids, a quiet echo and a big hall — a guitar behind orchestra and choir.',
     },
     chain: [
       { type: 'gate', threshold_db: -50, release_ms: 60 },
@@ -188,8 +188,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-drive',
     name: { ru: 'Альт-рок: перегруз с фейзером', en: 'Alt rock: drive with phaser' },
     note: {
-      ru: 'Средний перегруз, медленно «плывущий» фейзер и яркая середина — нервный альт-рок 90-х (в духе Placebo).',
-      en: 'Medium drive, a slowly sweeping phaser and bright mids — edgy 90s alt rock (Placebo style).',
+      ru: 'Средний перегруз, медленно «плывущий» фейзер и яркая середина — нервный альт-рок 90-х.',
+      en: 'Medium drive, a slowly sweeping phaser and bright mids — edgy 90s alt rock.',
     },
     chain: [
       { type: 'eq', highpass_hz: 100 },
@@ -204,8 +204,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-space',
     name: { ru: 'Шугейз: стена с флэнжером', en: 'Shoegaze: wall with flanger' },
     note: {
-      ru: 'Мягкий перегруз, медленный флэнжер и огромный тёмный зал — гитара расплывается в стену звука (в духе My Bloody Valentine, Slowdive).',
-      en: 'Soft drive, a slow flanger and a huge dark hall — the guitar melts into a wall of sound (My Bloody Valentine, Slowdive style).',
+      ru: 'Мягкий перегруз, медленный флэнжер и огромный тёмный зал — гитара расплывается в стену звука.',
+      en: 'Soft drive, a slow flanger and a huge dark hall — the guitar melts into a wall of sound.',
     },
     chain: [
       { type: 'eq', highpass_hz: 90 },
@@ -219,8 +219,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-space',
     name: { ru: 'Эмбиент: дилей и бесконечный зал', en: 'Ambient: delay and endless hall' },
     note: {
-      ru: 'Длинное тёмное эхо и зал на шесть секунд — ноты висят в воздухе, гитара становится фоном (в духе Radiohead, пост-рока).',
-      en: 'A long dark echo and a six-second hall — notes hang in the air, the guitar becomes a backdrop (Radiohead, post-rock style).',
+      ru: 'Длинное тёмное эхо и зал на шесть секунд — ноты висят в воздухе, гитара становится фоном.',
+      en: 'A long dark echo and a six-second hall — notes hang in the air, the guitar becomes a backdrop.',
     },
     chain: [
       { type: 'eq', highpass_hz: 150, lowpass_hz: 7000 },
@@ -233,8 +233,8 @@ export const fxPresets = [
     stems: ['guitar', 'other'], group: 'guitar-space',
     name: { ru: 'Тремоло-пульс в стерео', en: 'Stereo tremolo pulse' },
     note: {
-      ru: 'Громкость рубится «вкл-выкл» и перекатывается между левым и правым — гипнотический пульс (в духе «How Soon Is Now?», Radiohead).',
-      en: 'The volume chops on and off and rolls between left and right — a hypnotic pulse ("How Soon Is Now?", Radiohead style).',
+      ru: 'Громкость рубится «вкл-выкл» и перекатывается между левым и правым — гипнотический пульс.',
+      en: 'The volume chops on and off and rolls between left and right — a hypnotic pulse.',
     },
     chain: [
       { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 3 },
@@ -263,8 +263,8 @@ export const fxPresets = [
     stems: ['bass'], group: 'bass-tone',
     name: { ru: 'Бас-мелодия: высокий с хорусом', en: 'Melodic bass: high with chorus' },
     note: {
-      ru: 'Низ срезан, середина и щелчок вперёд, хорус и короткое эхо — бас поёт мелодию над гитарами (в духе Питера Хука, New Order, Joy Division). Лучше всего, когда бас в треке и так играет высоко.',
-      en: 'Lows cut, mids and click forward, chorus and a short echo — the bass sings the melody above the guitars (Peter Hook, New Order, Joy Division style). Best when the bass already plays high.',
+      ru: 'Низ срезан, середина и щелчок вперёд, хорус и короткое эхо — бас поёт мелодию над гитарами. Лучше всего, когда бас в треке и так играет высоко.',
+      en: 'Lows cut, mids and click forward, chorus and a short echo — the bass sings the melody above the guitars. Best when the bass already plays high.',
     },
     chain: [
       { type: 'eq', highpass_hz: 140, bands: [{ freq_hz: 1200, gain_db: 5, q: 0.8 }, { freq_hz: 3000, gain_db: 3, q: 1 }] },
@@ -280,8 +280,8 @@ export const fxPresets = [
     stems: ['bass'], group: 'bass-tone',
     name: { ru: 'Фузз-бас', en: 'Fuzz bass' },
     note: {
-      ru: 'Грязный перегруз рядом с чистым басом (низ остаётся плотным) и рычащая середина — тяжёлый альт-рок (в духе Muse, Placebo, Royal Blood).',
-      en: 'Dirty drive blended with the clean bass (the low end stays solid) and growling mids — heavy alt rock (Muse, Placebo, Royal Blood style).',
+      ru: 'Грязный перегруз рядом с чистым басом (низ остаётся плотным) и рычащая середина — тяжёлый альт-рок.',
+      en: 'Dirty drive blended with the clean bass (the low end stays solid) and growling mids — heavy alt rock.',
     },
     chain: [
       { type: 'drive', gain_db: 30, mix: 0.45 },
@@ -515,7 +515,7 @@ export const fxPresets = [
   {
     id: 'synth-solina', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Струнный ансамбль (Solina)', en: 'String ensemble (Solina)' },
-    note: { ru: 'Мягкие «струны» 70-х: три расстроенные пилы, медленная атака и густой ансамбль-хорус — холодная подушка под гитары (Joy Division, Молчат Дома).', en: '70s soft "strings": three detuned saws, slow attack and a thick ensemble chorus — a cold bed under guitars.' },
+    note: { ru: 'Мягкие «струны» 70-х: три расстроенные пилы, медленная атака и густой ансамбль-хорус — холодная подушка под гитары.', en: '70s soft "strings": three detuned saws, slow attack and a thick ensemble chorus — a cold bed under guitars.' },
     chain: [
       { type: 'synth', osc1: 0, unison: 3, detune_cents: 14, cutoff_hz: 6000, attack_s: 0.4, decay_s: 0.3, sustain: 0.9, release_s: 1.0, output_db: 0 },
       { type: 'chorus', voices: 3, depth_ms: 4, rate_hz: 0.6, mix: 0.7 },
@@ -552,7 +552,7 @@ export const fxPresets = [
   {
     id: 'synth-cs80-brass', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Медь (CS-80)', en: 'Brass (CS-80)' },
-    note: { ru: 'Расстроенные пилы и фильтр, раскрывающийся на атаке, с медленным вибрато — «Blade Runner»-медь, торжественно и тревожно.', en: 'Detuned saws and a filter opening on the attack with slow vibrato — Blade Runner style brass, solemn and uneasy.' },
+    note: { ru: 'Расстроенные пилы и фильтр, раскрывающийся на атаке, с медленным вибрато — кинематографичная медь из фантастики 80-х, торжественно и тревожно.', en: 'Detuned saws and a filter opening on the attack with slow vibrato — sci-fi movie brass of the 80s, solemn and uneasy.' },
     chain: [
       { type: 'synth', osc1: 0, unison: 2, detune_cents: 10, cutoff_hz: 900, env_amount: 0.7, f_attack_s: 0.15, f_decay_s: 0.6, vib_rate: 5.5, vib_cents: 10, attack_s: 0.08, decay_s: 0.4, sustain: 0.8, release_s: 0.4, output_db: 0 },
       { type: 'chorus', voices: 2, depth_ms: 2, rate_hz: 0.3, mix: 0.4 },
@@ -571,7 +571,7 @@ export const fxPresets = [
   {
     id: 'synth-vox-continental', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Орган (Vox Continental)', en: 'Organ (Vox Continental)' },
-    note: { ru: 'Треугольник с квадратом на октаву выше, лёгкое вибрато и старая лента — тонкий «стеклянный» орган (The Doors, The Animals).', en: 'Triangle with a square an octave up, light vibrato and old tape — a thin "glassy" organ.' },
+    note: { ru: 'Треугольник с квадратом на октаву выше, лёгкое вибрато и старая лента — тонкий «стеклянный» орган 60-х.', en: 'Triangle with a square an octave up, light vibrato and old tape — a thin "glassy" organ.' },
     chain: [
       { type: 'synth', osc1: 3, osc2: 1, osc2_semi: 12, osc_mix: 0.25, cutoff_hz: 5000, vib_rate: 6.5, vib_cents: 6, attack_s: 0.005, decay_s: 0.05, sustain: 1, release_s: 0.08, output_db: 0 },
       { type: 'tape', wow: 0.1, flutter: 0.15, saturation: 0.15, lowpass_hz: 10000, hiss: 0.1 },
@@ -581,7 +581,7 @@ export const fxPresets = [
   {
     id: 'synth-vltone', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1,
     name: { ru: 'Игрушка (VL-Tone)', en: 'Toy (VL-Tone)' },
-    note: { ru: 'Узкий пульс с коротким звуком через зажатую ленту с шипением — карманный калькулятор-синт («Da Da Da»), странно и по-детски.', en: 'A narrow pulse with short notes through squashed hissing tape — the pocket calculator synth, odd and childlike.' },
+    note: { ru: 'Узкий пульс с коротким звуком через зажатую ленту с шипением — карманный калькулятор-синт, странно и по-детски.', en: 'A narrow pulse with short notes through squashed hissing tape — the pocket calculator synth, odd and childlike.' },
     chain: [
       { type: 'synth', osc1: 2, pwm: 0.25, cutoff_hz: 7000, attack_s: 0.002, decay_s: 0.15, sustain: 0.3, release_s: 0.1, output_db: 0 },
       { type: 'tape', wow: 0.2, flutter: 0.3, saturation: 0.5, lowpass_hz: 7000, hiss: 0.2 },
@@ -592,7 +592,7 @@ export const fxPresets = [
   {
     id: 'synth-mellotron', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Ленточные струны (Mellotron)', en: 'Tape strings (Mellotron)' },
-    note: { ru: 'Струны с магнитной ленты: мягкая атака, плавающая высота и тёплая грязь — психоделия 60-х и мрачный арт-рок (в духе Beatles «Strawberry Fields», King Crimson).', en: 'Strings off magnetic tape: soft attack, wobbly pitch and warm dirt — 60s psychedelia and dark art rock.' },
+    note: { ru: 'Струны с магнитной ленты: мягкая атака, плавающая высота и тёплая грязь — психоделия 60-х и мрачный арт-рок.', en: 'Strings off magnetic tape: soft attack, wobbly pitch and warm dirt — 60s psychedelia and dark art rock.' },
     chain: [
       { type: 'synth', osc1: 0, unison: 3, detune_cents: 8, cutoff_hz: 3500, attack_s: 0.15, decay_s: 0.3, sustain: 0.9, release_s: 0.6, output_db: 0 },
       { type: 'tape', wow: 0.4, flutter: 0.3, saturation: 0.2, lowpass_hz: 7000, hiss: 0.1 },
@@ -602,7 +602,7 @@ export const fxPresets = [
   {
     id: 'synth-choir', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Хор «аах»', en: 'Choir "aah"' },
-    note: { ru: 'Синтетический хор: пилы с «гласной а» эквалайзером, медленный вдох и большой зал — торжественно и холодно (в духе New Order, Depeche Mode).', en: 'A synthetic choir: saws shaped into an "ah" vowel, a slow breath in and a big hall — solemn and cold.' },
+    note: { ru: 'Синтетический хор: пилы с «гласной а» эквалайзером, медленный вдох и большой зал — торжественно и холодно.', en: 'A synthetic choir: saws shaped into an "ah" vowel, a slow breath in and a big hall — solemn and cold.' },
     chain: [
       { type: 'synth', osc1: 0, unison: 4, detune_cents: 12, cutoff_hz: 5000, vib_rate: 5, vib_cents: 6, attack_s: 0.5, decay_s: 0.4, sustain: 0.9, release_s: 1.2, output_db: 0 },
       { type: 'eq', highpass_hz: 200, bands: [{ freq_hz: 700, gain_db: 8, q: 2 }, { freq_hz: 1200, gain_db: 6, q: 2 }, { freq_hz: 2600, gain_db: 5, q: 3 }] },
@@ -613,7 +613,7 @@ export const fxPresets = [
   {
     id: 'synth-hammond', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Электроорган с вращающимся динамиком (Hammond)', en: 'Tonewheel organ with rotary speaker (Hammond)' },
-    note: { ru: 'Синусы с октавой и рычащей грязью, звук «вращается» между колонками, как у динамика Leslie — блюз, соул, хард-рок 70-х (в духе Deep Purple, The Doors).', en: 'Sines with an octave and growling dirt, the sound "spins" between speakers like a Leslie — blues, soul, 70s hard rock.' },
+    note: { ru: 'Синусы с октавой и рычащей грязью, звук «вращается» между колонками, как у динамика Leslie — блюз, соул, хард-рок 70-х.', en: 'Sines with an octave and growling dirt, the sound "spins" between speakers like a Leslie — blues, soul, 70s hard rock.' },
     chain: [
       { type: 'synth', osc1: 4, osc2: 4, osc2_semi: 12, osc_mix: 0.45, sub: 0.35, cutoff_hz: 8000, attack_s: 0.005, decay_s: 0.05, sustain: 1, release_s: 0.05, output_db: 0 },
       { type: 'drive', gain_db: 8, mix: 0.3 },
@@ -624,7 +624,7 @@ export const fxPresets = [
   {
     id: 'synth-church-organ', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Церковный орган', en: 'Church organ' },
-    note: { ru: 'Регистры с октавой и низом, медленный вход и огромный каменный зал — торжественно, по-готически (в духе Nick Cave, готик-рока).', en: 'Stops with an octave and a low end, a slow swell and a huge stone hall — solemn and gothic.' },
+    note: { ru: 'Регистры с октавой и низом, медленный вход и огромный каменный зал — торжественно, по-готически.', en: 'Stops with an octave and a low end, a slow swell and a huge stone hall — solemn and gothic.' },
     chain: [
       { type: 'synth', osc1: 1, osc2: 0, osc2_semi: 12, osc_mix: 0.4, sub: 0.5, cutoff_hz: 5000, attack_s: 0.08, decay_s: 0.1, sustain: 1, release_s: 0.4, output_db: 0 },
       { type: 'reverb', decay_s: 6, predelay_ms: 40, lowpass_hz: 6000, wet: 0.45 },
@@ -642,7 +642,7 @@ export const fxPresets = [
   {
     id: 'synth-piano-soft', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Тихое фортепиано', en: 'Soft piano' },
-    note: { ru: 'Тот же рояль, сыгранный тихо (мягкий слой сэмплов Salamander Grand Piano, Alexander Holm, CC-BY 3.0), и зал побольше — баллада, грусть, Radiohead «Pyramid Song».', en: 'The same grand played softly (soft Salamander Grand Piano layer, Alexander Holm, CC-BY 3.0) with a bigger hall — ballads and melancholy.' },
+    note: { ru: 'Тот же рояль, сыгранный тихо (мягкий слой сэмплов Salamander Grand Piano, Alexander Holm, CC-BY 3.0), и зал побольше — баллада, грусть.', en: 'The same grand played softly (soft Salamander Grand Piano layer, Alexander Holm, CC-BY 3.0) with a bigger hall — ballads and melancholy.' },
     chain: [
       { type: 'synth', kit: 'salamander/piano-soft', cutoff_hz: 16000, attack_s: 0.002, decay_s: 0.1, sustain: 1, release_s: 0.6, output_db: 0 },
       { type: 'reverb', decay_s: 2.2, predelay_ms: 20, lowpass_hz: 8000, wet: 0.25 },
@@ -651,7 +651,7 @@ export const fxPresets = [
   {
     id: 'synth-rhodes', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Электропиано Rhodes', en: 'Rhodes electric piano' },
-    note: { ru: 'Мягкий колокольный удар, тёплый гаснущий тон и стерео-тремоло — соул, джаз, трип-хоп (в духе Portishead, Massive Attack).', en: 'A soft bell-like attack, a warm fading tone and stereo tremolo — soul, jazz, trip-hop.' },
+    note: { ru: 'Мягкий колокольный удар, тёплый гаснущий тон и стерео-тремоло — соул, джаз, трип-хоп.', en: 'A soft bell-like attack, a warm fading tone and stereo tremolo — soul, jazz, trip-hop.' },
     chain: [
       { type: 'synth', osc1: 5, fm_ratio: 1, fm_index: 1.8, fm_decay_s: 0.6, osc2: 4, osc2_semi: 12, osc_mix: 0.1, cutoff_hz: 6000, attack_s: 0.002, decay_s: 1.5, sustain: 0.4, release_s: 0.4, output_db: 0 },
       { type: 'tremolo', rate_hz: 4, depth: 0.3, shape: 0, stereo: 1 },
@@ -661,7 +661,7 @@ export const fxPresets = [
   {
     id: 'synth-wurlitzer', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Wurlitzer с тремоло', en: 'Wurlitzer with tremolo' },
-    note: { ru: 'Более резкое и «гнусавое» электропиано с лёгкой грязью и пульсирующей громкостью — инди и соул (в духе Supertramp, Ray Charles).', en: 'A sharper, nasal electric piano with a little dirt and pulsing volume — indie and soul.' },
+    note: { ru: 'Более резкое и «гнусавое» электропиано с лёгкой грязью и пульсирующей громкостью — инди и соул.', en: 'A sharper, nasal electric piano with a little dirt and pulsing volume — indie and soul.' },
     chain: [
       { type: 'synth', osc1: 5, fm_ratio: 1, fm_index: 3, fm_decay_s: 0.25, cutoff_hz: 5000, attack_s: 0.002, decay_s: 1, sustain: 0.3, release_s: 0.3, output_db: 0 },
       { type: 'drive', gain_db: 10, mix: 0.3 },
@@ -671,7 +671,7 @@ export const fxPresets = [
   {
     id: 'synth-dx7-ep', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Электропиано DX7', en: 'DX7 electric piano' },
-    note: { ru: 'Стеклянный звонкий удар поверх мягкого тела и хорус — главная баллада 80-х (в духе Whitney Houston, a-ha).', en: 'A glassy ringing attack over a soft body with chorus — THE 80s ballad sound.' },
+    note: { ru: 'Стеклянный звонкий удар поверх мягкого тела и хорус — главная баллада 80-х.', en: 'A glassy ringing attack over a soft body with chorus — THE 80s ballad sound.' },
     chain: [
       { type: 'synth', osc1: 5, fm_ratio: 14, fm_index: 1.2, fm_decay_s: 0.08, osc2: 4, osc_mix: 0.5, cutoff_hz: 10000, attack_s: 0.001, decay_s: 1.2, sustain: 0.3, release_s: 0.5, output_db: 0 },
       { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.6, mix: 0.4 },
@@ -680,7 +680,7 @@ export const fxPresets = [
   {
     id: 'synth-clavinet', stems: ['synth'], group: 'synth-keys', style: 'pulse', octave: 2,   // пульс считается от C2 (бас) — клавинет на 2 октавы выше, C4
     name: { ru: 'Клавинет', en: 'Clavinet' },
-    note: { ru: 'Щёлкающая струна с «квакающим» фильтром короткими нотами — фанк (в духе Stevie Wonder «Superstition»).', en: 'A clicky string with a quacky filter in short notes — funk.' },
+    note: { ru: 'Щёлкающая струна с «квакающим» фильтром короткими нотами — фанк.', en: 'A clicky string with a quacky filter in short notes — funk.' },
     chain: [
       { type: 'synth', osc1: 2, pwm: 0.15, cutoff_hz: 3000, resonance: 0.3, env_amount: 0.6, f_attack_s: 0.001, f_decay_s: 0.15, attack_s: 0.001, decay_s: 0.3, sustain: 0.2, release_s: 0.08, output_db: 0 },
       { type: 'phaser', stages: 4, rate_hz: 0.6, depth: 0.5, feedback: 0.3, mix: 0.3 },
@@ -689,7 +689,7 @@ export const fxPresets = [
   {
     id: 'synth-harpsichord', stems: ['synth'], group: 'synth-keys', style: 'arp', octave: 1,
     name: { ru: 'Клавесин', en: 'Harpsichord' },
-    note: { ru: 'Яркий щипок без сустейна, перебор по аккорду — барокко внутри поп-песни (в духе The Stranglers «Golden Brown», Beatles).', en: 'A bright pluck without sustain, arpeggiated over the chord — baroque inside a pop song.' },
+    note: { ru: 'Яркий щипок без сустейна, перебор по аккорду — барокко внутри поп-песни.', en: 'A bright pluck without sustain, arpeggiated over the chord — baroque inside a pop song.' },
     chain: [
       { type: 'synth', osc1: 0, osc2: 2, osc2_semi: 12, osc_mix: 0.4, pwm: 0.3, cutoff_hz: 7000, env_amount: 0.3, f_decay_s: 0.2, attack_s: 0.001, decay_s: 0.8, sustain: 0, release_s: 0.2, output_db: 0 },
       { type: 'eq', highpass_hz: 200 },
@@ -699,7 +699,7 @@ export const fxPresets = [
   {
     id: 'synth-theremin', stems: ['synth'], group: 'synth-lead', style: 'drone', octave: 1,
     name: { ru: 'Терменвокс', en: 'Theremin' },
-    note: { ru: 'Поющий синус с широким вибрато и медленным входом — жутковато, как в старой фантастике (в духе Pixies, саундтреков 50-х).', en: 'A singing sine with wide vibrato and a slow entry — eerie, like old sci-fi.' },
+    note: { ru: 'Поющий синус с широким вибрато и медленным входом — жутковато, как в старой фантастике.', en: 'A singing sine with wide vibrato and a slow entry — eerie, like old sci-fi.' },
     chain: [
       { type: 'synth', osc1: 4, vib_rate: 6, vib_cents: 25, cutoff_hz: 8000, attack_s: 0.15, decay_s: 0.1, sustain: 1, release_s: 0.3, output_db: 0 },
       { type: 'reverb', decay_s: 2, predelay_ms: 20, lowpass_hz: 7000, wet: 0.3 },
@@ -708,7 +708,7 @@ export const fxPresets = [
   {
     id: 'synth-stylophone', stems: ['synth'], group: 'synth-lead', style: 'arp', octave: 1,
     name: { ru: 'Стилофон', en: 'Stylophone' },
-    note: { ru: 'Жужжащий карманный синт со стилусом и вибрато — дёшево, смешно и узнаваемо (в духе Bowie «Space Oddity»).', en: 'A buzzy pocket stylus synth with vibrato — cheap, funny and unmistakable.' },
+    note: { ru: 'Жужжащий карманный синт со стилусом и вибрато — дёшево, смешно и узнаваемо.', en: 'A buzzy pocket stylus synth with vibrato — cheap, funny and unmistakable.' },
     chain: [
       { type: 'synth', osc1: 2, pwm: 0.3, cutoff_hz: 5000, vib_rate: 5.5, vib_cents: 15, attack_s: 0.003, decay_s: 0.1, sustain: 1, release_s: 0.05, output_db: 0 },
       { type: 'tape', wow: 0.1, flutter: 0.2, saturation: 0.3, lowpass_hz: 8000, hiss: 0.05 },
@@ -726,7 +726,7 @@ export const fxPresets = [
   {
     id: 'synth-celesta', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1, place: { pan: 0, width: 1.4 },
     name: { ru: 'Челеста / колокольчики', en: 'Celesta / bells' },
-    note: { ru: 'Колокольчики с мягким хвостом в зале — сказочно, по-зимнему (в духе Чайковского «Феи Драже», Björk).', en: 'Bells with a soft tail in a hall — fairy-tale, wintry.' },
+    note: { ru: 'Колокольчики с мягким хвостом в зале — сказочно, по-зимнему.', en: 'Bells with a soft tail in a hall — fairy-tale, wintry.' },
     chain: [
       { type: 'synth', osc1: 5, fm_ratio: 4, fm_index: 1.5, fm_decay_s: 0.3, cutoff_hz: 12000, attack_s: 0.001, decay_s: 2, sustain: 0, release_s: 1, output_db: 0 },
       { type: 'reverb', decay_s: 2.5, predelay_ms: 20, lowpass_hz: 9000, wet: 0.3 },
@@ -735,7 +735,7 @@ export const fxPresets = [
   {
     id: 'synth-omnichord', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1, place: { pan: 0, width: 1.4 },
     name: { ru: 'Омникорд', en: 'Omnichord' },
-    note: { ru: 'Электронная «арфа» 80-х: перебор аккорда мягкими колокольными нотами с хорусом — мечтательно (в духе Eno, Gorillaz).', en: 'An 80s electronic "harp": the chord strummed in soft bell notes with chorus — dreamy.' },
+    note: { ru: 'Электронная «арфа» 80-х: перебор аккорда мягкими колокольными нотами с хорусом — мечтательно.', en: 'An 80s electronic "harp": the chord strummed in soft bell notes with chorus — dreamy.' },
     chain: [
       { type: 'synth', osc1: 5, fm_ratio: 2, fm_index: 1, fm_decay_s: 0.4, cutoff_hz: 9000, attack_s: 0.002, decay_s: 1.5, sustain: 0.1, release_s: 0.6, output_db: 0 },
       { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.8, mix: 0.4 },
@@ -744,7 +744,7 @@ export const fxPresets = [
   {
     id: 'synth-casio', stems: ['synth'], group: 'synth-toy', style: 'pulse', octave: 2,   // от C2 — игрушка в среднем регистре
     name: { ru: 'Casio-игрушка', en: 'Casio toy keyboard' },
-    note: { ru: 'Пищащий квадрат детского синтезатора через заезженную ленту — лоуфай и инди (в духе Trio «Da Da Da», Daniel Johnston).', en: 'The squeaky square of a kids keyboard through worn tape — lo-fi and indie.' },
+    note: { ru: 'Пищащий квадрат детского синтезатора через заезженную ленту — лоуфай и инди.', en: 'The squeaky square of a kids keyboard through worn tape — lo-fi and indie.' },
     chain: [
       { type: 'synth', osc1: 1, osc2: 1, osc2_semi: 12, osc_mix: 0.2, cutoff_hz: 4000, attack_s: 0.002, decay_s: 0.4, sustain: 0.6, release_s: 0.08, output_db: 0 },
       { type: 'tape', wow: 0.2, flutter: 0.2, saturation: 0.4, lowpass_hz: 7000, hiss: 0.1 },

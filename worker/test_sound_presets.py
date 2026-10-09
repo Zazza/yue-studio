@@ -37,8 +37,18 @@ from test_pure import _HAS_WORKER_DEPS, _WorkerApiCase
 
 _SKIP = "нужны fastapi/httpx/numpy (окружение воркера)"
 
-# этап 2, условие 18 (internal-own-track): третий встроенный — live-rhythm
-BUILTIN_SLUGS = {"transmission", "sex-on-fire", "live-rhythm"}
+# этап 2, условие 18 (internal-own-track): третий встроенный — live-rhythm; этап 8б, условие 72: плюс жанровые
+# пресеты (worker/genres.py) — встроенные теперь из кода, прежние три среди них
+LEGACY_SLUGS = {"transmission", "sex-on-fire", "live-rhythm"}
+
+
+def _builtin_slugs() -> set:
+    import presets
+    return {b["slug"] for b in presets.BUILTIN}
+
+
+BUILTIN_SLUGS = _builtin_slugs()
+assert LEGACY_SLUGS <= BUILTIN_SLUGS, "прежние встроенные пропали"
 NB = len(BUILTIN_SLUGS)
 # валидная цепочка движка: блок eq из fx_blocks.json
 ENGINE = [{"type": "eq", "highpass_hz": 80}]

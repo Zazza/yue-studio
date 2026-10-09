@@ -7,7 +7,7 @@ export function matchOptions(options, query) {
   const words = norm(query).split(/\s+/).filter(Boolean)
   if (!words.length) return [...options]
   return options.filter((o) => {
-    const label = norm(o.label)
+    const label = norm(o.label) + (o.search ? ' ' + norm(o.search) : '')   // search — доп. текст поиска (семья, течение)
     return words.every((w) => label.includes(w))
   })
 }

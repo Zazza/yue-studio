@@ -1,14 +1,24 @@
 <script setup>
 // Выбор пресетов звука в форме нового трека: чипы, до трёх. Пресеты применит приложение, когда
 // трек будет готов (версии «· пресет» появятся под треком). У черновика не показывается.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import VSelect from '../VSelect.vue'
 import { useI18n } from '../i18n/index.js'
 import { api } from '../api.js'
-import { togglePreset } from '../soundPresets.js'
+import { togglePreset, presetOptions } from '../soundPresets.js'
 
 const ids = defineModel({ type: Array, default: () => [] })
 const { t } = useI18n()
 const presets = ref([])
+// пресетов около сотни: выбор из списка с поиском по семьям и течениям, выбранные — чипами (до трёх)
+const options = computed(() => presetOptions(presets.value).map((o) => (typeof o.value === 'number'
+  ? { ...o, disabled: !ids.value.includes(o.value) && ids.value.length >= 3 } : o)))
+const picked = computed(() => ids.value.map((id) => presets.value.find((p) => p.id === id)).filter(Boolean))
+const pick = ref(null)
+function add(id) {
+  if (typeof id === 'number' && !ids.value.includes(id)) ids.value = togglePreset(ids.value, id)
+  pick.value = null
+}
 
 onMounted(async () => {
   try { presets.value = (await api.soundPresets()) || [] } catch { presets.value = []; return }   // старый воркер/сбой — выбор не трогаем
@@ -21,9 +31,9 @@ onMounted(async () => {
 <template>
   <div v-if="presets.length" class="preset-chips">
     <span class="muted" :title="t('preset.form.tip')">{{ t('preset.form') }}</span>
-    <button v-for="p in presets" :key="p.id" class="toggle" :class="{ on: ids.includes(p.id) }"
-            :disabled="!ids.includes(p.id) && ids.length >= 3" :title="p.note"
-            @click="ids = togglePreset(ids, p.id)">{{ p.name }}</button>
+    <VSelect :model-value="pick" :options="options" searchable style="max-width: 320px" @update:model-value="add" />
+    <button v-for="p in picked" :key="p.id" class="toggle on" :title="p.note"
+            @click="ids = togglePreset(ids, p.id)">{{ p.name }} ×</button>
   </div>
 </template>
 

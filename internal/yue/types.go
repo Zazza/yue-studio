@@ -259,8 +259,10 @@ type SoundPreset struct {
 	// Master — цепочка движка на весь микс на воркере после финала (glue, limiter…); пусто — нет
 	Master []map[string]any `json:"master"`
 	// Parts — партии-рецепты (синт по аккордам, перкуссия по сетке), добавляются поверх трека
-	Parts   []PresetPart `json:"parts,omitempty"`
-	Builtin bool         `json:"builtin,omitempty"`
+	Parts []PresetPart `json:"parts,omitempty"`
+	// Family — семья жанрового пресета (Рок, Тяжёлое, Электроника, Поп и другое); свои — ""
+	Family  string `json:"family,omitempty"`
+	Builtin bool   `json:"builtin,omitempty"`
 }
 
 // JobPreset — пресет у трека: pending (ждёт) → running (применяется) → done (ChildID — версия) | error.

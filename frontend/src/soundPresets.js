@@ -72,3 +72,50 @@ export function withLevels(preset, levels) {
   }
   return out
 }
+
+// семьи жанровых пресетов звука — в этом порядке; свои (family '') — в конце, «Мои»
+export const PRESET_FAMILIES = ['Рок', 'Тяжёлое', 'Электроника', 'Поп и другое']
+const OWN = 'Мои'
+
+/** Течение пресета — часть названия до « · » (нет разделителя — всё название). */
+export function presetGenre(p) {
+  const name = String((p && p.name) || '')
+  const i = name.indexOf(' · ')
+  return i > 0 ? name.slice(0, i) : name
+}
+
+/** Пресеты по семьям и течениям: [{family, label, genres: [{genre, items}]}]; семьи — в порядке PRESET_FAMILIES,
+ *  неизвестные — следом по первому появлению, свои (family '') — последними; течения и пресеты — по порядку входа. */
+export function presetTree(presets) {
+  const fams = new Map()
+  for (const p of presets || []) {
+    const f = (p && p.family) || ''
+    if (!fams.has(f)) fams.set(f, new Map())
+    const g = presetGenre(p)
+    const genres = fams.get(f)
+    if (!genres.has(g)) genres.set(g, [])
+    genres.get(g).push(p)
+  }
+  const known = PRESET_FAMILIES.filter((f) => fams.has(f))
+  const other = [...fams.keys()].filter((f) => f && !PRESET_FAMILIES.includes(f))
+  const order = [...known, ...other, ...(fams.has('') ? [''] : [])]
+  return order.map((f) => ({
+    family: f,
+    label: f || OWN,
+    genres: [...fams.get(f)].map(([genre, items]) => ({ genre, items })),
+  }))
+}
+
+/** Опции выбора (VSelect): перед пресетами каждого течения — неактивный заголовок «— семья · течение —». */
+export function presetOptions(presets) {
+  const out = []
+  for (const f of presetTree(presets)) {
+    for (const g of f.genres) {
+      const head = `— ${f.label} · ${g.genre} —`
+      out.push({ value: `head:${f.family}:${g.genre}`, label: head, title: head, disabled: true })
+      // search — поиск по семье и течению («электроника» находит пресеты, а не только заголовок)
+      for (const p of g.items) out.push({ value: p.id, label: p.name, title: p.note || p.name, search: `${f.label} ${g.genre}` })
+    }
+  }
+  return out
+}

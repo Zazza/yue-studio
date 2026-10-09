@@ -236,18 +236,20 @@ def _migrate():
             conn.execute("ALTER TABLE sound_presets ADD COLUMN master TEXT NOT NULL DEFAULT '[]'")
         if "parts" not in cols:    # партии-рецепты (этап 8): синт по аккордам, перкуссия по сетке
             conn.execute("ALTER TABLE sound_presets ADD COLUMN parts TEXT NOT NULL DEFAULT '[]'")
+        if "family" not in cols:   # семья жанровых пресетов (этап 8б): Рок, Тяжёлое, Электроника, Поп и другое
+            conn.execute("ALTER TABLE sound_presets ADD COLUMN family TEXT NOT NULL DEFAULT ''")
         # встроенные — upsert по slug: рецепт из кода (правка встроенного доходит до старой базы), id
         # прежний; пользователь их не меняет и не удаляет, свои пресеты (slug NULL) не трогаются
         for b in sound_presets.BUILTIN:
             conn.execute(
                 "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,master,parts,"
-                "builtin,created_at) VALUES(?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET "
+                "family,builtin,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET "
                 "name=excluded.name, note=excluded.note, specs=excluded.specs, final=excluded.final, "
                 "reference_job_id=excluded.reference_job_id, target_lufs=excluded.target_lufs, "
-                "master=excluded.master, parts=excluded.parts, builtin=1",
+                "master=excluded.master, parts=excluded.parts, family=excluded.family, builtin=1",
                 (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
                  b["reference_job_id"], b.get("target_lufs"), json.dumps(b.get("master", [])),
-                 json.dumps(b.get("parts", [])), "2026-10-08T00:00:00"))
+                 json.dumps(b.get("parts", [])), b.get("family", ""), "2026-10-08T00:00:00"))
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1138,7 +1140,7 @@ def _preset_dict(row) -> dict:
             "specs": json.loads(row["specs"] or "[]"), "final": json.loads(row["final"] or "[]"),
             "reference_job_id": row["reference_job_id"], "target_lufs": row["target_lufs"],
             "master": json.loads(row["master"] or "[]"), "parts": json.loads(row["parts"] or "[]"),
-            "builtin": bool(row["builtin"])}
+            "family": row["family"] or "", "builtin": bool(row["builtin"])}
 
 
 def _parse_engine(chain):

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 
+import genres
+
 NAME_MAX = 80
 NOTE_MAX = 500
 SPECS_MAX = 16
@@ -334,7 +336,7 @@ def _part(stem, sampler):
 # встроенные пресеты: рецепты человека, собраны вручную через MCP и проверены на #376 и #383
 BUILTIN = [
     {
-        "slug": "transmission", "name": "Пост-панк · Transmission", "reference_job_id": 376,
+        "slug": "transmission", "name": "Пост-панк · голос и бас впереди", "family": "Рок", "reference_job_id": 376,
         "note": "Живые бочка и малый, бас-гитара с серединой, гитары с провалом на 2,5 кГц, голос вперёд; "
                 "шире и громче. Без песка верхов и мастера: песок давал «свист».",
         "specs": [
@@ -350,7 +352,7 @@ BUILTIN = [
         "final": [{"chain": "width", "params": {"width": 1.1, "bass": 120}}], "target_lufs": -13.0,
     },
     {
-        "slug": "sex-on-fire", "name": "Инди-рок · Sex on Fire", "reference_job_id": 383,
+        "slug": "sex-on-fire", "name": "Инди-рок · широкий и громкий", "family": "Рок", "reference_job_id": 383,
         "note": "Живые бочка и малый, плотный бас, гитары без резкого верха, голос с присутствием; "
                 "закрытый верх, широко, громко. Многополосный компрессор не класть — раздувает верх и давит бас.",
         "specs": [
@@ -364,7 +366,7 @@ BUILTIN = [
                   {"chain": "width", "params": {"width": 1.2, "bass": 150}}], "target_lufs": -12.0,
     },
     {
-        "slug": "live-rhythm", "name": "Живая ритм-секция", "reference_job_id": None,
+        "slug": "live-rhythm", "name": "Живая ритм-секция", "family": "Рок", "reference_job_id": None,
         "note": "Все барабаны и бас — настоящими сэмплами: бочка, малый, тамы по высоте, хэт (открытый/закрытый), "
                 "райд, крэш с короткой комнатой; бас-гитара по нотам. Остальное как было, громкость не трогается.",
         "specs": [
@@ -382,3 +384,5 @@ BUILTIN = [
         "final": [], "target_lufs": None,
     },
 ]
+# жанровые пресеты (этап 8б): стиль трека целиком из готовых цепочек студии — worker/genres.py
+BUILTIN += genres.build()
