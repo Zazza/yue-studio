@@ -12,10 +12,12 @@ import { usePlayer } from '../composables/usePlayer.js'
 import { useWindowPlay } from '../composables/useWindowPlay.js'
 import ChainEditor from './ChainEditor.vue'
 import PlaceControls from './PlaceControls.vue'
+import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
 import { groupPresets } from '../presetGroups.js'
+import { DRUM_KITS, DRUM_TREATMENTS } from '../drumKits.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { insertTitle, insertWindow } from '../insertLabels.js'
 import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection, stemLevels, stemAudibility } from '../trackDesk.js'
@@ -163,8 +165,13 @@ async function apply() {
 }
 
 // ритм-секция набором: все части барабанов и бас, что есть у трека, — одной пересборкой
-const room = ref(true)
-const rhythm = computed(() => rhythmSection(props.stems.map((s) => s.name), fxPresets, room.value, locale.value))
+// набор (живой или драм-машина) и обработка (по умолчанию — комната, как было)
+const drumKit = ref('osdk')
+const treatment = ref('room')
+const kitOptions = computed(() => DRUM_KITS.map((k) => ({ value: k.id, label: tr(k.name) })))
+const treatOptions = computed(() => DRUM_TREATMENTS.map((x) => ({ value: x.id, label: tr(x.name) })))
+const kitNote = computed(() => tr((DRUM_KITS.find((k) => k.id === drumKit.value) || {}).note))
+const rhythm = computed(() => rhythmSection(props.stems.map((s) => s.name), fxPresets, treatment.value, locale.value, drumKit.value))
 // окно ритм-секции — всегда выделение (нет — весь трек), не окно открытой на правку записи
 const rhythmWin = computed(() => applyWindow(props.sel))
 const rhythmCaption = computed(() => (rhythmWin.value.to > 0
@@ -232,7 +239,8 @@ async function upload(kind) {
   <div v-if="stems.length" class="dsp-row">
     <button class="primary small" :disabled="!!busy || !rhythm.length" :title="t('desk.rhythm.tip')" @click="applyRhythm">
       {{ busy === 'rhythm' ? t('instr.busy') : busy === 'kit' ? t('instr.kit.busy') : t('desk.rhythm') }}</button>
-    <label class="muted" :title="t('desk.room.tip')"><input v-model="room" type="checkbox" /> {{ t('desk.room') }}</label>
+    <span :title="kitNote"><VSelect v-model="drumKit" :options="kitOptions" style="max-width: 260px" /></span>
+    <span :title="t('desk.room.tip')"><VSelect v-model="treatment" :options="treatOptions" style="max-width: 190px" /></span>
     <span v-if="!rhythm.length" class="muted">{{ t('desk.rhythm.none') }}</span>
     <span v-else class="muted">{{ rhythm.map((r) => stemName(r.stem)).join(', ') }} · {{ rhythmCaption }}</span>
   </div>

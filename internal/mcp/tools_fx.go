@@ -133,8 +133,11 @@ func registerFxTools(s *Server) {
 			"закрытый/полузакрытый/полуоткрытый, райд, крэш; общественное достояние) для блока sampler; growlybass — " +
 			"бас-гитара Squier Jazz (Karoryfer, CC0) для блока bass. Повтор — без перекачки, недостающие части " +
 			"докачиваются. Наборы и их части — в fx_assets (kits: «osdk/kick», «osdk/snare», «osdk/hh-closed», " +
-			"«osdk/hh-half», «osdk/hh-open», «osdk/ride», «osdk/crash», «growlybass/bass»).",
-		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass", "string")}, "name"),
+			"«osdk/hh-half», «osdk/hh-open», «osdk/ride», «osdk/crash», «growlybass/bass»). " +
+			"Драм-машины tr808, tr909, linn, cr78, simmons и синт-басы synthbass воркер синтезирует сам, без сети: " +
+			"части машин — kick, snare, hh-closed, hh-open, ride, crash, tom-small, tom-medium, tom-large, clap, rim, " +
+			"cowbell («tr808/kick» … — блоки sampler и perc), synthbass — moog, sub808, acid (блок bass).",
+		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass | tr808 | tr909 | linn | cr78 | simmons | synthbass", "string")}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			out, err := s.client.InstallFxKit(context.Background(), argString(args, "name"))
 			if err != nil {

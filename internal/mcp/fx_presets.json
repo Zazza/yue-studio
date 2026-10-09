@@ -1055,6 +1055,7 @@
   "stems": [
    "kick"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Бочка: набор",
    "en": "Kick: kit"
@@ -1077,6 +1078,7 @@
   "stems": [
    "snare"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Малый: набор",
    "en": "Snare: kit"
@@ -1099,6 +1101,7 @@
   "stems": [
    "toms"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Тамы: набор по высоте",
    "en": "Toms: kit by pitch"
@@ -1123,6 +1126,7 @@
   "stems": [
    "hh"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Хэт: набор",
    "en": "Hi-hat: kit"
@@ -1147,6 +1151,7 @@
   "stems": [
    "ride"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Райд: набор",
    "en": "Ride: kit"
@@ -1169,6 +1174,7 @@
   "stems": [
    "crash"
   ],
+  "group": "drum-kits",
   "name": {
    "ru": "Крэш: набор",
    "en": "Crash: kit"
@@ -1187,10 +1193,721 @@
   ]
  },
  {
+  "id": "drums-kick-tr808",
+  "stems": [
+   "kick"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Бочка: Драм-машина 808",
+   "en": "Kick: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr808/kick"
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-tr808",
+  "stems": [
+   "snare"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Малый: Драм-машина 808",
+   "en": "Snare: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -20,
+    "output_db": -2,
+    "kit": "tr808/snare"
+   }
+  ]
+ },
+ {
+  "id": "drums-toms-tr808",
+  "stems": [
+   "toms"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Тамы: Драм-машина 808",
+   "en": "Toms: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr808/tom-small",
+    "kit_mid": "tr808/tom-medium",
+    "kit_low": "tr808/tom-large"
+   }
+  ]
+ },
+ {
+  "id": "drums-hh-tr808",
+  "stems": [
+   "hh"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Хэт: Драм-машина 808",
+   "en": "Hi-hat: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -24,
+    "output_db": 4,
+    "kit": "tr808/hh-closed",
+    "kit_open": "tr808/hh-open",
+    "choke": 1
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-tr808",
+  "stems": [
+   "ride"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Райд: Драм-машина 808",
+   "en": "Ride: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr808/ride"
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-tr808",
+  "stems": [
+   "crash"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Крэш: Драм-машина 808",
+   "en": "Crash: 808 drum machine"
+  },
+  "note": {
+   "ru": "Гулкая низкая бочка, щёлкающий малый, металлический хэт — электро, хип-хоп, синти-поп 80-х.",
+   "en": "A booming low kick, a snappy snare, a metallic hat — electro, hip-hop, 80s synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr808/crash"
+   }
+  ]
+ },
+ {
+  "id": "drums-kick-tr909",
+  "stems": [
+   "kick"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Бочка: Драм-машина 909",
+   "en": "Kick: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr909/kick"
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-tr909",
+  "stems": [
+   "snare"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Малый: Драм-машина 909",
+   "en": "Snare: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -20,
+    "output_db": -2,
+    "kit": "tr909/snare"
+   }
+  ]
+ },
+ {
+  "id": "drums-toms-tr909",
+  "stems": [
+   "toms"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Тамы: Драм-машина 909",
+   "en": "Toms: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr909/tom-small",
+    "kit_mid": "tr909/tom-medium",
+    "kit_low": "tr909/tom-large"
+   }
+  ]
+ },
+ {
+  "id": "drums-hh-tr909",
+  "stems": [
+   "hh"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Хэт: Драм-машина 909",
+   "en": "Hi-hat: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -24,
+    "output_db": 4,
+    "kit": "tr909/hh-closed",
+    "kit_open": "tr909/hh-open",
+    "choke": 1
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-tr909",
+  "stems": [
+   "ride"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Райд: Драм-машина 909",
+   "en": "Ride: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr909/ride"
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-tr909",
+  "stems": [
+   "crash"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Крэш: Драм-машина 909",
+   "en": "Crash: 909 drum machine"
+  },
+  "note": {
+   "ru": "Плотная бочка с ударом, шумный яркий малый — хаус, техно, индастриал.",
+   "en": "A punchy kick, a noisy bright snare — house, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "tr909/crash"
+   }
+  ]
+ },
+ {
+  "id": "drums-kick-linn",
+  "stems": [
+   "kick"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Бочка: Сэмплерная машина 80-х (Linn)",
+   "en": "Kick: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "linn/kick"
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-linn",
+  "stems": [
+   "snare"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Малый: Сэмплерная машина 80-х (Linn)",
+   "en": "Snare: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -20,
+    "output_db": -2,
+    "kit": "linn/snare"
+   }
+  ]
+ },
+ {
+  "id": "drums-toms-linn",
+  "stems": [
+   "toms"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Тамы: Сэмплерная машина 80-х (Linn)",
+   "en": "Toms: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "linn/tom-small",
+    "kit_mid": "linn/tom-medium",
+    "kit_low": "linn/tom-large"
+   }
+  ]
+ },
+ {
+  "id": "drums-hh-linn",
+  "stems": [
+   "hh"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Хэт: Сэмплерная машина 80-х (Linn)",
+   "en": "Hi-hat: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -24,
+    "output_db": 4,
+    "kit": "linn/hh-closed",
+    "kit_open": "linn/hh-open",
+    "choke": 1
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-linn",
+  "stems": [
+   "ride"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Райд: Сэмплерная машина 80-х (Linn)",
+   "en": "Ride: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "linn/ride"
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-linn",
+  "stems": [
+   "crash"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Крэш: Сэмплерная машина 80-х (Linn)",
+   "en": "Crash: 80s sample machine (Linn)"
+  },
+  "note": {
+   "ru": "Сухие короткие удары с зерном старого 8-битного сэмплера — нью-вейв и поп 80-х.",
+   "en": "Dry short hits with the grain of an old 8-bit sampler — 80s new wave and pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "linn/crash"
+   }
+  ]
+ },
+ {
+  "id": "drums-kick-cr78",
+  "stems": [
+   "kick"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Бочка: Ранняя ритм-машина (CR-78)",
+   "en": "Kick: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "cr78/kick"
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-cr78",
+  "stems": [
+   "snare"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Малый: Ранняя ритм-машина (CR-78)",
+   "en": "Snare: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -20,
+    "output_db": -2,
+    "kit": "cr78/snare"
+   }
+  ]
+ },
+ {
+  "id": "drums-toms-cr78",
+  "stems": [
+   "toms"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Тамы: Ранняя ритм-машина (CR-78)",
+   "en": "Toms: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "cr78/tom-small",
+    "kit_mid": "cr78/tom-medium",
+    "kit_low": "cr78/tom-large"
+   }
+  ]
+ },
+ {
+  "id": "drums-hh-cr78",
+  "stems": [
+   "hh"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Хэт: Ранняя ритм-машина (CR-78)",
+   "en": "Hi-hat: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -24,
+    "output_db": 4,
+    "kit": "cr78/hh-closed",
+    "kit_open": "cr78/hh-open",
+    "choke": 1
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-cr78",
+  "stems": [
+   "ride"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Райд: Ранняя ритм-машина (CR-78)",
+   "en": "Ride: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "cr78/ride"
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-cr78",
+  "stems": [
+   "crash"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Крэш: Ранняя ритм-машина (CR-78)",
+   "en": "Crash: Early rhythm box (CR-78)"
+  },
+  "note": {
+   "ru": "Мягкие тихие «тук-тс» ранней ритм-машины — холодный минимализм, пост-панк, ранний синти-поп.",
+   "en": "Soft quiet ticks of an early rhythm box — cold minimalism, post-punk, early synth-pop."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "cr78/crash"
+   }
+  ]
+ },
+ {
+  "id": "drums-kick-simmons",
+  "stems": [
+   "kick"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Бочка: Электронные барабаны 80-х (Simmons)",
+   "en": "Kick: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "simmons/kick"
+   }
+  ]
+ },
+ {
+  "id": "drums-snare-simmons",
+  "stems": [
+   "snare"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Малый: Электронные барабаны 80-х (Simmons)",
+   "en": "Snare: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -20,
+    "output_db": -2,
+    "kit": "simmons/snare"
+   }
+  ]
+ },
+ {
+  "id": "drums-toms-simmons",
+  "stems": [
+   "toms"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Тамы: Электронные барабаны 80-х (Simmons)",
+   "en": "Toms: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "simmons/tom-small",
+    "kit_mid": "simmons/tom-medium",
+    "kit_low": "simmons/tom-large"
+   }
+  ]
+ },
+ {
+  "id": "drums-hh-simmons",
+  "stems": [
+   "hh"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Хэт: Электронные барабаны 80-х (Simmons)",
+   "en": "Hi-hat: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -24,
+    "output_db": 4,
+    "kit": "simmons/hh-closed",
+    "kit_open": "simmons/hh-open",
+    "choke": 1
+   }
+  ]
+ },
+ {
+  "id": "drums-ride-simmons",
+  "stems": [
+   "ride"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Райд: Электронные барабаны 80-х (Simmons)",
+   "en": "Ride: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "simmons/ride"
+   }
+  ]
+ },
+ {
+  "id": "drums-crash-simmons",
+  "stems": [
+   "crash"
+  ],
+  "group": "drum-kits",
+  "name": {
+   "ru": "Крэш: Электронные барабаны 80-х (Simmons)",
+   "en": "Crash: 80s electronic drums (Simmons)"
+  },
+  "note": {
+   "ru": "Тамы с «пью» — высота падает на ударе, синтетический малый — 80-е, готика, синти-рок.",
+   "en": "Toms that go \"pew\" — pitch drops on the hit, a synthetic snare — 80s, goth, synth rock."
+  },
+  "chain": [
+   {
+    "type": "sampler",
+    "floor_db": -18,
+    "output_db": -2,
+    "kit": "simmons/crash"
+   }
+  ]
+ },
+ {
   "id": "bass-kit",
   "stems": [
    "bass"
   ],
+  "group": "bass-kit",
   "name": {
    "ru": "Бас: бас-гитара (набор)",
    "en": "Bass: bass guitar (kit)"
@@ -1203,6 +1920,75 @@
    {
     "type": "bass",
     "kit": "growlybass/bass",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-synth-moog",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: синт Moog (набор)",
+   "en": "Bass: Moog synth (kit)"
+  },
+  "note": {
+   "ru": "Ноты баса трека играет синт-бас: пила с квадратом через фильтр со «щелчком» — плотный аналоговый бас нью-вейва и синти-попа.",
+   "en": "The track bass notes played by a synth bass: saw plus square through a plucky filter — a dense analog new wave and synth-pop bass."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "synthbass/moog",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-synth-sub808",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: 808 саб (набор)",
+   "en": "Bass: 808 sub (kit)"
+  },
+  "note": {
+   "ru": "Ноты баса трека — гудящий низкий синус драм-машины с лёгкой грязью, медленно гаснет: хип-хоп, трип-хоп, мрачная электроника.",
+   "en": "The track bass notes as a booming low drum-machine sine with a little dirt, slowly fading: hip-hop, trip-hop, dark electronics."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "synthbass/sub808",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-synth-acid",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: эйсид 303 (набор)",
+   "en": "Bass: acid 303 (kit)"
+  },
+  "note": {
+   "ru": "Ноты баса трека — пила через резонансный фильтр, «квакающая» на каждой ноте: эйсид, техно, индастриал.",
+   "en": "The track bass notes as a saw through a resonant filter that \"quacks\" on every note: acid, techno, industrial."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "synthbass/acid",
     "division": 2,
     "floor_db": -20
    }

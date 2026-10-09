@@ -2866,6 +2866,11 @@ class _FxResources:
             out.append(x)
         return out, sr
 
+    def kit_names(self, name: str) -> list:
+        """Имена сэмплов набора без расширения — в том же порядке, что kit() (высота из имени у синтезированных)."""
+        d = _kit_path(name)
+        return [f.stem for f in sorted(d.glob("*.wav"))] if d.is_dir() else []
+
     def close(self) -> None:
         for m in self._amps.values():
             m.close()
@@ -3259,12 +3264,13 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, windowed, track
     fade = int(round(req.fade * sr))
     stop = min(b + fade, n)              # вход: до to и спад края после него
     end = min(stop + int(tail * sr), n)
+    import fx_engine
     key = {"source": req.source, "chain": chain, "from": req.from_, "to": req.to,
-           "output": req.output, "files": _fx_stamp(used, chain)}
+           "output": req.output, "files": _fx_stamp(used, chain), "engine": fx_engine.ENGINE_VERSION}
     if req.file:
         key["file"] = req.file           # версия файла — в files (mtime)
     if fade:
-        key["fade"] = req.fade           # без края — ключ как у превью этапа 3 (кэш не сбрасывается)
+        key["fade"] = req.fade           # без края — поля нет (ключ меняют только версия движка и сам запрос)
     if req.pad:
         key["pad"] = True
     if req.add:
@@ -3368,7 +3374,11 @@ FX_KITS = {
         "parts": {"bass": ("sustain", r"[\w-]+\.wav")},
         "max_s": 6.0,  # сэмпл читается не дольше: 224 файла по 6 с (долгая нота целиком, память — 240 МБ)
     },
+    # драм-машины и синт-басы — воркер синтезирует сам (drumsynth.py): без сети и чужих лицензий
+    **{k: {"synth": "drums"} for k in ("tr808", "tr909", "linn", "cr78", "simmons")},
+    "synthbass": {"synth": "bass"},
 }
+FX_KIT_SR = 48000   # частота синтезированных наборов
 FX_KIT_PART_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 _fx_kit_locks: dict = {}               # установка одного набора — по одной (общий каталог .part)
 _fx_kit_locks_guard = threading.Lock()
@@ -3412,12 +3422,47 @@ def fx_kit_install(name: str = ""):
     if spec is None:
         raise HTTPException(422, f"unknown kit {name!r} (есть: {', '.join(FX_KITS)})")
     with _fx_kits_guard_for(name):
+        if spec.get("synth"):
+            return _fx_kit_generate(name, spec["synth"])
         return _fx_kit_install(name, spec)
 
 
 def _fx_kits_guard_for(name: str) -> threading.Lock:
     with _fx_kit_locks_guard:
         return _fx_kit_locks.setdefault(name, threading.Lock())
+
+
+def _fx_kit_generate(name: str, kind: str) -> dict:
+    """Синтезированный набор: части drumsynth (слои силы удара или ноты баса) → wav PCM 16 в каталог набора.
+    Есть часть — не пересчитывается; недописанная — во временном каталоге .part и в список не попадёт."""
+    import numpy as np
+    import soundfile as sf
+    import drumsynth
+    if kind == "drums":
+        parts = {p: [(f"v{k}", lambda p=p, k=k: drumsynth.render(name, p, k, FX_KIT_SR))
+                     for k in range(drumsynth.DRUM_LAYERS)] for p in drumsynth.KITS[name]}
+    else:
+        parts = {p: [(f"m{m}", lambda p=p, m=m: drumsynth.render_bass(p, m, FX_KIT_SR))
+                     for m in drumsynth.BASS_RANGE[p]] for p in drumsynth.BASS_KITS[name]}
+    out, generated = {}, False
+    for part, items in parts.items():
+        dst = _kits_dir() / name / part
+        have = list(dst.glob("*.wav")) if dst.is_dir() else []
+        if have:
+            out[part] = len(have)
+            continue
+        tmp = dst.with_name(dst.name + ".part")
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        for fname, fn in items:
+            y = np.clip(fn(), -1.0, 1.0)
+            sf.write(str(tmp / f"{fname}.wav"), y, FX_KIT_SR, subtype="PCM_16")
+        shutil.rmtree(dst, ignore_errors=True)
+        tmp.replace(dst)
+        out[part] = len(items)
+        generated = True
+        log.info("fx kit %s/%s: %d samples synthesized", name, part, len(items))
+    return {"name": name, "parts": out, "downloaded": False, "generated": generated}
 
 
 def _fx_kit_install(name: str, spec: dict) -> dict:

@@ -1,5 +1,6 @@
 // Пульт дорожек студии — чистая логика без DOM: строки дорожек с их правками, окно «было/стало»,
 // окно записи в трек, готовые цепочки для дорожки. Компонент — components/TrackDesk.vue.
+import { DRUM_KITS, DRUM_TREATMENTS, PART_NAMES, ROOM, kitSampler } from './drumKits.js'
 
 // порядок строк: голос, барабаны и их части, бас, гитара, клавиши, «прочее»
 export const DESK_ORDER = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other']
@@ -44,21 +45,35 @@ export function presetsFor(stem, presets) {
 // ритм-секция набором: часть → готовая цепочка «набором» (fxPresets), порядок — как в кнопке пульта
 const RHYTHM = [['kick', 'drums-kick-kit'], ['snare', 'drums-snare-kit'], ['toms', 'drums-toms-kit'],
   ['hh', 'drums-hh-kit'], ['ride', 'drums-ride-kit'], ['crash', 'drums-crash-kit'], ['bass', 'bass-kit']]
-// «комната» — короткое помещение вокруг сухих сэмплов барабанов (то же, что у пресета «Живая ритм-секция»)
-export const ROOM = { type: 'reverb', decay_s: 0.5, predelay_ms: 5, lowpass_hz: 7000, wet: 0.12 }
+export { ROOM }
 
-/** Ритм-секция одной записью: для частей барабанов и баса, которые есть у трека, — {stem, chain, label};
- *  room — к частям барабанов (не к басу) в конец комната; locale — язык подписи. Нет ни одной — []. */
-export function rhythmSection(stemNames, presets, room, locale = 'ru') {
+/** Ритм-секция одной записью: для частей барабанов и баса, которые есть у трека, — {stem, chain, label}.
+ *  room — true/false (комната/сухо, как раньше) или id обработки DRUM_TREATMENTS (неизвестный — сухо): цепочка
+ *  обработки — в конец каждой части барабанов, к басу — нет. kit — набор DRUM_KITS: 'osdk' — прежние готовые
+ *  цепочки; машина — sampler с частями набора и прочими параметрами osdk той же части. Нет ни одной — []. */
+export function rhythmSection(stemNames, presets, room, locale = 'ru', kit = 'osdk') {
   const have = new Set(stemNames || [])
+  const tid = room === true ? 'room' : (room === false || room == null ? 'dry' : String(room))
+  const treat = DRUM_TREATMENTS.find((x) => x.id === tid) || DRUM_TREATMENTS[0]
+  const set = DRUM_KITS.find((k) => k.id === kit) || DRUM_KITS[0]
+  const tr = (l) => l[locale] || l.ru
   const out = []
   for (const [stem, id] of RHYTHM) {
     const p = (presets || []).find((x) => x.id === id)
     if (!have.has(stem) || !p) continue
-    const chain = JSON.parse(JSON.stringify(p.chain))
-    if (room && stem !== 'bass') chain.push({ ...ROOM })
-    const name = p.name[locale] || p.name.ru
-    out.push({ stem, chain, label: name + (room && stem !== 'bass' ? (locale === 'en' ? ' + room' : ' + комната') : '') })
+    let chain = JSON.parse(JSON.stringify(p.chain))
+    if (stem === 'bass') {
+      out.push({ stem, chain, label: tr(p.name) })
+      continue
+    }
+    let label = tr(p.name)
+    if (set.id !== 'osdk') {
+      chain = [kitSampler(chain[0], set.parts[stem])]
+      label = `${tr(set.name)} · ${tr(PART_NAMES[stem])}`
+    }
+    chain.push(...JSON.parse(JSON.stringify(treat.chain)))
+    if (treat.id !== 'dry') label += ` + ${tr(treat.name)}`
+    out.push({ stem, chain, label })
   }
   return out
 }

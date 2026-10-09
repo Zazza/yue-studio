@@ -158,6 +158,10 @@ echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и пере
 - Набор бас-гитары для блока `bass` — Growlybass (Karoryfer Lecolds, Squier Jazz Bass,
   github.com/sfzinstruments/karoryfer.growlybass, лицензия CC0 — без ограничений и без указания автора):
   `fx_kit_install growlybass`, 224 сэмпла (~170 МБ, часть `sustain`), версия закреплена за коммитом.
+- Драм-машины `tr808`, `tr909`, `linn`, `cr78`, `simmons` и синт-басы `synthbass` воркер синтезирует сам
+  (`worker/drumsynth.py`, без сети и чужих лицензий): `fx_kit_install tr808` пишет 12 частей по 8 слоёв силы удара
+  (wav 48 кГц, PCM 16, ~10 МБ на машину), `synthbass` — три баса по полутонам E1…G3 (~15 МБ). Звучание — приближение
+  к машинам, не их копия.
 - pedalboard (Spotify) не используется: его лицензия GPL-3, проект — MIT.
 
 ## Разделение на дорожки — BS-Roformer-SW

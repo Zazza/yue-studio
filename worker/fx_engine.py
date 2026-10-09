@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import re
 from fractions import Fraction
 from pathlib import Path
 
@@ -38,6 +39,9 @@ BASS_RELEASE_S = 0.03  # bass: глушение струны в конце но�
 BASS_FOLLOW_DB = 15.0  # bass: предел подгонки громкости по времени к входу, ± дБ
 BASS_RISE_DB = 2.0   # bass: удар — рост громкости 25 мс после начала против 25 мс до, не меньше
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
+# версия звучания движка — в ключе кэша превью /fx: поднимать при правке звука блоков, иначе «▶ стало» отдаст
+# превью, посчитанное до правки (2 — лента без подъёма тихого сигнала, этап 7б)
+ENGINE_VERSION = 2
 MAX_BLOCKS = 16      # блоков в цепочке не больше: длинная цепочка надолго заняла бы воркер и очередь GPU
 MAX_BANDS = 12       # полос эквалайзера в блоке не больше
 
@@ -414,8 +418,17 @@ def _reverb(x, sr, p, res):
             if ir.shape[0] > 12 else ir
     else:
         ir = _gen_reverb_ir(sr, ch, p["decay_s"], p["lowpass_hz"])
-    ir = _norm_energy(ir)
     pre = int(round(p["predelay_ms"] / 1000 * sr))
+    if p.get("gate_ms", 0) > 0:
+        # гейт-реверб 80-х: отклик обрывается через gate_ms от удара (спад 5 мс внутри) — уровень входа не важен,
+        # в отличие от гейта по порогу после реверба (тихая дорожка не открыла бы его ни разу)
+        g = int(round(p["gate_ms"] / 1000 * sr)) - max(pre, 1)
+        if g <= 1:   # обрыв раньше начала отклика (gate_ms ≤ predelay_ms) — реверба нет, а не одиночное эхо
+            return x
+        ir = ir[:g].copy()
+        f = min(len(ir), int(0.005 * sr))
+        ir[len(ir) - f:] *= np.linspace(1.0, 0.0, f)[:, None]
+    ir = _norm_energy(ir)
     # хвост — строго после сухого звука (не раньше 1 сэмпла), сухой путь не трогаем
     ir = np.concatenate([np.zeros((max(pre, 1), ir.shape[1])), ir])
     return x + p["wet"] * _conv(x, ir)
@@ -677,18 +690,26 @@ def _sampler(x, sr, p, res):
     return y * (rin / max(_rms(y), EPS) if rin > EPS else 1.0) * _db(p["output_db"])
 
 
-def _kit_notes(raw, ksr: int) -> list[tuple[float, float, int, np.ndarray]]:
-    """Сэмплы набора баса: (высота MIDI по самому звуку, пик, начало атаки, моно-сэмпл) — имена
-    файлов не нужны. Длинные сэмплы режутся до BASS_SAMPLE_S: щипок дольше не тянется."""
+KIT_MIDI_NAME = re.compile(r"^m(\d{1,3})$")   # синтезированные наборы: m<MIDI>.wav — точная высота
+
+
+def _kit_notes(raw, ksr: int, names=None) -> list[tuple[float, float, int, np.ndarray]]:
+    """Сэмплы набора баса: (высота MIDI, пик, начало атаки, моно-сэмпл, высота из имени?). Высота — из имени
+    m<MIDI> (синтезированные наборы), иначе по самому звуку (yin). Длинные сэмплы режутся до BASS_SAMPLE_S."""
     import librosa
     out = []
-    for s in raw:
+    names = list(names) if names is not None and len(names) == len(raw) else [None] * len(raw)
+    for s, nm in zip(raw, names, strict=True):
         s = np.asarray(s, dtype=np.float32)   # 224 сэмпла по 6 с: float64 — лишние 240 МБ
         s = (s.mean(axis=1) if s.ndim > 1 else s)[:int(BASS_SAMPLE_S * ksr)]
         peak = float(np.abs(s).max()) if len(s) else 0.0
         if peak <= 0:
             continue
         a = int(np.argmax(np.abs(s) > 0.1 * peak))          # начало атаки
+        m = KIT_MIDI_NAME.match(nm or "")
+        if m:
+            out.append((float(m.group(1)), peak, a, s, True))
+            continue
         body = s[a + int(0.05 * ksr):a + int(0.6 * ksr)]    # после щелчка струны — тон
         if len(body) < 2048:
             continue
@@ -696,7 +717,7 @@ def _kit_notes(raw, ksr: int) -> list[tuple[float, float, int, np.ndarray]]:
         # (C#1/E1 — те же отклонения: это расстройка самих сэмплов, её и компенсирует сдвиг высоты)
         with np.errstate(invalid="ignore"):   # librosa/numba: «invalid value in cast» при первой компиляции
             f0 = librosa.yin(body, fmin=25, fmax=500, sr=ksr, frame_length=2048)
-        out.append((float(librosa.hz_to_midi(np.median(f0))), peak, a, s))
+        out.append((float(librosa.hz_to_midi(np.median(f0))), peak, a, s, False))
     return out
 
 
@@ -894,7 +915,9 @@ def _bass(x, sr, p, res):
     следуют за входом во времени (+ output_db)."""
     import librosa
     raw, ksr = _resource(res, "kit", p["kit"])
-    kit = _kit_notes(raw, int(ksr))
+    # имена файлов — у хранилища воркера (синтезированные наборы m<MIDI>: высота точная); нет — замер по звуку
+    names = res.kit_names(p["kit"]) if hasattr(res, "kit_names") else None
+    kit = _kit_notes(raw, int(ksr), names)
     if not kit:
         raise ChainError(f"набор {p['kit']!r}: нет сэмплов с высотой")
     n = x.shape[0]
@@ -927,10 +950,15 @@ def _bass(x, sr, p, res):
         return np.zeros_like(x)
     tun = float(np.median([(v - round(v) + 0.5) % 1 - 0.5 for v in voiced]))   # строй дорожки, полутона
     lo = min(k[0] for k in kit)
+    # высоты всех сэмплов из имён — ноты сворачиваются по диапазону набора; иначе (замер yin) — как раньше: выше
+    # двух октав над нижним сэмплом — вниз (замер баса ошибается октавой вверх), ниже нижнего — вверх
+    # граница сверху: по именам — верхний сэмпл (+0,5: целая нота на краю не сворачивается); по замеру — прежнее
+    # «нижний + 24» без допуска (lo дробный: growlybass 24,97 — допуск сдвинул бы границу на полтона)
+    lim = max(k[0] for k in kit) + 0.5 if all(k[4] for k in kit) else lo + 24
     for c in cells:
         if c[2] is not None:
             q = int(round(c[2] - tun))
-            while q > lo + 24:
+            while q > lim:
                 q -= 12
             while q < lo - 0.5:
                 q += 12
@@ -973,7 +1001,7 @@ def _bass(x, sr, p, res):
         if len(g) > 1 and prev.get(gk) == j:                   # ранг съел чередование — соседний дубль
             j = j - 1 if j > 0 else j + 1
         prev[gk] = j
-        midi_s, _, att, s = g[j]
+        midi_s, _, att, s, _named = g[j]
         ratio = 2 ** ((q + tun - midi_s) / 12) * ksr / sr      # шаг по сэмплу на сэмпл выхода
         length = min(t1 - t0 + rel, n - t0)
         idx = att + np.arange(length) * ratio
@@ -1206,8 +1234,10 @@ def _tape(x, sr, p, _res=None):
     for c in range(ch):
         y = np.interp(idx, np.arange(n), x[:, c], left=0.0)
         if p["saturation"] > 0:
+            # тихий сигнал — без изменения уровня (наклон tanh(g·y)/g в нуле — 1), громкие пики сжимаются;
+            # было tanh(g·y)/tanh(g) — тихое поднималось до +9,6 дБ (лоуфай-гитара громче всего трека, #695)
             g = 1 + 4 * p["saturation"]
-            y = np.tanh(y * g) / np.tanh(g)
+            y = np.tanh(y * g) / g
         y = signal.sosfiltfilt(sos, y)
         if p["hiss"] > 0:
             y += p["hiss"] * 0.01 * rng.standard_normal(n)

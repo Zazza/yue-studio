@@ -3,6 +3,8 @@
 // amp.model пустой — захват выбирает пользователь из загруженных (в поставке их нет).
 // stems — дорожки, для которых цепочка (пульт дорожек студии); нет поля — подходит всем.
 
+import { DRUM_KITS, PART_NAMES, kitSampler } from './drumKits.js'
+
 export const fxPresets = [
   {
     id: 'guitar-amp-clean',
@@ -354,7 +356,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-kick-kit',
-    stems: ['kick'],
+    stems: ['kick'], group: 'drum-kits',
     name: { ru: 'Бочка: набор', en: 'Kick: kit' },
     note: {
       ru: 'На дорожку «бочка» (RoFormer): удары бочки заменяются сэмплами набора The Open Source Drum Kit, сила удара выбирает сэмпл. Набор — fx_kit_install osdk.',
@@ -364,7 +366,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-snare-kit',
-    stems: ['snare'],
+    stems: ['snare'], group: 'drum-kits',
     name: { ru: 'Малый: набор', en: 'Snare: kit' },
     note: {
       ru: 'На дорожку «малый барабан» (RoFormer): удары малого — сэмплами набора; порог −20 дБ пропускает и тихие удары (гоулст-ноты); слышна протечка бочки/хэта — поднимите порог.',
@@ -374,7 +376,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-toms-kit',
-    stems: ['toms'],
+    stems: ['toms'], group: 'drum-kits',
     name: { ru: 'Тамы: набор по высоте', en: 'Toms: kit by pitch' },
     note: {
       ru: 'На дорожку «тамы» (RoFormer): удары делятся по высоте — высокие играет малый там, средние — средний, низкие — большой (The Open Source Drum Kit). Близкие по высоте удары (меньше ~2 полутонов) — один там. Набор — fx_kit_install osdk.',
@@ -384,7 +386,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-hh-kit',
-    stems: ['hh'],
+    stems: ['hh'], group: 'drum-kits',
     name: { ru: 'Хэт: набор', en: 'Hi-hat: kit' },
     note: {
       ru: 'На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Громкость +4 дБ: хэт YuE тихий, на слух лучше заметнее (опыт #663). Набор — fx_kit_install osdk.',
@@ -394,7 +396,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-ride-kit',
-    stems: ['ride'],
+    stems: ['ride'], group: 'drum-kits',
     name: { ru: 'Райд: набор', en: 'Ride: kit' },
     note: {
       ru: 'На дорожку «райд» (RoFormer): удары райда — сэмплами набора. Если в дорожке в основном протечка других барабанов, поднимите порог.',
@@ -404,7 +406,7 @@ export const fxPresets = [
   },
   {
     id: 'drums-crash-kit',
-    stems: ['crash'],
+    stems: ['crash'], group: 'drum-kits',
     name: { ru: 'Крэш: набор', en: 'Crash: kit' },
     note: {
       ru: 'На дорожку «крэш» (RoFormer): удары тарелки — сэмплами набора, тарелка звенит до конца.',
@@ -414,13 +416,45 @@ export const fxPresets = [
   },
   {
     id: 'bass-kit',
-    stems: ['bass'],
+    stems: ['bass'], group: 'bass-kit',
     name: { ru: 'Бас: бас-гитара (набор)', en: 'Bass: bass guitar (kit)' },
     note: {
       ru: 'На дорожку «бас»: ноты баса играются сэмплами настоящей бас-гитары (Growlybass, Squier Jazz). Ритм — доли дорожки (2 ноты на долю — восьмые), высота — по басу, громкость и баланс низа/середины следуют за исходным басом. Сложный рисунок (слэп, быстрые пассажи) не повторит. Набор — fx_kit_install growlybass.',
       en: 'On the "bass" stem: the bass notes are played with real bass guitar samples (Growlybass, Squier Jazz). Rhythm follows the stem beats (2 notes per beat — eighths), pitch follows the bass, loudness and low/mid balance follow the original. Will not copy complex parts (slap, fast runs). Kit — fx_kit_install growlybass.',
     },
     chain: [{ type: 'bass', kit: 'growlybass/bass', division: 2, floor_db: -20 }],
+  },
+  // синт-басы набором (этап 7б): ноты и ритм — те же (блок bass по дорожке «бас»), звук — синтезатора;
+  // набор synthbass воркер синтезирует сам (fx_kit_install synthbass)
+  {
+    id: 'bass-synth-moog',
+    stems: ['bass'], group: 'bass-kit',
+    name: { ru: 'Бас: синт Moog (набор)', en: 'Bass: Moog synth (kit)' },
+    note: {
+      ru: 'Ноты баса трека играет синт-бас: пила с квадратом через фильтр со «щелчком» — плотный аналоговый бас нью-вейва и синти-попа.',
+      en: 'The track bass notes played by a synth bass: saw plus square through a plucky filter — a dense analog new wave and synth-pop bass.',
+    },
+    chain: [{ type: 'bass', kit: 'synthbass/moog', division: 2, floor_db: -20 }],
+  },
+  {
+    id: 'bass-synth-sub808',
+    stems: ['bass'], group: 'bass-kit',
+    name: { ru: 'Бас: 808 саб (набор)', en: 'Bass: 808 sub (kit)' },
+    note: {
+      ru: 'Ноты баса трека — гудящий низкий синус драм-машины с лёгкой грязью, медленно гаснет: хип-хоп, трип-хоп, мрачная электроника.',
+      en: 'The track bass notes as a booming low drum-machine sine with a little dirt, slowly fading: hip-hop, trip-hop, dark electronics.',
+    },
+    chain: [{ type: 'bass', kit: 'synthbass/sub808', division: 2, floor_db: -20 }],
+  },
+  {
+    id: 'bass-synth-acid',
+    stems: ['bass'], group: 'bass-kit',
+    name: { ru: 'Бас: эйсид 303 (набор)', en: 'Bass: acid 303 (kit)' },
+    note: {
+      ru: 'Ноты баса трека — пила через резонансный фильтр, «квакающая» на каждой ноте: эйсид, техно, индастриал.',
+      en: 'The track bass notes as a saw through a resonant filter that "quacks" on every note: acid, techno, industrial.',
+    },
+    chain: [{ type: 'bass', kit: 'synthbass/acid', division: 2, floor_db: -20 }],
   },
   {
     id: 'master-glue',
@@ -606,3 +640,23 @@ export const fxPresets = [
     chain: [{ type: 'perc', voice: 0, kit: 'osdk/ride', rel_db: -18 }],
   },
 ]
+
+// наборы драм-машин по частям (этап 7б) — из DRUM_KITS, сразу за живым набором; параметры удара — как у живого
+// набора той же части. Наборы воркер синтезирует сам (fx_kit_install tr808 …)
+{
+  const cap = (s) => s[0].toUpperCase() + s.slice(1)
+  const at = fxPresets.findIndex((p) => p.id === 'drums-crash-kit') + 1
+  const gen = []
+  for (const k of DRUM_KITS.filter((x) => x.id !== 'osdk')) {
+    for (const part of Object.keys(k.parts)) {
+      const live = fxPresets.find((p) => p.id === `drums-${part}-kit`).chain[0]
+      gen.push({
+        id: `drums-${part}-${k.id}`, stems: [part], group: 'drum-kits',
+        name: { ru: `${cap(PART_NAMES[part].ru)}: ${k.name.ru}`, en: `${cap(PART_NAMES[part].en)}: ${k.name.en}` },
+        note: k.note,
+        chain: [kitSampler(live, k.parts[part])],
+      })
+    }
+  }
+  fxPresets.splice(at, 0, ...gen)
+}

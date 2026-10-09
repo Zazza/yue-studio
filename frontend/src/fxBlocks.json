@@ -349,6 +349,18 @@
      "ru": "громкость хвоста",
      "en": "wet"
     }
+   },
+   {
+    "id": "gate_ms",
+    "default": 0,
+    "min": 50,
+    "max": 1000,
+    "step": 10,
+    "zero_off": true,
+    "label": {
+     "ru": "обрыв хвоста, мс (гейт-реверб; 0 — выкл)",
+     "en": "tail cut, ms (gated reverb; 0 — off)"
+    }
    }
   ],
   "strings": [

@@ -30,7 +30,8 @@ function needsFiles(p) {
 }
 
 const guitars = grouped.filter((p) => (p.stems || []).includes('guitar') && !has(p, 'amp'))
-const basses = grouped.filter((p) => JSON.stringify(p.stems) === JSON.stringify(['bass']))
+// басы 7а — группа bass-tone (уточнение ТК86, условие 58: синт-басы набором — в группе bass-kit)
+const basses = grouped.filter((p) => p.group === 'bass-tone' && JSON.stringify(p.stems) === JSON.stringify(['bass']))
 
 describe('ТК86: готовые гитары без захвата (условие 51)', () => {
   it('не меньше 10 гитар с group, stems ⊇ guitar, без блока amp', () => {

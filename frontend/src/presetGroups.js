@@ -7,6 +7,8 @@ export const PRESET_GROUPS = {
   'guitar-drive': { ru: 'Гитара: перегруз', en: 'Guitar: drive' },
   'guitar-space': { ru: 'Гитара: пространство и эффекты', en: 'Guitar: space and effects' },
   'bass-tone': { ru: 'Бас: звук (ноты те же)', en: 'Bass: tone (same notes)' },
+  'bass-kit': { ru: 'Бас: замена нот сэмплами', en: 'Bass: notes replaced with samples' },
+  'drum-kits': { ru: 'Барабаны: наборы', en: 'Drums: kits' },
 }
 
 /** Список по группам: [{group, label, items}] в порядке первого появления группы, внутри — исходный порядок;
