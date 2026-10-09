@@ -225,7 +225,7 @@ func ensurePresetStems(ctx context.Context, svc yue.Service, id int64, specs []y
 	return nil
 }
 
-// ensurePresetKits — наборы сэмплов цепочек движка (kit/kit_open у sampler, kit у bass:
+// ensurePresetKits — наборы сэмплов цепочек движка (kit/kit_open/kit_mid/kit_low у sampler, kit у bass и perc:
 // «<набор>/<часть>»), которых нет на воркере, — установить по разу на набор
 func ensurePresetKits(ctx context.Context, svc yue.Service, specs []yue.PresetSpec) error {
 	var need []string

@@ -2990,11 +2990,12 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
             # только на весь микс (мастер): на дорожке в окне кусок вклеивается с краями — там прежний путь
             # громкость к цели меряется по всему входу: превью — отрезок полного рендера, а не окно отдельно;
             # считается только при промахе кэша превью (полный трек — секунды)
-            whole = _fx_window(synth_window, chain, 0.0, n / sr, part, sr)
-            full = lambda: _fx_process(job_id, part.astype(np.float32), sr, whole).astype(np.float64)  # noqa: E731
-        # опора уровня партии — сам вход (трек при source mix)
-        chain = _fx_window(synth_window, chain, frm, to - frm + req.fade, part, sr)
-        return _fx_preview(job_id, jdir, req, chain, track, part, sr, used, full)
+            full = lambda: _fx_process(job_id, part.astype(np.float32), sr,  # noqa: E731
+                                       _fx_window(synth_window, chain, 0.0, n / sr, part, sr)).astype(np.float64)
+        # цепочка окна (служебные поля, уровень партии по всему треку — секунды) — только при промахе кэша превью;
+        # ключ кэша — от присланной цепочки и окна; опора уровня партии — сам вход (трек при source mix)
+        windowed = lambda: _fx_window(synth_window, chain, frm, to - frm + req.fade, part, sr)  # noqa: E731
+        return _fx_preview(job_id, jdir, req, chain, windowed, track, part, sr, used, full)
 
     # синт на весь трек — тот же общий уровень партии, что у превью (служебные значения — только от воркера)
     chain = _fx_window(synth_window, chain, 0.0, n / sr, part, sr)
@@ -3237,7 +3238,7 @@ def _mtime_or_zero(p: Path) -> float:
         return 0.0
 
 
-def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr: int,
+def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, windowed, track, part, sr: int,
                 used: list[Path], full=None) -> dict:
     """Превью куска [from, to) (+ хвост реверба/дилея): вход после to — тишина, в миксе
     к треку добавляется разница «обработанное − исходное». Тот же запрос — тот же файл."""
@@ -3287,7 +3288,7 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         # full — полный рендер (ограничитель к цели LUFS); вход окна без краёв — тот же отрезок
         wet, seg = full()[a:end], part[a:end]
     else:
-        wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
+        wet = _fx_process(job_id, seg.astype(np.float32), sr, windowed()).astype(np.float64)
     if req.add:
         out = wet if req.output == "solo" else track[a:end] + wet     # поверх трека, ничего не вычитая
     else:

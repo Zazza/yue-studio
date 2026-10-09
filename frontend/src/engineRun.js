@@ -7,7 +7,7 @@ export const PREVIEW_SEC = 10 // проверка цепочки перед за
 
 const copy = (v) => JSON.parse(JSON.stringify(v)) // цепочка — данные JSON: копия без общих объектов
 
-/** Наборы цепочки (kit/kit_open у sampler, kit у bass), которых нет среди kits воркера, — ставятся
+/** Наборы цепочки (kit/kit_open/kit_mid/kit_low у sampler, kit у bass и perc), которых нет среди kits воркера, — ставятся
  *  по одному, в порядке цепочки; onKit(имя) — перед установкой (подпись «качаю набор…»). */
 export async function ensureKits(api, chain, kits, onKit) {
   const need = missingKits(chain, kits)
