@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"yue-studio/internal/dsp"
 	"yue-studio/internal/yue"
@@ -453,7 +454,46 @@ func rebuildLabel(specs []SectionSpec) string {
 		}
 		parts = append(parts, label)
 	}
-	return strings.Join(parts, " + ")
+	return fitLabel(parts, rebuildLabelMax)
+}
+
+// rebuildLabelMax — предел подписи микса, рун: воркер принимает 300 символов (иначе 422 уже после расчёта всех окон),
+// запас — под « · мастер», который воркер дописывает при in_place
+const rebuildLabelMax = 280
+
+// fitLabel — части через « + », пока влезают в max рун; не влезшие — « + ещё N» в конце; первая часть сама длиннее
+// предела — обрезается с «…». Короткая подпись — как была.
+func fitLabel(parts []string, max int) string {
+	full := strings.Join(parts, " + ")
+	if utf8.RuneCountInString(full) <= max {
+		return full
+	}
+	n := len(parts)
+	used, k := 0, 0
+	for ; k < n; k++ {
+		add := utf8.RuneCountInString(parts[k])
+		if k > 0 {
+			add += 3 // « + »
+		}
+		rest := 0
+		if k+1 < n {
+			rest = utf8.RuneCountInString(fmt.Sprintf(" + ещё %d", n-k-1))
+		}
+		if used+add+rest > max {
+			break
+		}
+		used += add
+	}
+	if k == 0 {
+		suffix := ""
+		if n > 1 {
+			suffix = fmt.Sprintf(" + ещё %d", n-1)
+		}
+		r := []rune(parts[0])
+		keep := max - utf8.RuneCountInString(suffix) - 1
+		return string(r[:keep]) + "…" + suffix
+	}
+	return strings.Join(parts[:k], " + ") + fmt.Sprintf(" + ещё %d", n-k)
 }
 
 // placeLabel — «30 % вправо, ширина 1,4», «по центру»

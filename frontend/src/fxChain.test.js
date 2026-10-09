@@ -48,9 +48,9 @@ describe('описание блоков (fxBlocks.json)', () => {
 
   // карточка internal-own-track, этап 4 (условия 23–24): за прежними — блоки синтов, этап 5 (условие 30) — perc;
   // их порядок карточка не задаёт
-  it('за прежними типами — synth и эффекты синтов, perc, мастер (glue, limiter)', () => {
+  it('за прежними типами — synth и эффекты синтов, perc, tremolo (этап 7а), мастер (glue, limiter)', () => {
     expect([...Object.keys(blocks).slice(TYPES.length)].sort())
-      .toEqual(['chorus', 'flanger', 'glue', 'limiter', 'perc', 'phaser', 'spring', 'synth', 'tape'])
+      .toEqual(['chorus', 'flanger', 'glue', 'limiter', 'perc', 'phaser', 'spring', 'synth', 'tape', 'tremolo'])
   })
 })
 

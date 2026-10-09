@@ -14,7 +14,8 @@ import ChainEditor from './ChainEditor.vue'
 import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
-import { fromWorkerChain, toWorkerChain, missingRequired } from '../fxChain.js'
+import { fromWorkerChain, toWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
+import { groupPresets } from '../presetGroups.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { insertTitle, insertWindow } from '../insertLabels.js'
 import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection, stemLevels, stemAudibility } from '../trackDesk.js'
@@ -67,15 +68,12 @@ async function loadAssets() {
   try { assets.value = (await api.fxAssets()) || { amps: [], irs: [], kits: [] } } catch { /* старый воркер — ошибка покажется при «стало» */ }
 }
 
-// захват не выбран — первый загруженный: пресет с усилителем без захвата не считается
-function fillAmp(c) {
-  const first = (assets.value.amps || [])[0]
-  return first ? c.map((b) => (b.type === 'amp' && !b.params.model ? { ...b, params: { ...b.params, model: first.name } } : b)) : c
-}
+// захват не выбран — по подсказке пресета (amp_hint), иначе первый загруженный: пресет с усилителем без захвата не считается
+const withAmp = (c, hints) => fillAmp(c, assets.value.amps, hints)
 
 function pickPreset(p) {
   presetId.value = p.id
-  chain.value = fillAmp(fromWorkerChain(p.chain, BLOCKS))
+  chain.value = withAmp(fromWorkerChain(p.chain, BLOCKS), p.amp_hint)
 }
 
 function toggleRow(stem) {
@@ -100,7 +98,7 @@ function editRecord(rec) {
   msg.value = ''
   err.value = ''
   editing.value = { childId: rec.childId, from: rec.from || 0, to: rec.to || 0, label: rec.label || '' }
-  chain.value = fillAmp(fromWorkerChain(rec.engine, BLOCKS))
+  chain.value = withAmp(fromWorkerChain(rec.engine, BLOCKS))
 }
 defineExpose({ editRecord })
 
@@ -215,7 +213,7 @@ async function installKit(name) {
 async function upload(kind) {
   err.value = ''
   try {
-    if (await api.uploadFxAsset(kind)) { await loadAssets(); chain.value = fillAmp(chain.value) }
+    if (await api.uploadFxAsset(kind)) { await loadAssets(); chain.value = withAmp(chain.value, fxPresets.find((x) => x.id === presetId.value)?.amp_hint) }
   } catch (e) { err.value = String(e) }
 }
 </script>
@@ -255,9 +253,9 @@ async function upload(kind) {
     </div>
     <div v-if="open === row.stem" class="desk-editor">
       <p v-if="editing" class="muted">{{ t('desk.editing') }}</p>
-      <div class="voice-presets">
-        <span class="muted">{{ t('instr.presets') }}</span>
-        <button v-for="p in presetsFor(row.stem, fxPresets)" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
+      <div v-for="(g, gi) in groupPresets(presetsFor(row.stem, fxPresets), locale)" :key="g.group" class="voice-presets">
+        <span class="muted">{{ g.label || (gi === 0 ? t('instr.presets') : t('instr.presets.more')) }}</span>
+        <button v-for="p in g.items" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
                 :title="tr(p.note)" @click="pickPreset(p)">{{ tr(p.name) }}</button>
       </div>
       <ChainEditor v-model="chain" :assets="assets" :busy="busy" @upload="upload" @install-kit="installKit" />

@@ -221,7 +221,8 @@ func TestFxAssetUploadMissingFile(t *testing.T) {
 var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass",
 	"synth", "chorus", "phaser", "flanger", "tape", "spring", // этап 4 (синты): синтезатор и эффекты к нему
 	"perc",            // этап 5: перкуссия по сетке
-	"glue", "limiter"} // этап 6: мастер
+	"glue", "limiter", // этап 6: мастер
+	"tremolo"} // этап 7а: готовые гитары (сёрф, тремоло-пульс)
 
 func TestFxApplyPassesPreview(t *testing.T) {
 	s, fake := newFxServer(t)

@@ -716,6 +716,7 @@ export default {
   'instr.len': 'длина куска',
   'instr.sec': 'с',
   'instr.presets': 'готовые:',
+  'instr.presets.more': 'другие:',
   'instr.up': 'выше в цепочке',
   'instr.down': 'ниже в цепочке',
   'instr.remove': 'убрать блок',

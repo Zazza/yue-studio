@@ -15,7 +15,8 @@ import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import ChainEditor from './ChainEditor.vue'
 import PresetLibrary from './PresetLibrary.vue'
-import { toWorkerChain, fromWorkerChain, missingRequired } from '../fxChain.js'
+import { toWorkerChain, fromWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
+import { groupPresets } from '../presetGroups.js'
 
 const { t, locale } = useI18n()
 const emit = defineEmits(['close'])
@@ -56,6 +57,7 @@ const sourceOptions = computed(() => SOURCES
 const preset = computed(() => fxPresets.find((p) => p.id === presetId.value))
 // синты играют ноты партии по аккордам — их место в студии («Синт по аккордам»), не на дорожке трека
 const stemPresets = fxPresets.filter((p) => !(p.stems || []).includes('synth'))
+const presetGroups = computed(() => groupPresets(stemPresets, locale.value))
 const missing = computed(() => missingRequired(chain.value, BLOCKS))
 const end = computed(() => Math.min(Number(start.value) + Number(len.value), job.value?.duration_sec || Infinity))
 const ready = computed(() => engineOn.value && engineKnown.value && job.value && !missing.value.length &&
@@ -97,7 +99,7 @@ async function loadConfig() {
 
 onMounted(async () => {
   await Promise.all([loadJobs(), loadAssets(), loadConfig()])
-  chain.value = fillAmp(chain.value)   // пресет по умолчанию с усилителем — первый загруженный захват
+  chain.value = withAmp(chain.value)   // пресет по умолчанию с усилителем — захват по подсказке пресета
   fitStart()
   await loadStems()
 })
@@ -111,16 +113,13 @@ const onKey = (e) => { if (e.key === 'Escape') emit('close') }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-// захват не выбран, а он один/первый есть — подставить: пресет с amp без захватов иначе молчит
-function fillAmp(c) {
-  const first = (assets.value.amps || [])[0]
-  return first ? c.map((b) => (b.type === 'amp' && !b.params.model ? { ...b, params: { ...b.params, model: first.name } } : b)) : c
-}
+// захват не выбран — по подсказке пресета (amp_hint), иначе первый загруженный: пресет с amp без захвата молчит
+const withAmp = (c) => fillAmp(c, assets.value.amps, preset.value?.amp_hint)
 
 function applyPreset(id) {
   presetId.value = id
   const p = fxPresets.find((x) => x.id === id)
-  if (p) chain.value = fillAmp(fromWorkerChain(p.chain, BLOCKS))
+  if (p) chain.value = withAmp(fromWorkerChain(p.chain, BLOCKS))
 }
 
 
@@ -221,7 +220,7 @@ async function upload(kind) {
   err.value = ''
   try {
     const r = await api.uploadFxAsset(kind)
-    if (r) { await loadAssets(); chain.value = fillAmp(chain.value) }
+    if (r) { await loadAssets(); chain.value = withAmp(chain.value) }
   } catch (e) { err.value = String(e) }
 }
 </script>
@@ -265,9 +264,9 @@ async function upload(kind) {
           </label>
         </div>
 
-        <div class="voice-presets">
-          <span class="muted">{{ t('instr.presets') }}</span>
-          <button v-for="p in stemPresets" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
+        <div v-for="(g, gi) in presetGroups" :key="g.group" class="voice-presets">
+          <span class="muted">{{ g.label || (gi === 0 ? t('instr.presets') : t('instr.presets.more')) }}</span>
+          <button v-for="p in g.items" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
                   :title="tr(p.note)" @click="applyPreset(p.id)">{{ tr(p.name) }}</button>
         </div>
         <p v-if="preset" class="muted voice-hint">{{ tr(preset.note) }}</p>

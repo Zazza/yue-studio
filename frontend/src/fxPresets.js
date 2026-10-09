@@ -6,7 +6,7 @@
 export const fxPresets = [
   {
     id: 'guitar-amp-clean',
-    stems: ['guitar', 'other'],
+    stems: ['guitar', 'other'], group: 'guitar-amp', amp_hint: ['twin', 'fender', 'clean'],
     name: { ru: 'Гитара: чистый усилитель', en: 'Guitar: clean amp' },
     note: {
       ru: 'Перегруз YuE через чистый захват (Fender Twin и похожие) с убавленным входом и комнатой — звук заметно другой, старая гитара не узнаётся. Захват — только усилителя, без кабинета.',
@@ -22,7 +22,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-amp-hot',
-    stems: ['guitar', 'other'],
+    stems: ['guitar', 'other'], group: 'guitar-amp', amp_hint: ['jcm900', 'jcm2000', 'jcm'],
     name: { ru: 'Гитара: перегруз погорячее', en: 'Guitar: hotter drive' },
     note: {
       ru: 'Вход усилителя +12 дБ — захват перегруза (JCM2000/JCM900 и похожие) работает в полную силу. На похожем захвате с тем же уровнем замена малозаметна — гоните вход. Захват без кабинета.',
@@ -37,7 +37,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-amp-spring',
-    stems: ['guitar', 'other'],
+    stems: ['guitar', 'other'], group: 'guitar-amp', amp_hint: ['ac15', 'vox'],
     name: { ru: 'Гитара: Vox и короткий реверб', en: 'Guitar: Vox and short reverb' },
     note: {
       ru: 'Захват в духе Vox AC15 TopBoost, вход +6 дБ, короткий тёмный реверб (встроенный, в духе пружины; настоящую пружину — своим IR) — винтажный звон.',
@@ -53,7 +53,7 @@ export const fxPresets = [
   },
   {
     id: 'guitar-clean',
-    stems: ['guitar', 'other'],
+    stems: ['guitar', 'other'], group: 'guitar-clean',
     name: { ru: 'Гитара: чистая с коротким ревербом', en: 'Guitar: clean with short reverb' },
     note: {
       ru: 'Без усилителя: ровнее компрессором, чуть яснее середина, короткий тёмный хвост как у пружины.',
@@ -64,6 +64,250 @@ export const fxPresets = [
       { type: 'eq', highpass_hz: 80, bands: [{ freq_hz: 3000, gain_db: 2, q: 1 }] },
       { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 3 },
       { type: 'reverb', decay_s: 1.2, predelay_ms: 0, lowpass_hz: 4500, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'guitar-amp-highgain',
+    stems: ['guitar', 'other'], group: 'guitar-amp', amp_hint: ['od2', 'jvm-od', '5150', 'recto', 'bug'],
+    name: { ru: 'Гитара: хай-гейн', en: 'Guitar: high gain' },
+    note: {
+      ru: 'Захват перегруженного канала (JVM OD, 5150, Rectifier и похожие), вход +18 дБ и жёсткий гейт — плотный современный метал. Захват без кабинета.',
+      en: 'A high-gain channel capture (JVM OD, 5150, Rectifier and the like), input +18 dB and a tight gate — dense modern metal. Amp-only capture.',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -48, release_ms: 50 },
+      { type: 'eq', highpass_hz: 120, lowpass_hz: 5500 },
+      { type: 'amp', model: '', input_db: 18 },
+      { type: 'cab', cutoff_hz: 6500 },
+    ],
+  },
+
+  // ---------- готовые гитары без захвата (этап 7а): работают на голом воркере, только блоки движка ----------
+  {
+    id: 'guitar-postpunk',
+    stems: ['guitar', 'other'], group: 'guitar-clean',
+    name: { ru: 'Чистая: хорус и дилей', en: 'Clean: chorus and delay' },
+    note: {
+      ru: 'Ровная чистая гитара, хорус и короткое эхо восьмыми — холодный звенящий пост-панк (в духе Interpol, The Cure, Joy Division).',
+      en: 'An even clean guitar, chorus and a short eighth-note echo — cold ringing post-punk (Interpol, The Cure, Joy Division style).',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -60 },
+      { type: 'eq', highpass_hz: 120, bands: [{ freq_hz: 2500, gain_db: 3, q: 0.8 }] },
+      { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 3 },
+      { type: 'chorus', voices: 2, depth_ms: 4, rate_hz: 0.8, mix: 0.5 },
+      { type: 'delay', time_ms: 330, feedback: 0.3, lowpass_hz: 4500, wet: 0.22 },
+      { type: 'reverb', decay_s: 1.4, predelay_ms: 10, lowpass_hz: 7000, wet: 0.15 },
+    ],
+  },
+  {
+    id: 'guitar-jangle',
+    stems: ['guitar', 'other'], group: 'guitar-clean',
+    name: { ru: 'Звон: яркая и сжатая', en: 'Jangle: bright and squeezed' },
+    note: {
+      ru: 'Сильный компрессор, яркий верх и убранный гул — перебор звенит ровно, как у брит-попа и инди 80-х (в духе The Smiths, R.E.M.).',
+      en: 'A strong compressor, bright top and less mud — picking rings evenly like 80s britpop and indie (The Smiths, R.E.M. style).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 150, bands: [{ freq_hz: 3500, gain_db: 4, q: 0.7 }, { freq_hz: 250, gain_db: -3, q: 1 }] },
+      { type: 'comp', threshold_db: -28, ratio: 6, attack_ms: 3, makeup_db: 5 },
+      { type: 'chorus', voices: 1, depth_ms: 2, rate_hz: 0.4, mix: 0.25 },
+      { type: 'reverb', decay_s: 1.0, predelay_ms: 5, lowpass_hz: 8000, wet: 0.18 },
+    ],
+  },
+  {
+    id: 'guitar-surf',
+    stems: ['guitar', 'other'], group: 'guitar-clean',
+    name: { ru: 'Сёрф: пружина и тремоло', en: 'Surf: spring and tremolo' },
+    note: {
+      ru: 'Яркая гитара, дрожащая громкость и мокрая «пружина» с длинным хвостом — сёрф-рок 60-х и саундтреки Тарантино.',
+      en: 'A bright guitar, trembling volume and a wet long spring — 60s surf rock and Tarantino soundtracks.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 120, bands: [{ freq_hz: 3000, gain_db: 3, q: 1 }] },
+      { type: 'tremolo', rate_hz: 6, depth: 0.45, shape: 0.2, stereo: 0 },
+      { type: 'spring', decay_s: 2.8, tone: 0.7, wet: 0.45 },
+    ],
+  },
+  {
+    id: 'guitar-fuzz',
+    stems: ['guitar', 'other'], group: 'guitar-drive',
+    name: { ru: 'Фузз: гаражный', en: 'Fuzz: garage' },
+    note: {
+      ru: 'Перегруз до «рваного» фузза, выпяченная середина и почти без пространства — грязный гаражный рок (в духе Jack White, The White Stripes).',
+      en: 'Drive pushed into ragged fuzz, pushed mids and almost no space — dirty garage rock (Jack White, The White Stripes style).',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -55 },
+      { type: 'eq', highpass_hz: 100 },
+      { type: 'drive', gain_db: 34, mix: 1 },
+      { type: 'eq', lowpass_hz: 6000, bands: [{ freq_hz: 900, gain_db: 4, q: 0.8 }] },
+      { type: 'reverb', decay_s: 0.6, predelay_ms: 0, lowpass_hz: 6000, wet: 0.08 },
+    ],
+  },
+  {
+    id: 'guitar-industrial',
+    stems: ['guitar', 'other'], group: 'guitar-drive',
+    name: { ru: 'Индастриал-метал: плотная стена', en: 'Industrial metal: tight wall' },
+    note: {
+      ru: 'Сильный перегруз, жёсткий гейт (паузы — тишина), вырезанная середина и плотный низ — рубленые риффы как машина (в духе Rammstein).',
+      en: 'Heavy drive, a hard gate (rests are silent), scooped mids and a tight low end — chopped machine-like riffs (Rammstein style).',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -45, range_db: -80, attack_ms: 0.5, release_ms: 40 },
+      { type: 'eq', highpass_hz: 130 },
+      { type: 'drive', gain_db: 38, mix: 1 },
+      { type: 'eq', lowpass_hz: 6500, bands: [{ freq_hz: 750, gain_db: -6, q: 0.7 }, { freq_hz: 110, gain_db: 3, q: 0.9 }, { freq_hz: 2800, gain_db: 3, q: 1 }] },
+      { type: 'comp', threshold_db: -20, ratio: 4, attack_ms: 5, release_ms: 80 },
+    ],
+  },
+  {
+    id: 'guitar-symphonic',
+    stems: ['guitar', 'other'], group: 'guitar-drive',
+    name: { ru: 'Симфо-метал: хай-гейн и зал', en: 'Symphonic metal: high gain and hall' },
+    note: {
+      ru: 'Плотный перегруз с ясной серединой, тихое эхо и большой зал — гитара за оркестром и хором (в духе Nightwish).',
+      en: 'Dense drive with clear mids, a quiet echo and a big hall — a guitar behind orchestra and choir (Nightwish style).',
+    },
+    chain: [
+      { type: 'gate', threshold_db: -50, release_ms: 60 },
+      { type: 'eq', highpass_hz: 110 },
+      { type: 'drive', gain_db: 32, mix: 1 },
+      { type: 'eq', lowpass_hz: 7000, bands: [{ freq_hz: 1500, gain_db: 2, q: 0.8 }] },
+      { type: 'delay', time_ms: 420, feedback: 0.25, lowpass_hz: 4000, wet: 0.12 },
+      { type: 'reverb', decay_s: 2.6, predelay_ms: 30, lowpass_hz: 7000, wet: 0.2 },
+    ],
+  },
+  {
+    id: 'guitar-altrock',
+    stems: ['guitar', 'other'], group: 'guitar-drive',
+    name: { ru: 'Альт-рок: перегруз с фейзером', en: 'Alt rock: drive with phaser' },
+    note: {
+      ru: 'Средний перегруз, медленно «плывущий» фейзер и яркая середина — нервный альт-рок 90-х (в духе Placebo).',
+      en: 'Medium drive, a slowly sweeping phaser and bright mids — edgy 90s alt rock (Placebo style).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 100 },
+      { type: 'drive', gain_db: 22, mix: 0.85 },
+      { type: 'phaser', stages: 6, rate_hz: 0.3, depth: 0.7, feedback: 0.4, mix: 0.45 },
+      { type: 'eq', lowpass_hz: 7500, bands: [{ freq_hz: 2000, gain_db: 3, q: 1 }] },
+      { type: 'reverb', decay_s: 1.0, predelay_ms: 10, lowpass_hz: 7000, wet: 0.12 },
+    ],
+  },
+  {
+    id: 'guitar-shoegaze',
+    stems: ['guitar', 'other'], group: 'guitar-space',
+    name: { ru: 'Шугейз: стена с флэнжером', en: 'Shoegaze: wall with flanger' },
+    note: {
+      ru: 'Мягкий перегруз, медленный флэнжер и огромный тёмный зал — гитара расплывается в стену звука (в духе My Bloody Valentine, Slowdive).',
+      en: 'Soft drive, a slow flanger and a huge dark hall — the guitar melts into a wall of sound (My Bloody Valentine, Slowdive style).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 90 },
+      { type: 'drive', gain_db: 20, mix: 0.7 },
+      { type: 'flanger', delay_ms: 3, depth_ms: 3, rate_hz: 0.15, feedback: 0.5, mix: 0.5 },
+      { type: 'reverb', decay_s: 4.5, predelay_ms: 40, lowpass_hz: 6000, wet: 0.5 },
+    ],
+  },
+  {
+    id: 'guitar-ambient',
+    stems: ['guitar', 'other'], group: 'guitar-space',
+    name: { ru: 'Эмбиент: дилей и бесконечный зал', en: 'Ambient: delay and endless hall' },
+    note: {
+      ru: 'Длинное тёмное эхо и зал на шесть секунд — ноты висят в воздухе, гитара становится фоном (в духе Radiohead, пост-рока).',
+      en: 'A long dark echo and a six-second hall — notes hang in the air, the guitar becomes a backdrop (Radiohead, post-rock style).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 150, lowpass_hz: 7000 },
+      { type: 'delay', time_ms: 480, feedback: 0.55, lowpass_hz: 3500, wet: 0.35 },
+      { type: 'reverb', decay_s: 6, predelay_ms: 60, lowpass_hz: 5000, wet: 0.45 },
+    ],
+  },
+  {
+    id: 'guitar-tremolo',
+    stems: ['guitar', 'other'], group: 'guitar-space',
+    name: { ru: 'Тремоло-пульс в стерео', en: 'Stereo tremolo pulse' },
+    note: {
+      ru: 'Громкость рубится «вкл-выкл» и перекатывается между левым и правым — гипнотический пульс (в духе «How Soon Is Now?», Radiohead).',
+      en: 'The volume chops on and off and rolls between left and right — a hypnotic pulse ("How Soon Is Now?", Radiohead style).',
+    },
+    chain: [
+      { type: 'comp', threshold_db: -24, ratio: 3, makeup_db: 3 },
+      { type: 'tremolo', rate_hz: 7, depth: 0.8, shape: 0.7, stereo: 1 },
+      { type: 'reverb', decay_s: 1.8, predelay_ms: 15, lowpass_hz: 7000, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'guitar-lofi',
+    stems: ['guitar', 'other'], group: 'guitar-space',
+    name: { ru: 'Лоуфай: кассета', en: 'Lo-fi: cassette' },
+    note: {
+      ru: 'Узкая полоса, лёгкая грязь, плавающая лента и шипение — гитара с заезженной кассеты, домашняя запись.',
+      en: 'A narrow band, light dirt, wobbling tape and hiss — a guitar off a worn cassette, a bedroom recording.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 200, lowpass_hz: 5000 },
+      { type: 'drive', gain_db: 10, mix: 0.4 },
+      { type: 'tape', wow: 0.5, flutter: 0.4, saturation: 0.5, lowpass_hz: 6000, hiss: 0.25 },
+    ],
+  },
+
+  // ---------- готовые басы (этап 7а): звук баса, ноты трека те же ----------
+  {
+    id: 'bass-melodic',
+    stems: ['bass'], group: 'bass-tone',
+    name: { ru: 'Бас-мелодия: высокий с хорусом', en: 'Melodic bass: high with chorus' },
+    note: {
+      ru: 'Низ срезан, середина и щелчок вперёд, хорус и короткое эхо — бас поёт мелодию над гитарами (в духе Питера Хука, New Order, Joy Division). Лучше всего, когда бас в треке и так играет высоко.',
+      en: 'Lows cut, mids and click forward, chorus and a short echo — the bass sings the melody above the guitars (Peter Hook, New Order, Joy Division style). Best when the bass already plays high.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 140, bands: [{ freq_hz: 1200, gain_db: 5, q: 0.8 }, { freq_hz: 3000, gain_db: 3, q: 1 }] },
+      { type: 'comp', threshold_db: -24, ratio: 4, makeup_db: 4 },
+      { type: 'drive', gain_db: 8, mix: 0.25 },
+      { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.7, mix: 0.5 },
+      { type: 'delay', time_ms: 280, feedback: 0.2, lowpass_hz: 4000, wet: 0.12 },
+    ],
+  },
+  {
+    id: 'bass-fuzz',
+    stems: ['bass'], group: 'bass-tone',
+    name: { ru: 'Фузз-бас', en: 'Fuzz bass' },
+    note: {
+      ru: 'Грязный перегруз рядом с чистым басом (низ остаётся плотным) и рычащая середина — тяжёлый альт-рок (в духе Muse, Placebo, Royal Blood).',
+      en: 'Dirty drive blended with the clean bass (the low end stays solid) and growling mids — heavy alt rock (Muse, Placebo, Royal Blood style).',
+    },
+    chain: [
+      { type: 'drive', gain_db: 30, mix: 0.45 },
+      { type: 'eq', lowpass_hz: 7000, bands: [{ freq_hz: 800, gain_db: 3, q: 1 }] },
+      { type: 'comp', threshold_db: -20, ratio: 4, attack_ms: 10, makeup_db: 2 },
+    ],
+  },
+  {
+    id: 'bass-pick',
+    stems: ['bass'], group: 'bass-tone',
+    name: { ru: 'Бас медиатором: панк', en: 'Picked bass: punk' },
+    note: {
+      ru: 'Яркая атака медиатора, сильный компрессор и немного грязи — бас отчётливо щёлкает каждую восьмую (панк, пост-панк).',
+      en: 'A bright pick attack, a strong compressor and a touch of dirt — every eighth note clicks clearly (punk, post-punk).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 40, bands: [{ freq_hz: 2200, gain_db: 5, q: 1 }, { freq_hz: 250, gain_db: -2, q: 1 }] },
+      { type: 'comp', threshold_db: -26, ratio: 6, attack_ms: 2, makeup_db: 5 },
+      { type: 'drive', gain_db: 6, mix: 0.2 },
+    ],
+  },
+  {
+    id: 'bass-dub',
+    stems: ['bass'], group: 'bass-tone',
+    name: { ru: 'Глубокий даб', en: 'Deep dub' },
+    note: {
+      ru: 'Только низ: верх срезан, гул сверху убран, мягкий компрессор — бас чувствуется телом, а не слышится (даб, трип-хоп).',
+      en: 'Only the lows: top cut, boxiness removed, a soft compressor — the bass is felt more than heard (dub, trip-hop).',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 30, lowpass_hz: 1200, bands: [{ freq_hz: 70, gain_db: 5, q: 1 }, { freq_hz: 400, gain_db: -3, q: 1 }] },
+      { type: 'comp', threshold_db: -22, ratio: 3, attack_ms: 20, release_ms: 200, makeup_db: 3 },
     ],
   },
   {

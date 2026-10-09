@@ -3092,6 +3092,10 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
         if b["type"] == "perc":
             out.append(perc_window(b, frm, win, track, sr))
             continue
+        if b["type"] == "tremolo":
+            # фаза качания — от времени в треке: кусок окна начинается с frm (служебное поле — только от воркера)
+            out.append(dict({k: v for k, v in b.items() if not k.startswith("_")}, _t0=frm))
+            continue
         if b["type"] != "synth":
             out.append(b)
             continue

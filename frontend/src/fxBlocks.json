@@ -1130,6 +1130,58 @@
    }
   ]
  },
+ "tremolo": {
+  "label": {
+   "ru": "Тремоло",
+   "en": "Tremolo"
+  },
+  "params": [
+   {
+    "id": "rate_hz",
+    "default": 5,
+    "min": 0.5,
+    "max": 15,
+    "step": 0.1,
+    "label": {
+     "ru": "скорость, Гц",
+     "en": "rate, Hz"
+    }
+   },
+   {
+    "id": "depth",
+    "default": 0.5,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "глубина",
+     "en": "depth"
+    }
+   },
+   {
+    "id": "shape",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "форма (плавно — вкл/выкл)",
+     "en": "shape (smooth — on/off)"
+    }
+   },
+   {
+    "id": "stereo",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "стерео (лево-право)",
+     "en": "stereo (left-right)"
+    }
+   }
+  ]
+ },
  "perc": {
   "label": {
    "ru": "Перкуссия (удары партии)",

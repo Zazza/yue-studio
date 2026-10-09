@@ -137,7 +137,7 @@ def parse_chain(chain) -> list[dict]:
         nums, strs = SPEC[t], STR_SPEC.get(t, {})
         allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set()) | \
             ({"notes", "_until", "_ref_rms", "_syn_rms", "_syn_peak"} if t in ("synth", "perc") else set()) | \
-            ({"_t0"} if t == "perc" else set())
+            ({"_t0"} if t in ("perc", "tremolo") else set())
         extra = set(blk) - allowed
         if extra:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
@@ -167,6 +167,8 @@ def parse_chain(chain) -> list[dict]:
                 norm["_t0"] = min(max(float(blk["_t0"]), 0.0), 86400.0)
             if t == "perc" and int(norm["voice"]) == 0 and not norm.get("kit"):
                 raise ChainError(f"{where}: голос 0 (сэмплы) — нужен набор kit")
+        if t == "tremolo" and _num(blk.get("_t0")):   # начало куска в треке (ставит воркер): фаза LFO от трека
+            norm["_t0"] = min(max(float(blk["_t0"]), 0.0), 86400.0)
         if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
             raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
         out.append(norm)
@@ -1236,6 +1238,27 @@ def _spring(x, sr, p, _res=None):
     return out
 
 
+TREMOLO_SQUARE_K = 12.0   # tremolo shape 1: tanh(k·sin) — «почти квадрат» с мягкими краями без щелчков
+
+
+def _tremolo(x, sr, p, _res=None):
+    """Тремоло: громкость качается по LFO, g = 1 − depth·m(t), m ∈ [0, 1]; shape 0 — m = (1 + sin)/2, к 1 —
+    «вкл/выкл» (tanh от синуса); stereo — правый канал к противофазе 1 − m (звук ходит лево-право). Умножение —
+    звук не сдвигается. Фаза — от времени в треке (_t0 — начало куска, ставит воркер): превью окна звучит так же,
+    как этот отрезок в треке."""
+    n, ch = x.shape
+    s = np.sin(2 * np.pi * p["rate_hz"] * (float(p.get("_t0", 0.0)) + np.arange(n) / sr))
+    k = TREMOLO_SQUARE_K * p["shape"]
+    if k > 0:
+        s = np.tanh(k * s) / np.tanh(k)
+    m = 0.5 * (1.0 + s)
+    out = x * (1.0 - p["depth"] * m)[:, None]
+    if ch > 1 and p["stereo"] > 0:
+        mr = (1.0 - p["stereo"]) * m + p["stereo"] * (1.0 - m)
+        out[:, 1:] = x[:, 1:] * (1.0 - p["depth"] * mr)[:, None]
+    return out
+
+
 SYNTH_QUIET_DB = -60.0   # вход тише (RMS там, где звучит синт) — громкость синта по пику, а не от трека
 
 
@@ -1536,7 +1559,7 @@ def _limiter(x, sr, p, _res):
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
           "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler,
           "bass": _bass, "synth": _synth, "chorus": _chorus, "phaser": _phaser, "flanger": _flanger,
-          "tape": _tape, "spring": _spring, "perc": _perc, "glue": _glue, "limiter": _limiter}
+          "tape": _tape, "spring": _spring, "tremolo": _tremolo, "perc": _perc, "glue": _glue, "limiter": _limiter}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

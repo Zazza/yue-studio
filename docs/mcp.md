@@ -98,7 +98,7 @@ env = { "YUE_URL" = "http://gpu-host:8091" }
 gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожку → вариант `dsp-fx-*.flac`
 (звук не сдвигается — годится для вклейки нота в ноту) · `fx_assets` — загруженные захваты NAM и IR ·
 `fx_asset_upload` — загрузить свой `.nam`/`.wav` с ПК · `fx_kit_install` — набор сэмплов на воркер (барабаны `osdk` — блок `sampler`, бас `growlybass` — блок `bass`) · `fx_blocks` — описание блоков (умолчания,
-границы, подписи) · `fx_presets` — готовые цепочки страницы «Инструменты» · `fx_apply preview=true` —
+границы, подписи) · `fx_presets` — готовые цепочки страницы «Инструменты» (раздел `group`; у пресета с усилителем `amp_hint` — подстроки имени захвата: пустой `amp.model` заполнить первым захватом из `fx_assets` с подсказкой в имени) · `fx_apply preview=true` —
 только прослушать кусок `from`–`to` (не вариант). В трек — `rebuild_sections` с записью
 `{child_id: 0, stems, from, to, engine: [блоки]}` (копится со вклейками и эффектами). Подробно — docs/effects.md, «Звуковой движок».
 

@@ -716,6 +716,7 @@ export default {
   'instr.len': 'piece length',
   'instr.sec': 's',
   'instr.presets': 'presets:',
+  'instr.presets.more': 'other:',
   'instr.up': 'move up',
   'instr.down': 'move down',
   'instr.remove': 'remove block',

@@ -141,3 +141,18 @@ export function missingKits(workerChain, kits) {
   }
   return out
 }
+
+/** Захват для усилителя без захвата: первый загруженный, в имени которого есть подсказка пресета (amp_hint, по
+ *  приоритету, без учёта регистра); совпадений нет — первый загруженный; захватов нет — цепочка как была.
+ *  Без подсказок в «Fender Twin чистый» попадал первый по алфавиту захват (Bug333). Вход не меняется. */
+export function fillAmp(chain, amps, hints = []) {
+  const list = amps || []
+  if (!list.length) return chain
+  const names = list.map((a) => String(a.name))
+  let pick = names[0]
+  for (const h of hints || []) {
+    const found = names.find((n) => n.toLowerCase().includes(String(h).toLowerCase()))
+    if (found) { pick = found; break }
+  }
+  return chain.map((b) => (b.type === 'amp' && !b.params.model ? { ...b, params: { ...b.params, model: pick } } : b))
+}
