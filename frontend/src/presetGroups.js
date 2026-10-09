@@ -9,6 +9,11 @@ export const PRESET_GROUPS = {
   'bass-tone': { ru: 'Бас: звук (ноты те же)', en: 'Bass: tone (same notes)' },
   'bass-kit': { ru: 'Бас: замена нот сэмплами', en: 'Bass: notes replaced with samples' },
   'drum-kits': { ru: 'Барабаны: наборы', en: 'Drums: kits' },
+  'synth-pad': { ru: 'Пэды и струнные', en: 'Pads and strings' },
+  'synth-organ': { ru: 'Органы', en: 'Organs' },
+  'synth-keys': { ru: 'Клавиши', en: 'Keys' },
+  'synth-lead': { ru: 'Лиды и басы', en: 'Leads and basses' },
+  'synth-toy': { ru: 'Игрушки и колокольчики', en: 'Toys and bells' },
 }
 
 /** Список по группам: [{group, label, items}] в порядке первого появления группы, внутри — исходный порядок;

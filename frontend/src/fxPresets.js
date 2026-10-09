@@ -509,7 +509,7 @@ export const fxPresets = [
   // пэды — на октаву выше гитар (C5…B5): в регистре гитар пэд сливается с ними и не слышен даже громким
   // (прослушивание «Gone» #683/#685 — «не слышу», #687 октавой выше — «отчётливо»)
   {
-    id: 'synth-solina', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    id: 'synth-solina', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Струнный ансамбль (Solina)', en: 'String ensemble (Solina)' },
     note: { ru: 'Мягкие «струны» 70-х: три расстроенные пилы, медленная атака и густой ансамбль-хорус — холодная подушка под гитары (Joy Division, Молчат Дома).', en: '70s soft "strings": three detuned saws, slow attack and a thick ensemble chorus — a cold bed under guitars.' },
     chain: [
@@ -519,7 +519,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-juno', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    id: 'synth-juno', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Пэд с хорусом (Juno)', en: 'Chorus pad (Juno)' },
     note: { ru: 'Пульс с суб-октавой через тёплый фильтр, медленно «дышащий» от LFO, и фирменный хорус — тёплый пэд 80-х.', en: 'Pulse with a sub-octave through a warm filter slowly breathing with the LFO, and the signature chorus — a warm 80s pad.' },
     chain: [
@@ -528,7 +528,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-moog-bass', stems: ['synth'], style: 'pulse', octave: 0,
+    id: 'synth-moog-bass', stems: ['synth'], group: 'synth-lead', style: 'pulse', octave: 0,
     name: { ru: 'Синт-бас (Moog)', en: 'Synth bass (Moog)' },
     note: { ru: 'Пила и квадрат на октаву ниже через резонансный фильтр с коротким «щелчком» огибающей — плотный пульсирующий бас восьмыми.', en: 'Saw plus a square an octave down through a resonant filter with a short envelope "pluck" — a tight eighth-note bass.' },
     chain: [
@@ -536,7 +536,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-moog-lead', stems: ['synth'], style: 'arp', octave: 1,
+    id: 'synth-moog-lead', stems: ['synth'], group: 'synth-lead', style: 'arp', octave: 1,
     name: { ru: 'Лид (Moog)', en: 'Lead (Moog)' },
     note: { ru: 'Две пилы с лёгкой расстройкой, резонанс и вибрато, ленточное эхо — арпеджио по аккордам поверх трека.', en: 'Two slightly detuned saws, resonance and vibrato, tape echo — an arpeggio over the chords.' },
     chain: [
@@ -546,7 +546,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-cs80-brass', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    id: 'synth-cs80-brass', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Медь (CS-80)', en: 'Brass (CS-80)' },
     note: { ru: 'Расстроенные пилы и фильтр, раскрывающийся на атаке, с медленным вибрато — «Blade Runner»-медь, торжественно и тревожно.', en: 'Detuned saws and a filter opening on the attack with slow vibrato — Blade Runner style brass, solemn and uneasy.' },
     chain: [
@@ -556,7 +556,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-farfisa', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    id: 'synth-farfisa', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Орган (Farfisa)', en: 'Organ (Farfisa)' },
     note: { ru: 'Квадрат с октавой сверху и быстрым вибрато, без атаки, через пружину — гаражный орган 60-х.', en: 'Square with an octave on top and fast vibrato, no attack, through a spring — a 60s garage organ.' },
     chain: [
@@ -565,7 +565,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-vox-continental', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    id: 'synth-vox-continental', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Орган (Vox Continental)', en: 'Organ (Vox Continental)' },
     note: { ru: 'Треугольник с квадратом на октаву выше, лёгкое вибрато и старая лента — тонкий «стеклянный» орган (The Doors, The Animals).', en: 'Triangle with a square an octave up, light vibrato and old tape — a thin "glassy" organ.' },
     chain: [
@@ -575,12 +575,175 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-vltone', stems: ['synth'], style: 'arp', octave: 1,
+    id: 'synth-vltone', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1,
     name: { ru: 'Игрушка (VL-Tone)', en: 'Toy (VL-Tone)' },
     note: { ru: 'Узкий пульс с коротким звуком через зажатую ленту с шипением — карманный калькулятор-синт («Da Da Da»), странно и по-детски.', en: 'A narrow pulse with short notes through squashed hissing tape — the pocket calculator synth, odd and childlike.' },
     chain: [
       { type: 'synth', osc1: 2, pwm: 0.25, cutoff_hz: 7000, attack_s: 0.002, decay_s: 0.15, sustain: 0.3, release_s: 0.1, output_db: 0 },
       { type: 'tape', wow: 0.2, flutter: 0.3, saturation: 0.5, lowpass_hz: 7000, hiss: 0.2 },
+    ],
+  },
+
+  // ---------- клавиши и синты (этап 7в): органы, фортепиано, электропиано, игрушки ----------
+  {
+    id: 'synth-mellotron', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Ленточные струны (Mellotron)', en: 'Tape strings (Mellotron)' },
+    note: { ru: 'Струны с магнитной ленты: мягкая атака, плавающая высота и тёплая грязь — психоделия 60-х и мрачный арт-рок (в духе Beatles «Strawberry Fields», King Crimson).', en: 'Strings off magnetic tape: soft attack, wobbly pitch and warm dirt — 60s psychedelia and dark art rock.' },
+    chain: [
+      { type: 'synth', osc1: 0, unison: 3, detune_cents: 8, cutoff_hz: 3500, attack_s: 0.15, decay_s: 0.3, sustain: 0.9, release_s: 0.6, output_db: 0 },
+      { type: 'tape', wow: 0.4, flutter: 0.3, saturation: 0.2, lowpass_hz: 7000, hiss: 0.1 },
+      { type: 'reverb', decay_s: 1.8, predelay_ms: 15, lowpass_hz: 6000, wet: 0.2 },
+    ],
+  },
+  {
+    id: 'synth-choir', stems: ['synth'], group: 'synth-pad', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Хор «аах»', en: 'Choir "aah"' },
+    note: { ru: 'Синтетический хор: пилы с «гласной а» эквалайзером, медленный вдох и большой зал — торжественно и холодно (в духе New Order, Depeche Mode).', en: 'A synthetic choir: saws shaped into an "ah" vowel, a slow breath in and a big hall — solemn and cold.' },
+    chain: [
+      { type: 'synth', osc1: 0, unison: 4, detune_cents: 12, cutoff_hz: 5000, vib_rate: 5, vib_cents: 6, attack_s: 0.5, decay_s: 0.4, sustain: 0.9, release_s: 1.2, output_db: 0 },
+      { type: 'eq', highpass_hz: 200, bands: [{ freq_hz: 700, gain_db: 8, q: 2 }, { freq_hz: 1200, gain_db: 6, q: 2 }, { freq_hz: 2600, gain_db: 5, q: 3 }] },
+      { type: 'chorus', voices: 3, depth_ms: 4, rate_hz: 0.4, mix: 0.6 },
+      { type: 'reverb', decay_s: 3.5, predelay_ms: 30, lowpass_hz: 7000, wet: 0.35 },
+    ],
+  },
+  {
+    id: 'synth-hammond', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Электроорган с вращающимся динамиком (Hammond)', en: 'Tonewheel organ with rotary speaker (Hammond)' },
+    note: { ru: 'Синусы с октавой и рычащей грязью, звук «вращается» между колонками, как у динамика Leslie — блюз, соул, хард-рок 70-х (в духе Deep Purple, The Doors).', en: 'Sines with an octave and growling dirt, the sound "spins" between speakers like a Leslie — blues, soul, 70s hard rock.' },
+    chain: [
+      { type: 'synth', osc1: 4, osc2: 4, osc2_semi: 12, osc_mix: 0.45, sub: 0.35, cutoff_hz: 8000, attack_s: 0.005, decay_s: 0.05, sustain: 1, release_s: 0.05, output_db: 0 },
+      { type: 'drive', gain_db: 8, mix: 0.3 },
+      { type: 'tremolo', rate_hz: 6, depth: 0.35, shape: 0, stereo: 1 },
+      { type: 'chorus', voices: 2, depth_ms: 2, rate_hz: 5, mix: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-church-organ', stems: ['synth'], group: 'synth-organ', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Церковный орган', en: 'Church organ' },
+    note: { ru: 'Регистры с октавой и низом, медленный вход и огромный каменный зал — торжественно, по-готически (в духе Nick Cave, готик-рока).', en: 'Stops with an octave and a low end, a slow swell and a huge stone hall — solemn and gothic.' },
+    chain: [
+      { type: 'synth', osc1: 1, osc2: 0, osc2_semi: 12, osc_mix: 0.4, sub: 0.5, cutoff_hz: 5000, attack_s: 0.08, decay_s: 0.1, sustain: 1, release_s: 0.4, output_db: 0 },
+      { type: 'reverb', decay_s: 6, predelay_ms: 40, lowpass_hz: 6000, wet: 0.45 },
+    ],
+  },
+  {
+    id: 'synth-piano', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Фортепиано', en: 'Grand piano' },
+    note: { ru: 'Настоящий концертный рояль (сэмплы Salamander Grand Piano, Alexander Holm, CC-BY 3.0): аккорды по тактам с небольшим залом. Набор воркер качает сам (fx_kit_install salamander, ~47 МБ).', en: 'A real concert grand (Salamander Grand Piano samples, Alexander Holm, CC-BY 3.0): chords per bar with a small hall. The worker downloads the kit (fx_kit_install salamander, ~47 MB).' },
+    chain: [
+      { type: 'synth', kit: 'salamander/piano', cutoff_hz: 16000, attack_s: 0.002, decay_s: 0.1, sustain: 1, release_s: 0.4, output_db: 0 },
+      { type: 'reverb', decay_s: 1.6, predelay_ms: 10, lowpass_hz: 9000, wet: 0.15 },
+    ],
+  },
+  {
+    id: 'synth-piano-soft', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Тихое фортепиано', en: 'Soft piano' },
+    note: { ru: 'Тот же рояль, сыгранный тихо (мягкий слой сэмплов Salamander Grand Piano, Alexander Holm, CC-BY 3.0), и зал побольше — баллада, грусть, Radiohead «Pyramid Song».', en: 'The same grand played softly (soft Salamander Grand Piano layer, Alexander Holm, CC-BY 3.0) with a bigger hall — ballads and melancholy.' },
+    chain: [
+      { type: 'synth', kit: 'salamander/piano-soft', cutoff_hz: 16000, attack_s: 0.002, decay_s: 0.1, sustain: 1, release_s: 0.6, output_db: 0 },
+      { type: 'reverb', decay_s: 2.2, predelay_ms: 20, lowpass_hz: 8000, wet: 0.25 },
+    ],
+  },
+  {
+    id: 'synth-rhodes', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Электропиано Rhodes', en: 'Rhodes electric piano' },
+    note: { ru: 'Мягкий колокольный удар, тёплый гаснущий тон и стерео-тремоло — соул, джаз, трип-хоп (в духе Portishead, Massive Attack).', en: 'A soft bell-like attack, a warm fading tone and stereo tremolo — soul, jazz, trip-hop.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 1, fm_index: 1.8, fm_decay_s: 0.6, osc2: 4, osc2_semi: 12, osc_mix: 0.1, cutoff_hz: 6000, attack_s: 0.002, decay_s: 1.5, sustain: 0.4, release_s: 0.4, output_db: 0 },
+      { type: 'tremolo', rate_hz: 4, depth: 0.3, shape: 0, stereo: 1 },
+      { type: 'chorus', voices: 1, depth_ms: 2, rate_hz: 0.5, mix: 0.25 },
+    ],
+  },
+  {
+    id: 'synth-wurlitzer', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Wurlitzer с тремоло', en: 'Wurlitzer with tremolo' },
+    note: { ru: 'Более резкое и «гнусавое» электропиано с лёгкой грязью и пульсирующей громкостью — инди и соул (в духе Supertramp, Ray Charles).', en: 'A sharper, nasal electric piano with a little dirt and pulsing volume — indie and soul.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 1, fm_index: 3, fm_decay_s: 0.25, cutoff_hz: 5000, attack_s: 0.002, decay_s: 1, sustain: 0.3, release_s: 0.3, output_db: 0 },
+      { type: 'drive', gain_db: 10, mix: 0.3 },
+      { type: 'tremolo', rate_hz: 5.5, depth: 0.45, shape: 0, stereo: 0 },
+    ],
+  },
+  {
+    id: 'synth-dx7-ep', stems: ['synth'], group: 'synth-keys', style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
+    name: { ru: 'Электропиано DX7', en: 'DX7 electric piano' },
+    note: { ru: 'Стеклянный звонкий удар поверх мягкого тела и хорус — главная баллада 80-х (в духе Whitney Houston, a-ha).', en: 'A glassy ringing attack over a soft body with chorus — THE 80s ballad sound.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 14, fm_index: 1.2, fm_decay_s: 0.08, osc2: 4, osc_mix: 0.5, cutoff_hz: 10000, attack_s: 0.001, decay_s: 1.2, sustain: 0.3, release_s: 0.5, output_db: 0 },
+      { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.6, mix: 0.4 },
+    ],
+  },
+  {
+    id: 'synth-clavinet', stems: ['synth'], group: 'synth-keys', style: 'pulse', octave: 0,
+    name: { ru: 'Клавинет', en: 'Clavinet' },
+    note: { ru: 'Щёлкающая струна с «квакающим» фильтром короткими нотами — фанк (в духе Stevie Wonder «Superstition»).', en: 'A clicky string with a quacky filter in short notes — funk.' },
+    chain: [
+      { type: 'synth', osc1: 2, pwm: 0.15, cutoff_hz: 3000, resonance: 0.3, env_amount: 0.6, f_attack_s: 0.001, f_decay_s: 0.15, attack_s: 0.001, decay_s: 0.3, sustain: 0.2, release_s: 0.08, output_db: 0 },
+      { type: 'phaser', stages: 4, rate_hz: 0.6, depth: 0.5, feedback: 0.3, mix: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-harpsichord', stems: ['synth'], group: 'synth-keys', style: 'arp', octave: 1,
+    name: { ru: 'Клавесин', en: 'Harpsichord' },
+    note: { ru: 'Яркий щипок без сустейна, перебор по аккорду — барокко внутри поп-песни (в духе The Stranglers «Golden Brown», Beatles).', en: 'A bright pluck without sustain, arpeggiated over the chord — baroque inside a pop song.' },
+    chain: [
+      { type: 'synth', osc1: 0, osc2: 2, osc2_semi: 12, osc_mix: 0.4, pwm: 0.3, cutoff_hz: 7000, env_amount: 0.3, f_decay_s: 0.2, attack_s: 0.001, decay_s: 0.8, sustain: 0, release_s: 0.2, output_db: 0 },
+      { type: 'eq', highpass_hz: 200 },
+      { type: 'reverb', decay_s: 1.2, predelay_ms: 5, lowpass_hz: 9000, wet: 0.15 },
+    ],
+  },
+  {
+    id: 'synth-theremin', stems: ['synth'], group: 'synth-lead', style: 'drone', octave: 1,
+    name: { ru: 'Терменвокс', en: 'Theremin' },
+    note: { ru: 'Поющий синус с широким вибрато и медленным входом — жутковато, как в старой фантастике (в духе Pixies, саундтреков 50-х).', en: 'A singing sine with wide vibrato and a slow entry — eerie, like old sci-fi.' },
+    chain: [
+      { type: 'synth', osc1: 4, vib_rate: 6, vib_cents: 25, cutoff_hz: 8000, attack_s: 0.15, decay_s: 0.1, sustain: 1, release_s: 0.3, output_db: 0 },
+      { type: 'reverb', decay_s: 2, predelay_ms: 20, lowpass_hz: 7000, wet: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-stylophone', stems: ['synth'], group: 'synth-lead', style: 'arp', octave: 1,
+    name: { ru: 'Стилофон', en: 'Stylophone' },
+    note: { ru: 'Жужжащий карманный синт со стилусом и вибрато — дёшево, смешно и узнаваемо (в духе Bowie «Space Oddity»).', en: 'A buzzy pocket stylus synth with vibrato — cheap, funny and unmistakable.' },
+    chain: [
+      { type: 'synth', osc1: 2, pwm: 0.3, cutoff_hz: 5000, vib_rate: 5.5, vib_cents: 15, attack_s: 0.003, decay_s: 0.1, sustain: 1, release_s: 0.05, output_db: 0 },
+      { type: 'tape', wow: 0.1, flutter: 0.2, saturation: 0.3, lowpass_hz: 8000, hiss: 0.05 },
+    ],
+  },
+  {
+    id: 'synth-music-box', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1,
+    name: { ru: 'Музыкальная шкатулка', en: 'Music box' },
+    note: { ru: 'Звонкие металлические язычки, быстро гаснущие, перебором — колыбельная, детство, лёгкий хоррор.', en: 'Ringing metal tines that fade fast, arpeggiated — a lullaby, childhood, a hint of horror.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 3.5, fm_index: 2, fm_decay_s: 0.15, cutoff_hz: 12000, attack_s: 0.001, decay_s: 1.2, sustain: 0, release_s: 0.8, output_db: 0 },
+      { type: 'reverb', decay_s: 1.8, predelay_ms: 10, lowpass_hz: 9000, wet: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-celesta', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1, place: { pan: 0, width: 1.4 },
+    name: { ru: 'Челеста / колокольчики', en: 'Celesta / bells' },
+    note: { ru: 'Колокольчики с мягким хвостом в зале — сказочно, по-зимнему (в духе Чайковского «Феи Драже», Björk).', en: 'Bells with a soft tail in a hall — fairy-tale, wintry.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 4, fm_index: 1.5, fm_decay_s: 0.3, cutoff_hz: 12000, attack_s: 0.001, decay_s: 2, sustain: 0, release_s: 1, output_db: 0 },
+      { type: 'reverb', decay_s: 2.5, predelay_ms: 20, lowpass_hz: 9000, wet: 0.3 },
+    ],
+  },
+  {
+    id: 'synth-omnichord', stems: ['synth'], group: 'synth-toy', style: 'arp', octave: 1, place: { pan: 0, width: 1.4 },
+    name: { ru: 'Омникорд', en: 'Omnichord' },
+    note: { ru: 'Электронная «арфа» 80-х: перебор аккорда мягкими колокольными нотами с хорусом — мечтательно (в духе Eno, Gorillaz).', en: 'An 80s electronic "harp": the chord strummed in soft bell notes with chorus — dreamy.' },
+    chain: [
+      { type: 'synth', osc1: 5, fm_ratio: 2, fm_index: 1, fm_decay_s: 0.4, cutoff_hz: 9000, attack_s: 0.002, decay_s: 1.5, sustain: 0.1, release_s: 0.6, output_db: 0 },
+      { type: 'chorus', voices: 2, depth_ms: 3, rate_hz: 0.8, mix: 0.4 },
+    ],
+  },
+  {
+    id: 'synth-casio', stems: ['synth'], group: 'synth-toy', style: 'pulse', octave: 1,
+    name: { ru: 'Casio-игрушка', en: 'Casio toy keyboard' },
+    note: { ru: 'Пищащий квадрат детского синтезатора через заезженную ленту — лоуфай и инди (в духе Trio «Da Da Da», Daniel Johnston).', en: 'The squeaky square of a kids keyboard through worn tape — lo-fi and indie.' },
+    chain: [
+      { type: 'synth', osc1: 1, osc2: 1, osc2_semi: 12, osc_mix: 0.2, cutoff_hz: 4000, attack_s: 0.002, decay_s: 0.4, sustain: 0.6, release_s: 0.08, output_db: 0 },
+      { type: 'tape', wow: 0.2, flutter: 0.2, saturation: 0.4, lowpass_hz: 7000, hiss: 0.1 },
     ],
   },
 

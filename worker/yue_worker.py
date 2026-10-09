@@ -2847,8 +2847,7 @@ class _FxResources:
         """Сэмплы набора `<набор>/<часть>` и их частота (sampler, bass). Предел длины — max_s из каталога
         FX_KITS (у баса); у прочих наборов — целиком (тарелки звучат дольше 6 с)."""
         import soundfile as sf
-        d = _kit_path(name)
-        files = sorted(d.glob("*.wav")) if d.is_dir() else []
+        files = _kit_files(_kit_path(name))
         if not files:
             raise KeyError(name)
         max_s = FX_KITS.get(name.partition("/")[0], {}).get("max_s")
@@ -2868,8 +2867,7 @@ class _FxResources:
 
     def kit_names(self, name: str) -> list:
         """Имена сэмплов набора без расширения — в том же порядке, что kit() (высота из имени у синтезированных)."""
-        d = _kit_path(name)
-        return [f.stem for f in sorted(d.glob("*.wav"))] if d.is_dir() else []
+        return [f.stem for f in _kit_files(_kit_path(name))]
 
     def close(self) -> None:
         for m in self._amps.values():
@@ -3082,7 +3080,12 @@ def synth_part_level(blk: dict, n: int, sr: int) -> tuple[float, float]:
     import numpy as np
     import fx_engine
     full = fx_engine.parse_chain([blk])[0]          # умолчания блока (в эндпоинте цепочка уже разобрана)
-    y = fx_engine._synth_notes(n, sr, 1, dict(full, output_db=0.0, _raw=True))[:, 0]
+    res = fx_resources() if full.get("kit") else None   # синт на сэмплах (фортепиано) — набор из хранилища
+    try:
+        y = fx_engine._synth_notes(n, sr, 1, dict(full, output_db=0.0, _raw=True), res)[:, 0]
+    finally:
+        if res is not None:
+            res.close()
     m = np.abs(y) > 1e-6
     return (float(np.sqrt(np.mean(y[m] ** 2))) if m.any() else 0.0), float(np.abs(y).max()) if len(y) else 0.0
 
@@ -3107,16 +3110,25 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
         # служебные поля (_until, _ref_rms, …) ставит только воркер: присланные в запросе — выбросить до расчётов
         b = {k: v for k, v in b.items() if not k.startswith("_")}
         notes = []
+        # сэмплы (kit) и FM звучат от начала ноты (позиция в сэмпле, спад глубины): переносить начало к окну нельзя —
+        # превью звучало бы иначе, чем тот же кусок в треке (перезапуск за 1 с до окна — громче на 5,8 дБ, ревью s7c)
+        whole = bool(b.get("kit")) or 5 in (b.get("osc1"), b.get("osc2"))
         for nt in b["notes"]:
             t, end = nt["t"] - frm, nt["t"] - frm + nt["d"]
             if end <= 0 or t >= win:
+                continue
+            if whole:
+                # не дальше WHOLE_LEAD_S до окна: сэмпл дольше 8 с не звучит, FM-глубина к 60 с погасла, а нота в 10 мин
+                # упёрлась бы в предел начала (SYNTH_MIN_T → 422)
+                t = max(t, -WHOLE_LEAD_S)
+                notes.append(dict(nt, t=t, d=min(end, win) - t))
                 continue
             # запас до окна — не меньше атаки и спада огибающих: дальше нота в удержании, уровень как в полном рендере
             lead = max(SYNTH_LEAD_S, b.get("attack_s", 0) + b.get("decay_s", 0) + 0.1,
                        b.get("f_attack_s", 0) + b.get("f_decay_s", 0) + 0.1)
             t = max(t, -lead)
             notes.append(dict(nt, t=t, d=min(end, win) - t))
-        blk = dict(b, notes=notes, _until=win)
+        blk = dict(b, notes=notes, _until=win, _t0=frm)   # _t0 — фазы нот от их места в треке
         if track is not None:
             # общий уровень партии: громкость трека и синта по ВСЕМ нотам (синт — сырой, без нормировки окна)
             blk["_ref_rms"] = synth_ref_rms(track, sr, b["notes"])
@@ -3125,6 +3137,7 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
     return out
 
 
+WHOLE_LEAD_S = 60.0  # synth kit/FM: нота, начатая раньше окна, — не дальше этого (сэмпл и FM-спад уже отзвучали)
 PERC_LEAD_S = 12.0   # perc: удар, начатый раньше окна, ещё звучит (тарелка набора — до 8–12 с, голоса — до 2 с)
 
 
@@ -3192,9 +3205,9 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     files = list(paths)
     for blk in chain:
         for key in ("kit", "kit_open", "kit_mid", "kit_low"):
-            if blk.get("type") in ("sampler", "bass", "perc") and blk.get(key):
+            if blk.get("type") in ("sampler", "bass", "perc", "synth") and blk.get(key):
                 try:
-                    files += sorted(_kit_path(blk[key]).glob("*.wav"))
+                    files += _kit_files(_kit_path(blk[key]))
                 except KeyError:
                     pass  # неверное имя — process отвергнет
         for kind, key in (("amp", "model"), ("ir", "ir")):
@@ -3368,6 +3381,13 @@ FX_KITS = {
                   "tom-small": ("toms", r"small-tom\d+\.wav"), "tom-medium": ("toms", r"medium-tom\d+\.wav"),
                   "tom-large": ("toms", r"large-tom\d+\.wav")},
     },
+    "salamander": {  # Salamander Grand Piano V3 (Alexander Holm), CC-BY 3.0 — блок synth с kit (фортепиано)
+        "repo": "sfzinstruments/SalamanderGrandPiano",
+        "ref": "3382bf9496bba2486f5ab0de55a264d1dfc38404",
+        # один слой силы удара на часть: 30 нот через 3 полутона A0…C8 (~47 МБ); высота — из имени файла
+        "parts": {"piano": ("Samples", r"[A-G]#?\d+v10\.flac"), "piano-soft": ("Samples", r"[A-G]#?\d+v4\.flac")},
+        "max_s": 8.0,  # нота длиннее не тянется: память (30 сэмплов × 8 с стерео)
+    },
     "growlybass": {  # Growlybass (Karoryfer Lecolds): Squier Jazz Bass, CC0 — блок bass
         "repo": "sfzinstruments/karoryfer.growlybass",
         "ref": "4f483268fc66b5a6d5781d421c0d11b8d08d3fc6",
@@ -3382,6 +3402,14 @@ FX_KIT_SR = 48000   # частота синтезированных наборо
 FX_KIT_PART_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 _fx_kit_locks: dict = {}               # установка одного набора — по одной (общий каталог .part)
 _fx_kit_locks_guard = threading.Lock()
+
+
+KIT_EXTS = (".wav", ".flac")   # сэмплы наборов: wav (osdk, growlybass, синтезированные) и flac (Salamander)
+
+
+def _kit_files(d: Path) -> list:
+    """Файлы сэмплов части набора — wav и flac вместе, по имени (порядок один для kit() и kit_names())."""
+    return sorted(f for f in d.iterdir() if f.suffix.lower() in KIT_EXTS) if d.is_dir() else []
 
 
 def _kits_dir() -> Path:
@@ -3401,7 +3429,7 @@ def _kit_list() -> list:
     root = _kits_dir()
     if root.is_dir():
         for d in sorted(p for p in root.glob("*/*") if p.is_dir() and FX_KIT_PART_RE.match(p.name)):
-            n = len(list(d.glob("*.wav")))
+            n = len(_kit_files(d))
             if n:
                 out.append({"name": f"{d.parent.name}/{d.name}", "samples": n})
     return out
@@ -3470,7 +3498,7 @@ def _fx_kit_install(name: str, spec: dict) -> dict:
     parts, downloaded = {}, False
     for part, (src, pattern) in spec["parts"].items():
         dst = _kits_dir() / name / part
-        have = list(dst.glob("*.wav")) if dst.is_dir() else []
+        have = _kit_files(dst)   # wav и flac: установленный Salamander (flac) не качается заново
         if have:
             parts[part] = len(have)
             continue

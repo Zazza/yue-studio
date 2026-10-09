@@ -136,8 +136,10 @@ func registerFxTools(s *Server) {
 			"«osdk/hh-half», «osdk/hh-open», «osdk/ride», «osdk/crash», «growlybass/bass»). " +
 			"Драм-машины tr808, tr909, linn, cr78, simmons и синт-басы synthbass воркер синтезирует сам, без сети: " +
 			"части машин — kick, snare, hh-closed, hh-open, ride, crash, tom-small, tom-medium, tom-large, clap, rim, " +
-			"cowbell («tr808/kick» … — блоки sampler и perc), synthbass — moog, sub808, acid (блок bass).",
-		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass | tr808 | tr909 | linn | cr78 | simmons | synthbass", "string")}, "name"),
+			"cowbell («tr808/kick» … — блоки sampler и perc), synthbass — moog, sub808, acid (блок bass). " +
+			"salamander — фортепиано Salamander Grand Piano (CC-BY 3.0, Alexander Holm), части piano и piano-soft " +
+			"(блок synth с kit «salamander/piano»; ~47 МБ на часть).",
+		InputSchema: props(map[string]any{"name": prop("набор: osdk | growlybass | tr808 | tr909 | linn | cr78 | simmons | synthbass | salamander", "string")}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			out, err := s.client.InstallFxKit(context.Background(), argString(args, "name"))
 			if err != nil {

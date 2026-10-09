@@ -126,7 +126,7 @@ export function missingRequired(chain, blocks) {
 
 // наборы сэмплов (sampler, bass), которых цепочке не хватает на воркере: имена наборов (до «/»),
 // без повторов — их воркер скачает по требованию (installFxKit)
-const KIT_BLOCKS = ['sampler', 'bass', 'perc']
+const KIT_BLOCKS = ['sampler', 'bass', 'perc', 'synth']   // synth — фортепиано (salamander)
 
 export function missingKits(workerChain, kits) {
   const have = new Set((kits || []).map((k) => k.name))

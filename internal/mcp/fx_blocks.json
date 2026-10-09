@@ -603,11 +603,11 @@
     "id": "osc1",
     "default": 0,
     "min": 0,
-    "max": 4,
+    "max": 5,
     "step": 1,
     "label": {
-     "ru": "генератор 1: 0 пила, 1 квадрат, 2 пульс, 3 треугольник, 4 синус",
-     "en": "osc 1: 0 saw, 1 square, 2 pulse, 3 triangle, 4 sine"
+     "ru": "генератор 1: 0 пила, 1 квадрат, 2 пульс, 3 треугольник, 4 синус, 5 FM",
+     "en": "osc 1: 0 saw, 1 square, 2 pulse, 3 triangle, 4 sine, 5 FM"
     },
     "integer": true
    },
@@ -615,7 +615,7 @@
     "id": "osc2",
     "default": 0,
     "min": 0,
-    "max": 4,
+    "max": 5,
     "step": 1,
     "label": {
      "ru": "генератор 2 (та же шкала)",
@@ -700,6 +700,39 @@
     "label": {
      "ru": "ширина пульса",
      "en": "pulse width"
+    }
+   },
+   {
+    "id": "fm_ratio",
+    "default": 1,
+    "min": 0.5,
+    "max": 14,
+    "step": 0.5,
+    "label": {
+     "ru": "FM: частота модулятора (×)",
+     "en": "FM: modulator ratio (×)"
+    }
+   },
+   {
+    "id": "fm_index",
+    "default": 2,
+    "min": 0,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "FM: глубина (яркость удара)",
+     "en": "FM: index (attack brightness)"
+    }
+   },
+   {
+    "id": "fm_decay_s",
+    "default": 0.5,
+    "min": 0.01,
+    "max": 5,
+    "step": 0.01,
+    "label": {
+     "ru": "FM: спад глубины, с",
+     "en": "FM: index decay, s"
     }
    },
    {
@@ -854,6 +887,18 @@
     "label": {
      "ru": "громкость, дБ",
      "en": "output, dB"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "kit",
+    "asset": "kit",
+    "required": false,
+    "default": "",
+    "label": {
+     "ru": "набор сэмплов (фортепиано; пусто — генераторы)",
+     "en": "sample kit (piano; empty — oscillators)"
     }
    }
   ]

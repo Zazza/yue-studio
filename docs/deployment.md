@@ -162,6 +162,9 @@ echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и пере
   (`worker/drumsynth.py`, без сети и чужих лицензий): `fx_kit_install tr808` пишет 12 частей по 8 слоёв силы удара
   (wav 48 кГц, PCM 16, ~10 МБ на машину), `synthbass` — три баса по полутонам E1…G3 (~15 МБ). Звучание — приближение
   к машинам, не их копия.
+- Фортепиано для блока `synth` — Salamander Grand Piano V3 (Alexander Holm, github.com/sfzinstruments/SalamanderGrandPiano,
+  лицензия CC-BY 3.0 — свободно, с указанием автора; указан в подсказке пресета): `fx_kit_install salamander`, части
+  `piano` (слой силы v10) и `piano-soft` (v4), по 30 файлов flac (~47 МБ на часть), версия закреплена за коммитом.
 - pedalboard (Spotify) не используется: его лицензия GPL-3, проект — MIT.
 
 ## Разделение на дорожки — BS-Roformer-SW

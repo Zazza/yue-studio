@@ -2833,7 +2833,7 @@ class TestSynthParse(unittest.TestCase):
         self.assertEqual(len(fx.parse_chain([_synth_block([_snote(0, 1, [0, 127])])])), 1)
 
     def test_param_bounds(self):
-        bad = [{"osc1": 5}, {"osc1": -1}, {"osc2": 5}, {"osc2_semi": 25}, {"osc2_semi": -25},
+        bad = [{"osc1": 6}, {"osc1": -1}, {"osc2": 6}, {"osc2_semi": 25}, {"osc2_semi": -25},  # 5 — FM (этап 7в)
                {"osc_mix": 1.1}, {"unison": 0}, {"unison": 5}, {"detune_cents": 51},
                {"sub": 1.1}, {"noise": -0.1}, {"pwm": 1.1}, {"cutoff_hz": 79},
                {"cutoff_hz": 16001}, {"resonance": 1.1}, {"env_amount": 1.1},

@@ -10,8 +10,10 @@ const synths = fxPresets.filter((p) => (p.stems || []).includes('synth'))
 const pads = synths.filter((p) => p.style === 'pad')
 
 describe('синт слышен: умолчания (ТК63)', () => {
-  it('пэдов пять (Solina, Juno, CS-80, Farfisa, Vox)', () => {
-    expect(pads.length).toBe(5)
+  // этап 7в (усл. 64) добавил пэды (органы, клавиши) — прежние пять на месте, правило octave 1 — для всех
+  it('пэды этапа 4 на месте (Solina, Juno, CS-80, Farfisa, Vox)', () => {
+    const ids = pads.map((p) => p.id)
+    for (const id of ['synth-solina', 'synth-juno', 'synth-cs80-brass', 'synth-farfisa', 'synth-vox-continental']) expect(ids).toContain(id)
   })
 
   it.each(pads.map((p) => [p.id, p]))('%s: пэд — octave 1', (_id, p) => {

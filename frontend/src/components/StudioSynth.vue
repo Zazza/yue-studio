@@ -15,7 +15,8 @@ import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain } from '../fxChain.js'
-import { applyEngine } from '../engineRun.js'
+import { applyEngine, ensureKits } from '../engineRun.js'
+import { groupPresets } from '../presetGroups.js'
 import { partNotes } from '../synthPart.js'
 import { previewWindow, applyWindow } from '../trackDesk.js'
 import { normPlace } from '../mixDesk.js'
@@ -47,7 +48,11 @@ const err = ref('')
 
 const tr = (lbl) => (lbl && (lbl[locale.value] || lbl.ru)) || ''
 const preset = computed(() => SYNTHS.find((p) => p.id === presetId.value))
-const presetOptions = SYNTHS.map((p) => ({ value: p.id, label: tr(p.name) }))
+// по группам (пэды, органы, клавиши, лиды, игрушки): подпись группы — неактивная строка списка
+const presetOptions = computed(() => groupPresets(SYNTHS, locale.value).flatMap((g) => [
+  ...(g.label ? [{ value: `group:${g.group}`, label: `— ${g.label} —`, disabled: true }] : []),
+  ...g.items.map((p) => ({ value: p.id, label: tr(p.name) })),
+]))
 const styleOptions = computed(() => STYLES.map((s) => ({ value: s, label: t('synth.style.' + s) })))
 // секции плана по порядку появления, без повторов
 const allSections = computed(() => [...new Set(((grid.value && grid.value.bars) || []).map((b) => b.section).filter(Boolean))])
@@ -102,6 +107,8 @@ async function playAfter(solo = false) {
   await toggleArtifact(key, solo ? t('synth.solo') : t('instr.after'), async () => {
     busy.value = 'preview'
     try {
+      // синт на сэмплах (фортепиано) — набор докачивается, как у перкуссии
+      await ensureKits(api, req.chain, ((await api.fxAssets()) || {}).kits, (k) => { msg.value = t('perc.kit', { kit: k }) })
       const r = await api.applyFx(jobId, req)
       await api.playFile(jobId, r.file, r.duration_sec || 15)
     } catch (e) { err.value = String(e); throw e } finally { busy.value = '' }
@@ -122,7 +129,7 @@ async function apply() {
   const snap = { jobId, dur: props.job.duration_sec, src: 'mix', ...target.value, chain: workerChain(), label }
   busy.value = 'apply'
   try {
-    const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old') })
+    const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old'), onKit: (k) => { msg.value = t('perc.kit', { kit: k }) } })
     await inserts.addStemEngine(jobId, { ...rec, add: true, place: placeNow })
     msg.value = t('synth.applied')
     emit('applied')

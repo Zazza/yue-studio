@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import zlib
 from fractions import Fraction
 from pathlib import Path
 
@@ -141,7 +142,7 @@ def parse_chain(chain) -> list[dict]:
         nums, strs = SPEC[t], STR_SPEC.get(t, {})
         allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set()) | \
             ({"notes", "_until", "_ref_rms", "_syn_rms", "_syn_peak"} if t in ("synth", "perc") else set()) | \
-            ({"_t0"} if t in ("perc", "tremolo") else set())
+            ({"_t0"} if t in ("perc", "tremolo", "synth") else set())
         extra = set(blk) - allowed
         if extra:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
@@ -171,7 +172,7 @@ def parse_chain(chain) -> list[dict]:
                 norm["_t0"] = min(max(float(blk["_t0"]), 0.0), 86400.0)
             if t == "perc" and int(norm["voice"]) == 0 and not norm.get("kit"):
                 raise ChainError(f"{where}: голос 0 (сэмплы) — нужен набор kit")
-        if t == "tremolo" and _num(blk.get("_t0")):   # начало куска в треке (ставит воркер): фаза LFO от трека
+        if t in ("tremolo", "synth") and _num(blk.get("_t0")):   # начало куска в треке (ставит воркер): фазы от трека
             norm["_t0"] = min(max(float(blk["_t0"]), 0.0), 86400.0)
         if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
             raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
@@ -1041,9 +1042,15 @@ def _polyblep(ph, dt):
     return out
 
 
-def _osc(wave: int, f: np.ndarray, sr: int, pwm: float = 0.5, phase0: float = 0.0) -> np.ndarray:
+def _osc(wave: int, f: np.ndarray, sr: int, pwm: float = 0.5, phase0: float = 0.0, fm=None) -> np.ndarray:
     """Генератор с переменной частотой f (Гц, по сэмплам): 0 пила, 1 квадрат, 2 пульс (ширина pwm),
-    3 треугольник, 4 синус; разрывы — с поправкой PolyBLEP (без зеркальных частот)."""
+    3 треугольник, 4 синус, 5 FM (синус, фаза которого качается синусом в fm[0] раз выше с глубиной
+    fm[1]·e^(−t/fm[2]) от начала ноты — электропиано, колокольчики); разрывы — с поправкой PolyBLEP."""
+    if wave == 5:
+        ratio, index, decay = fm if fm is not None else (1.0, 0.0, 1.0)
+        ph = phase0 + np.cumsum(f / sr)        # без свёртки по модулю: модулятор — от той же фазы
+        idx = index * np.exp(-np.arange(len(f)) / sr / max(decay, 1e-3))
+        return np.sin(2 * np.pi * ph + idx * np.sin(2 * np.pi * ratio * ph))
     dt = np.clip(f / sr, 1e-6, 0.49)
     ph = (phase0 + np.cumsum(dt)) % 1.0
     if wave == 4:
@@ -1096,8 +1103,63 @@ def _rbj_lp(f0, q, sr):
     return b / a[0], a / a[0]
 
 
-def _synth_notes(n: int, sr: int, ch: int, p: dict) -> np.ndarray:
+NOTE_NAME = re.compile(r"^([A-Ga-g])([#b]?)(-?\d)(?:v\d+)?$")   # «A0v10», «C#4v4», «Eb3» → MIDI
+SEMITONE = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
+
+
+def sample_midi(name: str) -> int | None:
+    """Высота сэмпла по имени файла: m<MIDI> (синтезированные наборы) или нота с октавой («A0v10» = 21)."""
+    m = KIT_MIDI_NAME.match(name or "")
+    if m:
+        return int(m.group(1))
+    m = NOTE_NAME.match(name or "")
+    if not m:
+        return None
+    return 12 * (int(m.group(3)) + 1) + SEMITONE[m.group(1).lower()] + {"#": 1, "b": -1, "": 0}[m.group(2)]
+
+
+KIT_TAIL_FADE_S = 0.05   # спад в конце сэмпла набора synth
+
+
+def _note_phase(t_abs: float, midi: float, voice: int) -> float:
+    """Начальная фаза генератора ноты — от её места в треке (мс), высоты и голоса унисона, а не от порядка нот:
+    превью окна, где ранние ноты отброшены, звучит той же формой, что трек."""
+    key = f"{int(round(t_abs * 1000.0))}/{float(midi):g}/{voice}".encode()
+    return float(np.random.default_rng(zlib.crc32(key)).random())
+
+
+def _synth_bank(res, kit: str, sr: int) -> list[tuple[int, np.ndarray]]:
+    """Сэмплы набора для synth: [(MIDI из имени, моно-сэмпл на частоте sr)], по высоте; без нот в именах — ошибка."""
+    raw, ksr = _resource(res, "kit", kit)
+    names = res.kit_names(kit) if hasattr(res, "kit_names") else []
+    bank = []
+    for s, nm in zip(raw, names if len(names) == len(raw) else [None] * len(raw), strict=True):
+        midi = sample_midi(nm)
+        if midi is None:
+            continue
+        s = np.asarray(s, dtype=np.float64)
+        s = s.mean(axis=1) if s.ndim > 1 else s
+        s = _resample(s[:, None], int(ksr), sr)[:, 0].copy()
+        f = min(len(s), int(KIT_TAIL_FADE_S * sr))   # обрезанный по max_s сэмпл гаснет, а не обрывается щелчком
+        if f:
+            s[len(s) - f:] *= np.linspace(1.0, 0.0, f)
+        bank.append((midi, s))
+    if not bank:
+        raise ChainError(f"набор {kit!r}: нет сэмплов с нотой в имени (A0v10, C#4, m28…)")
+    bank.sort(key=lambda b: b[0])
+    return bank
+
+
+def _kit_voice(bank, midi: int, m: int) -> np.ndarray:
+    """Нота сэмплом: ближайший по высоте, пересчёт частоты (линейная интерполяция), длина m, дальше — тишина."""
+    ms, s = min(bank, key=lambda b: (abs(b[0] - midi), b[0]))
+    pos = np.arange(m) * 2 ** ((midi - ms) / 12)
+    return np.interp(pos, np.arange(len(s)), s, right=0.0)
+
+
+def _synth_notes(n: int, sr: int, ch: int, p: dict, res=None) -> np.ndarray:
     notes = p.get("notes") or []
+    bank = _synth_bank(res, p["kit"], sr) if p.get("kit") else None
     y = np.zeros(n)
     rel_n = int(p["release_s"] * sr)
     rng = np.random.default_rng(12345)
@@ -1117,18 +1179,22 @@ def _synth_notes(n: int, sr: int, ch: int, p: dict) -> np.ndarray:
         t = np.arange(m) / sr
         vib = 2 ** (p["vib_cents"] / 1200 * np.sin(2 * np.pi * p["vib_rate"] * t)) if p["vib_cents"] > 0 else 1.0
         v = np.zeros(m)
-        for midi in nt["midi"]:
+        for midi in (nt["midi"] if bank is None else ()):
             f0 = 440.0 * 2 ** ((midi - 69) / 12)
-            for dc in dets:
+            for vi, dc in enumerate(dets):
                 f = f0 * 2 ** (dc / 1200) * vib * np.ones(m)
-                ph0 = rng.random()
-                o = _osc(int(p["osc1"]), f, sr, p["pwm"], ph0) * (1 - p["osc_mix"])
+                ph0 = _note_phase(nt["t"] + float(p.get("_t0", 0.0)), midi, vi)
+                fm = (p["fm_ratio"], p["fm_index"], p["fm_decay_s"])
+                o = _osc(int(p["osc1"]), f, sr, p["pwm"], ph0, fm) * (1 - p["osc_mix"])
                 if p["osc_mix"] > 0:
-                    o += _osc(int(p["osc2"]), f * 2 ** (p["osc2_semi"] / 12), sr, p["pwm"], ph0) * p["osc_mix"]
+                    o += _osc(int(p["osc2"]), f * 2 ** (p["osc2_semi"] / 12), sr, p["pwm"], ph0, fm) * p["osc_mix"]
                 v += o / len(dets)
             if p["sub"] > 0:
                 v += p["sub"] * _osc(1, f0 / 2 * np.ones(m), sr)
-        if p["noise"] > 0:
+        if bank is not None:   # сэмплы набора вместо генераторов: суб и шум не звучат
+            for midi in nt["midi"]:
+                v += _kit_voice(bank, int(midi), m)
+        elif p["noise"] > 0:
             v += p["noise"] * rng.uniform(-1, 1, m)
         n_on_c = min(n_on, m)
         env = _adsr(n_on_c, m, sr, p["attack_s"], p["decay_s"], p["sustain"], p["release_s"])
@@ -1299,7 +1365,7 @@ def _synth(x, sr, p, _res):
     if _num(p.get("_ref_rms")) and _num(p.get("_syn_rms")):
         # превью/пересборка: один множитель на всю партию (воркер посчитал громкость трека и синта по всем нотам) —
         # любое окно звучит так же, как этот кусок в треке; тихий трек — по пику всей партии (−6 дБFS)
-        y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0, _raw=True))
+        y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0, _raw=True), _res)
         if p["_syn_rms"] <= EPS:
             return y * 0.0
         if p["_ref_rms"] > _db(SYNTH_QUIET_DB):
@@ -1307,7 +1373,7 @@ def _synth(x, sr, p, _res):
         else:
             g = _db(-6.0) / max(float(p.get("_syn_peak", 0.0)), EPS)
         return y * g * _db(p["output_db"])
-    y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0))
+    y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0), _res)
     mask = np.abs(y).max(axis=1) > 1e-6
     if mask.any():
         # опора — громкость трека по всем нотам партии (_ref_rms ставит воркер для превью и пересборки), иначе —

@@ -230,13 +230,14 @@ describe('fxPresets: готовые синты (ТК52)', () => {
   ]
   const synths = fxPresets.filter((p) => (p.stems || []).includes('synth'))
 
-  it('восемь синтов со stems [synth]', () => {
-    expect(synths.length).toBe(8)
+  // этап 7в (усл. 64): синтов стало больше — прежние восемь на месте, у всех stems [synth]
+  it('не меньше восьми синтов со stems [synth]', () => {
+    expect(synths.length).toBeGreaterThanOrEqual(8)
     for (const p of synths) expect(p.stems, p.id).toEqual(['synth'])
   })
 
-  it('названия — из карточки', () => {
-    expect(synths.map((p) => p.name.ru).sort()).toEqual([...NAMES].sort())
+  it('названия этапа 4 — на месте (этап 7в добавил новые)', () => {
+    for (const n of NAMES) expect(synths.map((p) => p.name.ru)).toContain(n)
   })
 
   it.each(synths.map((p) => [p.id, p]))('%s: style и octave', (_, p) => {
