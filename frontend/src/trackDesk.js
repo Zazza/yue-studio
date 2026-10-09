@@ -62,3 +62,29 @@ export function rhythmSection(stemNames, presets, room, locale = 'ru') {
   }
   return out
 }
+
+// основные дорожки: их сумма — весь трек (части барабанов, гитара и клавиши — внутри них)
+const MAIN_STEMS = ['vocals', 'drums', 'bass', 'other']
+const p95 = (s) => {
+  const v = s && s.metrics && s.metrics.metrics && s.metrics.metrics.rms_p95_db
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** Громкость громких мест каждой дорожки (rms_p95_db замера воркера) относительно всего трека — суммы мощностей
+ *  основных дорожек с замером: {имя: дБ}. Дорожка без замера в ответ не идёт; нет основных — {}. */
+export function stemLevels(stems) {
+  const list = stems || []
+  const main = list.filter((s) => MAIN_STEMS.includes(s.name) && p95(s) != null)
+  if (!main.length) return {}
+  const total = 10 * Math.log10(main.reduce((a, s) => a + 10 ** (p95(s) / 10), 0))
+  const out = {}
+  for (const s of list) if (p95(s) != null) out[s.name] = p95(s) - total
+  return out
+}
+
+/** Слышна ли дорожка: тише −30 дБ к треку — 'silent' (место и обработку не услышать), до −20 — 'quiet', иначе ''. */
+export function stemAudibility(db) {
+  if (db < -30) return 'silent'
+  if (db < -20) return 'quiet'
+  return ''
+}

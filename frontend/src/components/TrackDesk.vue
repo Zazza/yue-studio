@@ -17,7 +17,7 @@ import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain, missingRequired } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { insertTitle, insertWindow } from '../insertLabels.js'
-import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection } from '../trackDesk.js'
+import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection, stemLevels, stemAudibility } from '../trackDesk.js'
 import { stemPlace } from '../mixDesk.js'
 
 const props = defineProps({
@@ -194,6 +194,11 @@ async function applyRhythm() {
   } catch (e) { err.value = String(e) } finally { busy.value = ''; loadAssets() }
 }
 
+// громкость дорожки к треку (замер воркера): почти неслышную двигать и обрабатывать бесполезно (#689: райд −35 дБ)
+const levels = computed(() => stemLevels(props.stems))
+const levelText = (stem) => (stem in levels.value ? `${levels.value[stem] > 0 ? '+' : ''}${Math.round(levels.value[stem])} ${t('studio.inserts.dbUnit')}` : '')
+const levelMark = (stem) => (stem in levels.value ? stemAudibility(levels.value[stem]) : '')
+
 // место дорожки в стерео: отпустил ползунок — запись «место» заменяется, трек пересобирается
 const placeOf = (stem) => stemPlace(inserts.appliedFor(props.job.id), stem)
 async function setPlace(stem, place) {
@@ -238,7 +243,9 @@ async function upload(kind) {
     <div class="desk-head">
       <button class="ghost play-mini" :class="{ stop: isPlaying(stemKey(row)) }" :disabled="playBusy[stemKey(row)]"
               :title="t('desk.solo.tip')" @click="playStem(row)">{{ playBtn(stemKey(row)) }}</button>
-      <strong class="desk-name">{{ stemName(row.stem) }}</strong>
+      <strong class="desk-name" :title="t('desk.what.' + row.stem)">{{ stemName(row.stem) }}</strong>
+      <span v-if="levelText(row.stem)" class="muted desk-level" :class="levelMark(row.stem)" :title="t('desk.level.tip')">
+        {{ levelText(row.stem) }}<template v-if="levelMark(row.stem)"> · {{ t('desk.level.' + levelMark(row.stem)) }}</template></span>
       <span v-for="e in row.edits" :key="e.childId" class="desk-chip" :class="{ off: e.off }"
             :title="e.off ? t('desk.chip.off') : ''">{{ insertTitle(e, names) }} · {{ insertWindow(e, win) }}</span>
       <span class="spacer"></span>
@@ -278,7 +285,9 @@ async function upload(kind) {
 .desk-row { border-bottom: 1px solid var(--line, #2a2a35); padding: 4px 0; }
 .desk-row.open { background: var(--panel-2, rgba(255, 255, 255, 0.02)); }
 .desk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.desk-name { min-width: 90px; }
+.desk-name { min-width: 90px; cursor: help; }
+.desk-level { font-size: 12px; }
+.desk-level.silent { opacity: 0.6; font-style: italic; }
 .desk-chip { font-size: 12px; border: 1px solid var(--line, #2a2a35); border-radius: 10px; padding: 1px 8px; }
 .desk-chip.off { opacity: 0.45; text-decoration: line-through; }
 .desk-editor { padding: 6px 0 6px 34px; }
