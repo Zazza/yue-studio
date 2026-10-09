@@ -175,7 +175,8 @@ describe('fxPresets: гитары (условие 13) и наборы бараб
 // дорожки — у каждого пресета поле stems (список дорожек), кроме мастер-склейки.
 describe('fxPresets: дорожки пресетов (stems)', () => {
   // 'synth' — готовые синты поверх трека (internal-own-track, этап 4, условие 26)
-  const KNOWN = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other', 'synth']
+  // 'perc' — готовые перкуссии поверх трека (этап 5, условие 33)
+  const KNOWN = ['vocals', 'drums', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash', 'bass', 'guitar', 'piano', 'other', 'synth', 'perc']
   const MASTER = 'master-glue'
   const byId = (id) => fxPresets.find((p) => p.id === id)
 

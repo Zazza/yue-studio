@@ -452,6 +452,17 @@
     }
    },
    {
+    "id": "dynamics",
+    "default": 1,
+    "min": 0,
+    "max": 2,
+    "step": 0.1,
+    "label": {
+     "ru": "динамика ударов: 0 — ровно, 1 — как сыграно, 2 — резче",
+     "en": "hit dynamics: 0 flat, 1 as played, 2 sharper"
+    }
+   },
+   {
     "id": "output_db",
     "default": 0,
     "min": -24,
@@ -813,7 +824,7 @@
    },
    {
     "id": "rel_db",
-    "default": -10,
+    "default": -6,
     "min": -30,
     "max": 6,
     "step": 0.5,
@@ -1115,6 +1126,93 @@
     "label": {
      "ru": "громкость хвоста",
      "en": "wet"
+    }
+   }
+  ]
+ },
+ "perc": {
+  "label": {
+   "ru": "Перкуссия (удары партии)",
+   "en": "Percussion (part hits)"
+  },
+  "params": [
+   {
+    "id": "voice",
+    "default": 1,
+    "min": 0,
+    "max": 6,
+    "step": 1,
+    "integer": true,
+    "label": {
+     "ru": "звук: 0 сэмплы набора, 1 хэт, 2 шейкер, 3 хлопок, 4 ковбелл, 5 римшот, 6 бубен",
+     "en": "sound: 0 kit samples, 1 hat, 2 shaker, 3 clap, 4 cowbell, 5 rimshot, 6 tambourine"
+    }
+   },
+   {
+    "id": "tone",
+    "default": 1,
+    "min": 0.5,
+    "max": 2,
+    "step": 0.05,
+    "label": {
+     "ru": "тон (у набора — скорость сэмпла)",
+     "en": "tone (kit: sample speed)"
+    }
+   },
+   {
+    "id": "decay",
+    "default": 1,
+    "min": 0.3,
+    "max": 3,
+    "step": 0.1,
+    "label": {
+     "ru": "длина звучания",
+     "en": "decay"
+    }
+   },
+   {
+    "id": "humanize_ms",
+    "default": 0,
+    "min": 0,
+    "max": 20,
+    "step": 1,
+    "label": {
+     "ru": "«по-живому»: сдвиг ударов до, мс",
+     "en": "humanize, ms"
+    }
+   },
+   {
+    "id": "rel_db",
+    "default": -14,
+    "min": -30,
+    "max": 6,
+    "step": 1,
+    "label": {
+     "ru": "громкость от трека, дБ",
+     "en": "level vs track, dB"
+    }
+   },
+   {
+    "id": "output_db",
+    "default": 0,
+    "min": -24,
+    "max": 24,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, дБ",
+     "en": "output, dB"
+    }
+   }
+  ],
+  "strings": [
+   {
+    "id": "kit",
+    "asset": "kit",
+    "required": false,
+    "default": "",
+    "label": {
+     "ru": "набор (для звука 0)",
+     "en": "kit (for sound 0)"
     }
    }
   ]

@@ -913,3 +913,125 @@ class TestSynthRefLevel(unittest.TestCase):
                                0.0, 10.0, track, sr)[0]
         for k in ("_until", "_ref_rms", "_syn_rms", "_syn_peak"):
             self.assertAlmostEqual(dirty[k], clean[k], msg=k)
+
+
+# ---------- Карточка internal-own-track, этап 5, условие 31 (ТК57): perc в /fx ----------
+#
+# Контракт: POST /jobs/{id}/fx {source: "mix", output: "solo", preview: true, add: true, from, to,
+# chain: [perc]} — удары perc в запросе от начала ТРЕКА; воркер сдвигает их на окно (как synth):
+# удар t звучит в превью через t − from; отзвучавший до окна — не звучит; уровень партии — по ВСЕМ
+# ударам (превью любого окна и полный рендер дают одну громкость удара ±1 дБ); служебные поля
+# (_ref_rms и т. п.) из запроса выбрасываются. Реализацию не читали.
+
+PERC_DUR = 30.0
+
+
+def _perc_chain(times, **extra):
+    # ковбелл (voice 4) без humanize: тональный, место и пик удара однозначны (выбор теста)
+    return [{"type": "perc", "voice": 4, "humanize_ms": 0, "rel_db": -14,
+             "notes": [{"t": t, "d": 0.5, "vel": 1.0} for t in times], **extra}]
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestPercWindow(_FxApiCase):
+    """ТК57: превью perc с from = 10 — удар t = 12 на 2 с, удар t = 5 не звучит, громкость как в полном."""
+
+    def _job30(self):
+        # трек 30 с: первые 10 с тихо (тон 0,01), дальше громко (0,3) — уровень «по окну» и «по всем
+        # ударам» различаются, если в тихой части есть удар (t = 5)
+        import numpy as np
+        import soundfile as sf
+        jid = self._job(duration=PERC_DUR, semantic=False)
+        d = self.jobs_dir / str(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        x = _tone(SYN_TRACK_HZ, amp=0.3, dur=PERC_DUR)
+        x[:int(10 * SR)] *= 0.01 / 0.3
+        sf.write(str(d / "audio.flac"), x.astype(np.float32), SR)
+        with self._conn() as c:
+            c.execute("UPDATE jobs SET audio_file='audio.flac' WHERE id=?", (jid,))
+        return jid, d
+
+    def _preview(self, jid, d, chain, fr, to):
+        r = self._fx(jid, source="mix", output="solo", preview=True, add=True, chain=chain,
+                     **{"from": fr, "to": to})
+        self.assertEqual(r.status_code, 200, r.text)
+        y, sr = _read(d / r.json()["file"])
+        self.assertEqual(sr, SR)
+        return y
+
+    def test_tk57_hit_shifted_by_from(self):
+        import numpy as np
+        jid, d = self._job30()
+        y = self._preview(jid, d, _perc_chain([12.0]), 10.0, 14.0)
+        a = np.abs(y).max(axis=1)
+        peak = float(a.max())
+        self.assertGreater(peak, 1e-3, "в превью нет удара")
+        self.assertLess(_db(float(a[:int(1.998 * SR)].max()) / peak), -60, "удар раньше t − from")
+        first = int(np.argmax(a >= 0.1 * peak)) / SR
+        self.assertAlmostEqual(first, 2.0, delta=0.002, msg="удар не через 2 с от начала окна")
+
+    def test_tk57_hit_before_window_silent(self):
+        import numpy as np
+        jid, d = self._job30()
+        y = self._preview(jid, d, _perc_chain([5.0]), 10.0, 14.0)
+        self.assertLess(float(np.abs(y).max()), 1e-4, "удар до окна звучит в превью")
+
+    def test_tk57_window_level_equals_full(self):
+        # окно [10, 25) против полного рендера [0, 30): пик удара t = 12 совпадает ±1 дБ
+        import numpy as np
+        jid, d = self._job30()
+        chain = _perc_chain([5.0, 12.0, 20.0, 27.0])
+        yw = self._preview(jid, d, chain, 10.0, 25.0)
+        yf = self._preview(jid, d, chain, 0.0, PERC_DUR)
+        pw = float(np.abs(yw[int(2.0 * SR):int(2.45 * SR)]).max())
+        pf = float(np.abs(yf[int(12.0 * SR):int(12.45 * SR)]).max())
+        self.assertGreater(pf, 1e-4)
+        self.assertAlmostEqual(_db(pw / pf), 0, delta=1)
+
+    def test_tk57_sent_ref_rms_ignored(self):
+        import numpy as np
+        jid, d = self._job30()
+        clean = self._preview(jid, d, _perc_chain([12.0]), 10.0, 14.0)
+        dirty = self._preview(jid, d, _perc_chain([12.0], _ref_rms=1000.0), 10.0, 14.0)
+        pc, pd = float(np.abs(clean).max()), float(np.abs(dirty).max())
+        self.assertGreater(pc, 1e-4)
+        self.assertAlmostEqual(_db(pd / pc), 0, delta=0.1, msg="присланный _ref_rms изменил громкость")
+
+
+# ---------- Карточка internal-own-track, уточнение 31а (ТК64–ТК65): perc в превью окна ----------
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestPercWindowCarry(TestPercWindow):
+    """ТК64: удар до окна, ещё звучащий, в превью — как в полном рендере; ТК65: нет набора → 422."""
+
+    # тесты ТК57 наследуются только ради хелперов — здесь их не повторяем
+    test_tk57_hit_shifted_by_from = None
+    test_tk57_hit_before_window_silent = None
+    test_tk57_window_level_equals_full = None
+    test_tk57_sent_ref_rms_ignored = None
+
+    def test_tk64_ringing_hit_before_window_sounds_as_full(self):
+        # ковбелл decay 3, удар t = 8,9 — до окна [10, 12), но ещё звучит: первые 0,1 с превью
+        # совпадают по пику с [10; 10,1) полного рендера [0, 30)
+        import numpy as np
+        jid, d = self._job30()
+        chain = _perc_chain([8.9], decay=3)
+        yw = self._preview(jid, d, chain, 10.0, 12.0)
+        yf = self._preview(jid, d, chain, 0.0, PERC_DUR)
+        pw = float(np.abs(yw[:int(0.1 * SR)]).max())
+        pf = float(np.abs(yf[int(10.0 * SR):int(10.1 * SR)]).max())
+        self.assertGreater(pf, 1e-4, "в полном рендере удар к 10 с уже затих — тест не проверяет перенос")
+        self.assertGreater(pw, 1e-4, "звучащий удар до окна выброшен из превью")
+        self.assertAlmostEqual(_db(pw / pf), 0, delta=1, msg="хвост удара в превью не как в полном рендере")
+
+    def test_tk65_missing_kit_422(self):
+        jid, d = self._job30()
+        chain = [{"type": "perc", "voice": 0, "kit": "nosuch/kick", "humanize_ms": 0,
+                  "notes": [{"t": 12.0, "d": 0.5, "vel": 1.0}]}]
+        r = self._fx(jid, source="mix", output="solo", preview=True, add=True, chain=chain,
+                     **{"from": 10.0, "to": 14.0})
+        self.assertEqual(r.status_code, 422, r.text[:300])
+        detail = r.json().get("detail")
+        text = (detail if isinstance(detail, str) else json.dumps(detail, ensure_ascii=False)).lower()
+        self.assertIn("набор", text)
+        self.assertEqual(self._fx_files(d), [])

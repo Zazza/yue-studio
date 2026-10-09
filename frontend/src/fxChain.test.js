@@ -46,11 +46,11 @@ describe('описание блоков (fxBlocks.json)', () => {
     expect(Object.keys(blocks).slice(0, TYPES.length)).toEqual(TYPES)
   })
 
-  // карточка internal-own-track, этап 4 (условия 23–24): за прежними — блоки синтов,
+  // карточка internal-own-track, этап 4 (условия 23–24): за прежними — блоки синтов, этап 5 (условие 30) — perc;
   // их порядок карточка не задаёт
-  it('за прежними типами — synth и эффекты синтов', () => {
+  it('за прежними типами — synth и эффекты синтов, perc', () => {
     expect([...Object.keys(blocks).slice(TYPES.length)].sort())
-      .toEqual(['chorus', 'flanger', 'phaser', 'spring', 'synth', 'tape'])
+      .toEqual(['chorus', 'flanger', 'perc', 'phaser', 'spring', 'synth', 'tape'])
   })
 })
 

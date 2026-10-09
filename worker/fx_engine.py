@@ -136,7 +136,8 @@ def parse_chain(chain) -> list[dict]:
         where = f"{where} ({t})"
         nums, strs = SPEC[t], STR_SPEC.get(t, {})
         allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set()) | \
-            ({"notes", "_until", "_ref_rms", "_syn_rms", "_syn_peak"} if t == "synth" else set())
+            ({"notes", "_until", "_ref_rms", "_syn_rms", "_syn_peak"} if t in ("synth", "perc") else set()) | \
+            ({"_t0"} if t == "perc" else set())
         extra = set(blk) - allowed
         if extra:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
@@ -155,13 +156,17 @@ def parse_chain(chain) -> list[dict]:
             norm[k] = v
         if t == "eq":
             norm["bands"] = _parse_bands(where, blk.get("bands", []))
-        if t == "synth":
-            norm["notes"] = _parse_notes(where, blk.get("notes", []))
+        if t in ("synth", "perc"):
+            norm["notes"] = (_parse_notes if t == "synth" else _parse_hits)(where, blk.get("notes", []))
             if _num(blk.get("_until")):   # край окна превью (ставит воркер); зажим — огромное не ломает расчёт
                 norm["_until"] = min(max(float(blk["_until"]), 0.0), 86400.0)
             for k in ("_ref_rms", "_syn_rms", "_syn_peak"):   # общий уровень партии (ставит воркер); зажим 0…1e3
                 if _num(blk.get(k)):
                     norm[k] = min(max(float(blk[k]), 0.0), 1000.0)
+            if t == "perc" and _num(blk.get("_t0")):   # начало окна в треке (ставит воркер): сдвиги «по-живому»
+                norm["_t0"] = min(max(float(blk["_t0"]), 0.0), 86400.0)
+            if t == "perc" and int(norm["voice"]) == 0 and not norm.get("kit"):
+                raise ChainError(f"{where}: голос 0 (сэмплы) — нужен набор kit")
         if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
             raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
         out.append(norm)
@@ -633,6 +638,12 @@ def _sampler(x, sr, p, res):
             kind[i] = int(_ring(env, t, end) >= edge)
     ps = np.array([h[1] for h in hits])
     ranks = np.argsort(np.argsort(ps)) / max(len(ps) - 1, 1)
+    # динамика: сила удара вокруг медианы в степени dynamics (1 — как сыграно, 0 — машина, 2 — призрачные
+    # тише, акценты громче); слой — по рангу, как раньше
+    dyn = float(p.get("dynamics", 1.0))
+    if dyn != 1.0:
+        med = float(np.median(ps))
+        hits = [(t, med * (pk / med) ** dyn if med > EPS and pk > EPS else pk) for t, pk in hits]
     fade = max(1, int(0.01 * sr))
     turn = [0] * len(sets)                              # чередование слоёв — своё у каждого набора
     chosen = []
@@ -1239,7 +1250,7 @@ def _synth(x, sr, p, _res):
         if p["_syn_rms"] <= EPS:
             return y * 0.0
         if p["_ref_rms"] > _db(SYNTH_QUIET_DB):
-            g = p["_ref_rms"] * _db(p.get("rel_db", -10.0)) / p["_syn_rms"]
+            g = p["_ref_rms"] * _db(p.get("rel_db", -6.0)) / p["_syn_rms"]
         else:
             g = _db(-6.0) / max(float(p.get("_syn_peak", 0.0)), EPS)
         return y * g * _db(p["output_db"])
@@ -1250,14 +1261,180 @@ def _synth(x, sr, p, _res):
         # вход окна на звучащих отсчётах
         rin = float(p["_ref_rms"]) if _num(p.get("_ref_rms")) else _rms(x[mask])
         if rin > _db(SYNTH_QUIET_DB):
-            y = y * (rin * _db(p.get("rel_db", -10.0)) / max(_rms(y[mask]), EPS))
+            y = y * (rin * _db(p.get("rel_db", -6.0)) / max(_rms(y[mask]), EPS))
+    return y * _db(p["output_db"])
+
+
+# ---------- перкуссия по сетке (этап 5) ----------
+PERC_MAX_HITS = 8000     # ударов в блоке perc не больше: шестнадцатые на 6 мин при 180 BPM — 4320
+PERC_VOICES = 6          # голоса драм-машины: 1 хэт, 2 шейкер, 3 хлопок, 4 ковбелл, 5 римшот, 6 бубен (0 — сэмплы kit)
+PERC_HAT_HZ = (205.3, 304.4, 369.6, 522.7, 540.0, 800.0)   # шесть квадратов хэта/тарелки TR-808
+
+
+def _parse_hits(where: str, notes) -> list[dict]:
+    """Удары блока perc: [{t (с, < 0 — до окна), d > 0 (ячейка удара), vel 0…1}], не больше PERC_MAX_HITS."""
+    if not isinstance(notes, list):
+        raise ChainError(f"{where}: notes — список ударов {{t, d, vel}}")
+    if len(notes) > PERC_MAX_HITS:
+        raise ChainError(f"{where}: ударов не больше {PERC_MAX_HITS} (сейчас {len(notes)})")
+    out = []
+    for i, nt in enumerate(notes):
+        w = f"{where}, удар {i + 1}"
+        if not isinstance(nt, dict) or not _num(nt.get("t")) or not _num(nt.get("d")) or nt["d"] <= 0:
+            raise ChainError(f"{w}: нужны t (с) и d > 0 (с)")
+        if nt["t"] < SYNTH_MIN_T:
+            raise ChainError(f"{w}: начало не раньше {SYNTH_MIN_T:g} с")
+        vel = nt.get("vel", 0.8)
+        if not _num(vel) or not 0 <= vel <= 1:
+            raise ChainError(f"{w}: vel — 0…1")
+        out.append({"t": float(nt["t"]), "d": float(nt["d"]), "vel": float(vel)})
+    return out
+
+
+def _bp(x, sr, lo, hi, order=2):
+    """Полоса lo…hi (каузально: звук голоса начинается в 0 — фильтр не тянет его назад)."""
+    hi = min(hi, 0.45 * sr)
+    lo = min(lo, hi * 0.9)
+    return signal.sosfilt(signal.butter(order, [lo, hi], btype="band", fs=sr, output="sos"), x)
+
+
+def _perc_voice(voice: int, sr: int, tone: float, decay: float, rng) -> np.ndarray:
+    """Один удар голоса драм-машины (моно, звук с отсчёта 0, пик ≈ 1)."""
+    def env(tau, length, attack=0.0005):
+        t = np.arange(int(length * sr)) / sr
+        e = np.exp(-t / tau)
+        a = max(1, int(attack * sr))
+        e[:a] *= np.linspace(0.0, 1.0, a + 1)[1:]
+        return t, e
+    if voice == 1:    # хэт: шесть квадратов 808 через верх
+        t, e = env(0.04 * decay, 0.4 * decay)
+        v = sum(np.sign(np.sin(2 * np.pi * f * tone * t + rng.random() * 6.28)) for f in PERC_HAT_HZ)
+        v = signal.sosfilt(signal.butter(4, min(7000.0 * tone, 0.4 * sr), btype="high", fs=sr, output="sos"), v)
+    elif voice == 2:  # шейкер: шум в верхней полосе, мягкая атака 8 мс
+        t, e = env(0.05 * decay, 0.45 * decay, attack=0.008)
+        v = _bp(rng.uniform(-1, 1, len(t)), sr, 5000.0 * tone, 12000.0 * tone)
+    elif voice == 3:  # хлопок: три всплеска через 10 мс и хвост
+        t = np.arange(int(0.5 * decay * sr)) / sr
+        e = sum(np.where(t >= k, np.exp(-(t - k) / 0.003), 0.0) for k in (0.0, 0.010, 0.020))
+        e = e + 0.6 * np.where(t >= 0.030, np.exp(-(t - 0.030) / (0.07 * decay)), 0.0)
+        a = max(1, int(0.0005 * sr))
+        e[:a] *= np.linspace(0.0, 1.0, a + 1)[1:]
+        v = _bp(rng.uniform(-1, 1, len(t)), sr, 800.0 * tone, 2500.0 * tone)
+    elif voice == 4:  # ковбелл 808: два квадрата 540/800 Гц
+        t, e = env(0.09 * decay, 0.7 * decay)
+        e = e * (0.6 + 0.4 * np.exp(-t / 0.01))
+        v = sum(np.sign(np.sin(2 * np.pi * f * tone * t)) for f in (540.0, 800.0))
+        v = _bp(v, sr, 350.0 * tone, 1600.0 * tone)
+    elif voice == 5:  # римшот: короткий тон 1,7 кГц и щелчок
+        t, e = env(0.008 * decay, 0.12 * decay)
+        v = np.sin(2 * np.pi * 1700.0 * tone * t) + 0.5 * rng.uniform(-1, 1, len(t)) * np.exp(-t / 0.002)
+    else:             # бубен: шум верха, тарелочки — четыре всплеска
+        t = np.arange(int(0.6 * decay * sr)) / sr
+        e = sum(w * np.where(t >= k, np.exp(-(t - k) / (0.05 * decay)), 0.0)
+                for k, w in ((0.0, 1.0), (0.007, 0.7), (0.016, 0.5), (0.027, 0.35)))
+        a = max(1, int(0.0005 * sr))
+        e[:a] *= np.linspace(0.0, 1.0, a + 1)[1:]
+        v = _bp(rng.uniform(-1, 1, len(t)), sr, 6000.0 * tone, 15000.0 * tone, order=4)
+    y = v * e
+    pk = float(np.abs(y).max()) if len(y) else 0.0
+    return y / pk if pk > EPS else y
+
+
+def _perc_jitter(t_abs: float, ms: float) -> float:
+    """Сдвиг удара «по-живому» (с): от его места в треке, а не от порядка в окне — превью любого окна
+    и пересборка сдвигают один и тот же удар одинаково."""
+    if ms <= 0:
+        return 0.0
+    seed = int(round(t_abs * 1000.0)) & 0xFFFFFFFF
+    return float(np.random.default_rng(seed).uniform(-1.0, 1.0)) * ms / 1000.0
+
+
+def _perc_notes(n: int, sr: int, ch: int, p: dict, res) -> np.ndarray:
+    """Удары партии без нормировки: удар vel 1 — пик сэмпла/голоса ≈ 1, громкость ∝ vel."""
+    hits = p.get("notes") or []
+    y = np.zeros((n, ch))
+    if not hits:
+        return y
+    voice = int(p["voice"])
+    tone, decay = float(p["tone"]), float(p["decay"])
+    if voice == 0:
+        layers = _sampler_layers(res, p["kit"], sr, ch)
+        if abs(tone - 1.0) > 1e-3:   # скорость сэмпла: tone 2 — вдвое выше и короче
+            up, down = 100, max(1, int(round(100 * tone)))
+            layers = [_sampler_layers_one(signal.resample_poly(s, up, down, axis=0)) for _, _, s, _ in layers]
+        bank = [(s / max(pk, EPS), att) for pk, _, s, att in layers]
+    else:
+        rng = np.random.default_rng(int(voice))
+        # у шумовых голосов — несколько вариантов звука по кругу (один и тот же шум на каждом ударе звучал бы машинно)
+        bank = [(np.repeat(_perc_voice(voice, sr, tone, decay, rng)[:, None], ch, axis=1), 0) for _ in range(4)]
+    last = len(bank) - 1
+    t0 = float(p.get("_t0", 0.0))
+    for h in hits:
+        # слой/вариант — от места удара в треке (мс), а не от номера в окне: превью любого окна и пересборка
+        # играют один и тот же удар одним сэмплом
+        turn = int(round(abs(h["t"] + t0) * 1000.0))
+        if voice == 0:
+            k = int(round(h["vel"] * last))
+            if 0 < k < last:     # слой по силе, средние — ±1 по кругу; самый тихий и самый громкий — точно
+                k += (0, -1, 1)[turn % 3]
+            s, att = bank[k]
+        else:
+            s, att = bank[turn % len(bank)]
+        g = h["vel"]
+        at = int(round((h["t"] + _perc_jitter(h["t"] + t0, float(p["humanize_ms"]))) * sr)) - att
+        a, b = max(at, 0), min(at + len(s), n)
+        if b > a:
+            y[a:b] += s[a - at:b - at] * g
+    stop = min(n, int(round(p.get("_until", n / sr) * sr)))
+    y[stop:] = 0.0
+    e = min(int(SYNTH_EDGE_S * sr), max(stop, 1) // 2)
+    if e > 0 and stop < n:
+        y[stop - e:stop] *= np.linspace(1.0, 0.0, e, endpoint=False)[:, None]
+    return y
+
+
+def _sampler_layers_one(s: np.ndarray) -> tuple[float, int, np.ndarray, int]:
+    mono = np.abs(s).sum(axis=1)
+    return float(np.abs(s).max()), int(np.argmax(mono)), s, int(np.argmax(mono >= 0.1 * mono.max()))
+
+
+def perc_cells(notes: list, n: int, sr: int) -> np.ndarray:
+    """Отсчёты ячеек ударов [t, t + d) — где мерить громкость партии и трека."""
+    m = np.zeros(n, dtype=bool)
+    for h in notes:
+        a, b = max(0, int(h["t"] * sr)), min(n, int((h["t"] + h["d"]) * sr))
+        if b > a:
+            m[a:b] = True
+    return m
+
+
+def _perc(x, sr, p, res):
+    """Перкуссия поверх трека по ударам notes [{t, d, vel}] (t — от начала окна): голос драм-машины или сэмплы
+    набора. Громкость — как у synth: RMS выхода на ячейках ударов = RMS входа (трека) на них · rel_db; тихий
+    вход — пик −6 дБFS; сверху output_db. _ref_rms/_syn_rms/_syn_peak — общий уровень партии (ставит воркер)."""
+    n, ch = x.shape
+    y = _perc_notes(n, sr, ch, p, res)
+    if _num(p.get("_ref_rms")) and _num(p.get("_syn_rms")):
+        if p["_syn_rms"] <= EPS:
+            return y * 0.0
+        if p["_ref_rms"] > _db(SYNTH_QUIET_DB):
+            g = p["_ref_rms"] * _db(p["rel_db"]) / p["_syn_rms"]
+        else:
+            g = _db(-6.0) / max(float(p.get("_syn_peak", 0.0)), EPS)
+        return y * g * _db(p["output_db"])
+    mask = perc_cells(p.get("notes") or [], n, sr)
+    rin = _rms(x[mask]) if mask.any() else 0.0
+    if rin > _db(SYNTH_QUIET_DB) and mask.any():
+        y = y * (rin * _db(p["rel_db"]) / max(_rms(y[mask]), EPS))
+    else:
+        y = y * (_db(-6.0) / max(float(np.abs(y).max()) if y.size else 0.0, EPS))
     return y * _db(p["output_db"])
 
 
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
           "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler,
           "bass": _bass, "synth": _synth, "chorus": _chorus, "phaser": _phaser, "flanger": _flanger,
-          "tape": _tape, "spring": _spring}
+          "tape": _tape, "spring": _spring, "perc": _perc}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

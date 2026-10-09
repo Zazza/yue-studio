@@ -51,7 +51,7 @@ const notes = computed(() => (grid.value ? partNotes(grid.value.bars, { style: s
 // громкость партии относительно трека — это rel_db блока synth: верхний ползунок и крутилка в редакторе цепочки —
 // один параметр, а не два (кросс-ревью: второй ничего не делал)
 const db = computed({
-  get: () => { const b = chain.value.find((x) => x.type === 'synth'); return b ? b.params.rel_db : -10 },
+  get: () => { const b = chain.value.find((x) => x.type === 'synth'); return b ? b.params.rel_db : -6 },
   set: (v) => { chain.value = chain.value.map((b) => (b.type === 'synth' ? { ...b, params: { ...b.params, rel_db: Number(v) } } : b)) },
 })
 const listenWin = computed(() => previewWindow(props.sel, props.cursor, props.job.duration_sec))
@@ -88,11 +88,13 @@ function workerChain() {
   return toWorkerChain(chain.value).map((b) => (b.type === 'synth' ? { ...b, notes: notes.value } : b))
 }
 
-async function playAfter() {
+// «стало» — трек с партией; «партия отдельно» — она одна (output solo): услышать, что искать в миксе
+async function playAfter(solo = false) {
   err.value = ''
   const jobId = props.job.id
-  const req = { source: 'mix', chain: workerChain(), output: 'mix', preview: true, add: true, ...listenWin.value }
-  await toggleArtifact('synth-after', t('instr.after'), async () => {
+  const req = { source: 'mix', chain: workerChain(), output: solo ? 'solo' : 'mix', preview: true, add: true, ...listenWin.value }
+  const key = solo ? 'synth-solo' : 'synth-after'
+  await toggleArtifact(key, solo ? t('synth.solo') : t('instr.after'), async () => {
     busy.value = 'preview'
     try {
       const r = await api.applyFx(jobId, req)
@@ -147,8 +149,10 @@ async function apply() {
       <ChainEditor v-model="chain" :busy="busy" />
     </details>
     <div class="dsp-row">
-      <button class="ghost small-btn" :disabled="!ready" :title="t('instr.after.tip')" @click="playAfter">
+      <button class="ghost small-btn" :disabled="!ready" :title="t('instr.after.tip')" @click="playAfter()">
         {{ busy === 'preview' ? t('instr.busy') : playBtn('synth-after') + ' ' + t('instr.after') }}</button>
+      <button class="ghost small-btn" :disabled="!ready" :title="t('synth.solo.tip')" @click="playAfter(true)">
+        {{ playBtn('synth-solo') }} {{ t('synth.solo') }}</button>
       <button class="ghost small-btn" @click="playBefore">{{ playBtn('synth-before') }} {{ t('instr.before') }}</button>
       <span class="muted">{{ t('desk.listen', { from: listenWin.from.toFixed(1), to: listenWin.to.toFixed(1) }) }} · {{ t('synth.notes', { n: notes.length }) }}</span>
       <span class="spacer"></span>

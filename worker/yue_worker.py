@@ -2967,11 +2967,11 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     if req.preview:
         used = [src] if req.source == "mix" else [src, jdir / f"stem-{req.source}.flac"]
         # ноты синта в запросе — от начала трека, превью считает кусок с from: сдвинуть на окно
-        chain = synth_window(chain, frm, to - frm + req.fade, part, sr)   # опора — сам вход (трек при source mix)
+        chain = _fx_window(synth_window, chain, frm, to - frm + req.fade, part, sr)   # опора — сам вход (трек при source mix)
         return _fx_preview(job_id, jdir, req, chain, track, part, sr, used)
 
     # синт на весь трек — тот же общий уровень партии, что у превью (служебные значения — только от воркера)
-    chain = synth_window(chain, 0.0, n / sr, part, sr)
+    chain = _fx_window(synth_window, chain, 0.0, n / sr, part, sr)
     wet = _fx_process(job_id, part.astype(np.float32), sr, chain).astype(np.float64)
 
     # в треке меняется только разница «обработанная − исходная»: вне окна трек побитно тот же
@@ -3038,6 +3038,9 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
     окна (затухание и сам синт не заходят в хвост реверба/дилея)."""
     out = []
     for b in chain:
+        if b["type"] == "perc":
+            out.append(perc_window(b, frm, win, track, sr))
+            continue
         if b["type"] != "synth":
             out.append(b)
             continue
@@ -3062,6 +3065,51 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
     return out
 
 
+PERC_LEAD_S = 12.0   # perc: удар, начатый раньше окна, ещё звучит (тарелка набора — до 8–12 с, голоса — до 2 с)
+
+
+def _fx_window(fn, *args):
+    """synth_window с ошибкой цепочки как 422 (набора perc нет — понятный текст, а не 500)."""
+    import fx_engine
+    try:
+        return fn(*args)
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def perc_window(b: dict, frm: float, win: float, track=None, sr: int = 0) -> dict:
+    """Удары perc (секунды трека) → для куска окна [frm, frm + win): сдвиг на frm, место удара НЕ меняется
+    (в отличие от ноты синта удар нельзя «подтянуть» к окну); начатые раньше PERC_LEAD_S до окна (отзвучали) и
+    начатые после — отброшены; _until — край окна + FX_SAMPLER_TAIL_MAX_S (удар у края звучит в хвост превью, как
+    у sampler; дальше буфер всё равно кончается); _t0 — начало окна в треке (сдвиги «по-живому» от места удара в треке). Уровень —
+    общий для партии, как у synth: громкость трека и сырых ударов на ячейках ВСЕХ ударов."""
+    import numpy as np
+    import fx_engine
+    b = {k: v for k, v in b.items() if not k.startswith("_")}   # служебные поля ставит только воркер
+    hits = []
+    for h in b.get("notes") or []:
+        t = h["t"] - frm
+        if t < -PERC_LEAD_S or t >= win:
+            continue
+        hits.append(dict(h, t=t, d=max(min(t + h["d"], win) - t, 1e-3)))
+    blk = dict(b, notes=hits, _until=win + FX_SAMPLER_TAIL_MAX_S, _t0=frm)
+    if track is not None:
+        full = fx_engine.parse_chain([b])[0]
+        n = len(track)
+        res = fx_resources()
+        try:
+            y = fx_engine._perc_notes(n, sr, np.asarray(track).shape[1], full, res)   # каналы — как у окна
+        finally:
+            close = getattr(res, "close", None)
+            if close:
+                close()
+        m = fx_engine.perc_cells(full["notes"], n, sr)
+        blk["_ref_rms"] = float(np.sqrt(np.mean(np.asarray(track)[m] ** 2))) if m.any() else 0.0
+        blk["_syn_rms"] = float(np.sqrt(np.mean(y[m] ** 2))) if m.any() else 0.0
+        blk["_syn_peak"] = float(np.abs(y).max()) if len(y) else 0.0
+    return blk
+
+
 def _fx_process(job_id: int, part, sr: int, chain: list):
     """Цепочка движка; с amp — в очереди GPU (выгрузка захватов — тоже внутри неё)."""
     import fx_engine
@@ -3084,7 +3132,7 @@ def _fx_stamp(paths: list[Path], chain: list) -> list:
     files = list(paths)
     for blk in chain:
         for key in ("kit", "kit_open", "kit_mid", "kit_low"):
-            if blk.get("type") in ("sampler", "bass") and blk.get(key):
+            if blk.get("type") in ("sampler", "bass", "perc") and blk.get(key):
                 try:
                     files += sorted(_kit_path(blk[key]).glob("*.wav"))
                 except KeyError:
@@ -3113,15 +3161,19 @@ def _fx_kit_tail(chain: list) -> float:
     import soundfile as sf
     longest = 0.0
     for blk in chain:
+        if blk.get("type") == "perc" and int(blk.get("voice", 1)) != 0:
+            longest = max(longest, 0.7 * float(blk.get("decay", 1.0)))   # голос драм-машины — до 0,7·decay с
         for key in ("kit", "kit_open", "kit_mid", "kit_low"):
-            if blk.get("type") == "sampler" and blk.get(key):
+            if blk.get("type") in ("sampler", "perc") and blk.get(key):
                 try:
                     files = _kit_path(blk[key]).glob("*.wav")
                 except KeyError:
                     continue
+                # perc tone < 1 — сэмпл медленнее и длиннее (кросс-ревью: tone 0,5 обрывал хвост на 2 с раньше)
+                speed = float(blk.get("tone", 1.0)) if blk.get("type") == "perc" else 1.0
                 for f in files:
                     try:
-                        longest = max(longest, sf.info(str(f)).duration)
+                        longest = max(longest, sf.info(str(f)).duration / max(speed, 0.5))
                     except RuntimeError:
                         pass  # битый файл — его отвергнет чтение набора
     return min(max(FX_SAMPLER_TAIL_S, longest), FX_SAMPLER_TAIL_MAX_S)
@@ -3146,7 +3198,7 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     n = len(track)
     a, b = int(round(req.from_ * sr)), int(round(req.to * sr))
     tail = FX_PREVIEW_TAIL_S if any(blk["type"] in ("reverb", "delay") for blk in chain) else 0.0
-    if any(blk["type"] in ("sampler", "bass") for blk in chain):
+    if any(blk["type"] in ("sampler", "bass", "perc") for blk in chain):
         # удар у конца окна: сэмпл звучит дальше, без обрыва; с эхом/ревербом — больший из хвостов
         tail = max(tail, _fx_kit_tail(chain))
     fade = int(round(req.fade * sr))

@@ -219,7 +219,8 @@ func TestFxAssetUploadMissingFile(t *testing.T) {
 // fx_presets — готовые цепочки (встроенный fx_presets.json из frontend/src/fxPresets.js).
 
 var fxBlockTypes = []string{"gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass",
-	"synth", "chorus", "phaser", "flanger", "tape", "spring"} // этап 4 (синты): синтезатор и эффекты к нему
+	"synth", "chorus", "phaser", "flanger", "tape", "spring", // этап 4 (синты): синтезатор и эффекты к нему
+	"perc"} // этап 5: перкуссия по сетке
 
 func TestFxApplyPassesPreview(t *testing.T) {
 	s, fake := newFxServer(t)

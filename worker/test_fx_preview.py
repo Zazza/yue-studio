@@ -44,7 +44,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 BLOCKS_JSON = Path(__file__).resolve().with_name("fx_blocks.json")
 TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass")
-SYNTH_TYPES = ("synth", "chorus", "phaser", "flanger", "tape", "spring")
+SYNTH_TYPES = ("synth", "chorus", "phaser", "flanger", "tape", "spring", "perc")   # perc — этап 5
 PREVIEW_RE = re.compile(r"^preview-fx-[0-9a-f]{8}\.flac$")
 TAIL = 3.0
 MAX_PREVIEWS = 8
@@ -1387,7 +1387,8 @@ class _ParseCase(unittest.TestCase):
         self.fx = fx_engine
 
     def _ok(self, t, **kw):
-        return self.fx.parse_chain([{"type": t, **_need(t), **kw}])[0]
+        extra = {"kit": "fake/kick"} if t == "perc" and kw.get("voice") == 0 else {}   # голос 0 без набора — 422
+        return self.fx.parse_chain([{"type": t, **_need(t), **extra, **kw}])[0]
 
     def _bad(self, t, **kw):
         with self.assertRaises(self.fx.ChainError, msg=f"{t} {kw} принят"):

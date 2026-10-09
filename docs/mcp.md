@@ -107,6 +107,10 @@ gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожк�
 (добавление поверх трека, без разделения); послушать — `fx_apply` `source mix, preview, add`. Готовые синты — `fx_presets`
 со `stems: ["synth"]`.
 
+**Перкуссия по сетке:** такты — `chord_grid` (с планом) или `beat_grid` (темп и сильная доля) → блок `perc` с ударами
+`notes` [{t, d, vel}] (секунды трека) → `rebuild_sections` записью `add` (как у синта). Готовые — `fx_presets` со
+`stems: ["perc"]` (у каждого `pattern` и `swing` — рисунок, который строит студия).
+
 **Пресеты звука** (рецепт обработки трека целиком: правки дорожек + финал на микс → версия «трек · пресет»):
 `sound_presets` · `sound_preset_create` / `sound_preset_update` (target_lufs — громкость результата, у update не передан — прежний; specs — правки на весь трек: stems + engine |
 chain+params | steps, db; final — цепочка на микс) · `sound_preset_delete`† · `sound_preset_apply` (`db` — громкость записей на этот раз {"индекс": дБ}; сейчас, синхронно:

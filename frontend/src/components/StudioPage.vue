@@ -26,6 +26,7 @@ import PedalBoard from './PedalBoard.vue'
 import TrackDesk from './TrackDesk.vue'
 import StudioPresets from './StudioPresets.vue'
 import StudioSynth from './StudioSynth.vue'
+import StudioPerc from './StudioPerc.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -1881,6 +1882,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
             <div class="studio-box-head"><span>{{ t('synth.title') }}</span> <span class="muted studio-box-hint">{{ t('synth.sub') }}</span></div>
             <div class="studio-box-body">
               <StudioSynth :job="job" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
+            </div>
+          </div>
+          <div class="studio-box">
+            <div class="studio-box-head"><span>{{ t('perc.title') }}</span> <span class="muted studio-box-hint">{{ t('perc.sub') }}</span></div>
+            <div class="studio-box-body">
+              <StudioPerc :job="job" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
             </div>
           </div>
           <details ref="fxBox" class="studio-box">
