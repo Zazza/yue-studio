@@ -7,3 +7,6 @@ __pycache__/
 *.pyc
 .zcode/
 .idea/
+# типы Wails для редактора (генерирует make build из Go-структур; сборка и CI их не читают)
+frontend/src/wailsjs/go/models.ts
+frontend/src/wailsjs/go/main/App.d.ts
