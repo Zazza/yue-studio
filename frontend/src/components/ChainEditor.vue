@@ -60,7 +60,7 @@ function add() {
       </label>
       <label v-for="p in BLOCKS[b.type].params" :key="p.id">
         <span>{{ tr(p.label) }}</span>
-        <input type="range" :min="p.zero_off ? 0 : p.min" :max="p.max" :step="p.step" :value="b.params[p.id]"
+        <input type="range" :min="p.zero_off && p.max > 0 ? 0 : p.min" :max="p.zero_off && p.max < 0 ? 0 : p.max" :step="p.step" :value="b.params[p.id]"
                @input="(e) => set(i, p.id, Number(e.target.value))" />
         <span class="dsp-pval">{{ b.params[p.id] }}</span>
       </label>

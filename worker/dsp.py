@@ -54,9 +54,10 @@ def _gated(blocks: np.ndarray, rel_gate: float) -> np.ndarray:
     return b[b > _power_mean_db(b) + rel_gate]
 
 
-def loudness(x: np.ndarray, sr: int) -> dict:
+def loudness(x: np.ndarray, sr: int, true_peak: bool = True) -> dict:
     """Громкость трека: интегральная (lufs), диапазон громкости (lra, LU) и
-    истинный пик (true_peak_db, dBTP). x — (кадры, каналы) или моно."""
+    истинный пик (true_peak_db, dBTP; true_peak=False — без него, вдвое быстрее).
+    x — (кадры, каналы) или моно."""
     from math import gcd
 
     from scipy.signal import lfilter, resample_poly
@@ -76,6 +77,8 @@ def loudness(x: np.ndarray, sr: int) -> dict:
     if g.size:
         lo, hi = np.percentile(g, [10, 95])
         out["lra"] = round(float(hi - lo), 1)
+    if not true_peak:
+        return out
     tp = float(np.abs(resample_poly(x, _TRUE_PEAK_OVERSAMPLE, 1, axis=0)).max())
     out["true_peak_db"] = round(float(20 * np.log10(tp + 1e-12)), 1)
     return out

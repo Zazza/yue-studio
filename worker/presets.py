@@ -18,6 +18,9 @@ CHAIN_ID_MAX = 40
 DB_RANGE = (-24.0, 24.0)
 ERROR_MAX = 500
 TARGET_LUFS_RANGE = (-24.0, -6.0)
+PAN_RANGE = (-1.0, 1.0)        # место в стерео: панорама лево…право
+WIDTH_RANGE = (0.0, 2.0)       # ширина: 0 — моно, 1 — как есть
+MASTER_MAX = 16                # блоков мастера не больше (как у цепочки движка)
 JOB_PRESETS_MAX = 3
 KNOWN_STEMS = ("vocals", "drums", "bass", "other", "guitar", "piano",
                "kick", "snare", "toms", "hh", "ride", "crash")
@@ -78,8 +81,16 @@ def _spec(where: str, s, parse_engine) -> dict:
         if st not in KNOWN_STEMS:
             raise PresetError(f"{where}: неизвестная дорожка {st!r} (есть: {', '.join(KNOWN_STEMS)})")
     kinds = [k for k in KINDS if s.get(k) not in (None, "", [])]
+    place = _place(where, s.get("place"))
+    if not kinds and place is not None:
+        # запись «место дорожки»: одна дорожка, без обработки
+        if len(set(stems)) != 1:
+            raise PresetError(f"{where}: место — одной дорожке")
+        return {"stems": [stems[0]], "db": 0.0, "place": place}
     if len(kinds) != 1:
-        raise PresetError(f"{where}: нужно ровно одно из engine, chain, steps")
+        raise PresetError(f"{where}: нужно ровно одно из engine, chain, steps (или place — место дорожки)")
+    if place is not None:
+        raise PresetError(f"{where}: place — своей записью дорожки, не вместе с обработкой")
     db = s.get("db", 0)
     if not _num(db) or not DB_RANGE[0] <= db <= DB_RANGE[1]:
         raise PresetError(f"{where}: db — число {DB_RANGE[0]:g}…{DB_RANGE[1]:g}")
@@ -104,8 +115,37 @@ def _spec(where: str, s, parse_engine) -> dict:
     return out
 
 
+def _place(where: str, v) -> dict | None:
+    if v is None:
+        return None
+    if not isinstance(v, dict) or set(v) - {"pan", "width"}:
+        raise PresetError(f"{where}: place — объект {{pan, width}}")
+    pan, width = v.get("pan", 0), v.get("width", 1)
+    if not _num(pan) or not PAN_RANGE[0] <= pan <= PAN_RANGE[1]:
+        raise PresetError(f"{where}: place.pan — число {PAN_RANGE[0]:g}…{PAN_RANGE[1]:g}")
+    if not _num(width) or not WIDTH_RANGE[0] <= width <= WIDTH_RANGE[1]:
+        raise PresetError(f"{where}: place.width — число {WIDTH_RANGE[0]:g}…{WIDTH_RANGE[1]:g}")
+    return {"pan": float(pan), "width": float(width)}
+
+
+def _master(v, parse_engine) -> list:
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise PresetError("master — список блоков движка")
+    if not v:
+        return []
+    if len(v) > MASTER_MAX:
+        raise PresetError(f"master: не больше {MASTER_MAX} блоков (сейчас {len(v)})")
+    try:
+        parse_engine(v)
+    except ValueError as e:
+        raise PresetError(f"master: {e}") from e
+    return [dict(b) for b in v]
+
+
 def validate(p: dict, parse_engine) -> dict:
-    """Рецепт пресета → нормализованный {name, note, specs, final, reference_job_id}.
+    """Рецепт пресета → нормализованный {name, note, specs, final, reference_job_id, target_lufs, master}.
     parse_engine — проверка цепочки движка (fx_engine.parse_chain), ошибки — ValueError."""
     name = p.get("name")
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
@@ -131,11 +171,17 @@ def validate(p: dict, parse_engine) -> dict:
         "final": _steps("финал", final, FINAL_MAX, allow_empty=True),
         "reference_job_id": ref,
         "target_lufs": None if target is None else float(target),
+        "master": _master(p.get("master"), parse_engine),
     }
+    # цель громкости дописывает ограничитель в конец мастера — итоговая цепочка не длиннее предела движка
+    if target is not None and not any(isinstance(b, dict) and b.get("type") == "limiter" for b in out["master"]) \
+            and len(out["master"]) >= MASTER_MAX:
+        raise PresetError(f"master: с target_lufs — не больше {MASTER_MAX - 1} блоков (ограничитель добавится сам)")
     # финал из одних выключенных шагов ничего не делает — как пустой (иначе версия = исходный звук);
     # одна целевая громкость — уже обработка (выравнивание)
-    if not out["specs"] and not any(not st["off"] for st in out["final"]) and target is None:
-        raise PresetError("пустой пресет: нет ни правок дорожек, ни включённого финала, ни целевой громкости")
+    if not out["specs"] and not any(not st["off"] for st in out["final"]) and target is None and not out["master"]:
+        raise PresetError("пустой пресет: нет ни правок дорожек, ни включённого финала, ни мастера, "
+                          "ни целевой громкости")
     return out
 
 

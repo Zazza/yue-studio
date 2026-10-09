@@ -11,12 +11,14 @@ import { usePlayer } from '../composables/usePlayer.js'
 import { useWindowPlay } from '../composables/useWindowPlay.js'
 import VSelect from '../VSelect.vue'
 import ChainEditor from './ChainEditor.vue'
+import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { percHits, barsFromBeat, PERC_PATTERNS } from '../percPart.js'
 import { previewWindow, applyWindow } from '../trackDesk.js'
+import { normPlace } from '../mixDesk.js'
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -39,6 +41,8 @@ const pattern = ref(PERCS[0]?.pattern || 'eighths')
 const swing = ref(PERCS[0]?.swing || 0)
 const accent = ref(1)
 const chain = ref(PERCS[0] ? fromWorkerChain(PERCS[0].chain, BLOCKS) : [])
+// место партии в стерео (у готовых — своё: пэды шире, хэт/шейкер в стороне); ложится в пересборке
+const place = ref(normPlace(PERCS[0]?.place))
 const busy = ref('')
 const msg = ref('')
 const err = ref('')
@@ -62,6 +66,7 @@ const ready = computed(() => !busy.value && hits.value.length > 0 && chain.value
 watch(presetId, () => {
   const p = preset.value
   if (!p) return
+  place.value = normPlace(p.place)
   chain.value = fromWorkerChain(p.chain, BLOCKS)
   pattern.value = p.pattern || 'eighths'
   swing.value = p.swing || 0
@@ -126,11 +131,12 @@ async function apply() {
   msg.value = ''
   const jobId = props.job.id
   const label = t('perc.label', { name: tr(preset.value?.name) || t('perc.own'), pattern: t('perc.pattern.' + pattern.value) })
+  const placeNow = { ...place.value }
   const snap = { jobId, dur: props.job.duration_sec, src: 'mix', ...target.value, chain: workerChain(), label }
   busy.value = 'apply'
   try {
     const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old'), onKit: (k) => { msg.value = t('perc.kit', { kit: k }) } })
-    await inserts.addStemEngine(jobId, { ...rec, add: true })
+    await inserts.addStemEngine(jobId, { ...rec, add: true, place: placeNow })
     msg.value = t('perc.applied')
     emit('applied')
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
@@ -160,6 +166,7 @@ async function apply() {
       <label class="muted">{{ t('synth.level') }}
         <input v-model.number="db" type="range" min="-30" max="6" step="1" :title="t('synth.level.tip')" /> {{ db }} {{ t('studio.inserts.dbUnit') }}</label>
     </div>
+    <div class="dsp-row"><span class="muted">{{ t('mix.place') }}</span> <PlaceControls v-model="place" :disabled="!!busy" /></div>
     <p v-if="preset" class="muted studio-box-hint">{{ tr(preset.note) }}</p>
     <details>
       <summary class="muted">{{ t('perc.edit') }}</summary>

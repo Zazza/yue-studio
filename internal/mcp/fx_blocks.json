@@ -1216,5 +1216,121 @@
     }
    }
   ]
+ },
+ "glue": {
+  "label": {
+   "ru": "Склейка (шина)",
+   "en": "Glue (bus compressor)"
+  },
+  "params": [
+   {
+    "id": "threshold_db",
+    "default": -18,
+    "min": -40,
+    "max": 0,
+    "step": 0.5,
+    "label": {
+     "ru": "порог, дБ",
+     "en": "threshold, dB"
+    }
+   },
+   {
+    "id": "ratio",
+    "default": 2,
+    "min": 1,
+    "max": 10,
+    "step": 0.1,
+    "label": {
+     "ru": "степень сжатия",
+     "en": "ratio"
+    }
+   },
+   {
+    "id": "attack_ms",
+    "default": 10,
+    "min": 0.1,
+    "max": 100,
+    "step": 0.5,
+    "label": {
+     "ru": "атака, мс",
+     "en": "attack, ms"
+    }
+   },
+   {
+    "id": "release_ms",
+    "default": 250,
+    "min": 20,
+    "max": 2000,
+    "step": 10,
+    "label": {
+     "ru": "восстановление, мс",
+     "en": "release, ms"
+    }
+   },
+   {
+    "id": "makeup_db",
+    "default": 0,
+    "min": 0,
+    "max": 12,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость после, дБ",
+     "en": "makeup, dB"
+    }
+   },
+   {
+    "id": "mix",
+    "default": 1,
+    "min": 0,
+    "max": 1,
+    "step": 0.05,
+    "label": {
+     "ru": "доля сжатого (параллельно)",
+     "en": "wet mix (parallel)"
+    }
+   }
+  ]
+ },
+ "limiter": {
+  "label": {
+   "ru": "Ограничитель (истинный пик, LUFS)",
+   "en": "Limiter (true peak, LUFS)"
+  },
+  "params": [
+   {
+    "id": "ceiling_db",
+    "default": -1,
+    "min": -3,
+    "max": -0.1,
+    "step": 0.1,
+    "label": {
+     "ru": "потолок, dBTP",
+     "en": "ceiling, dBTP"
+    }
+   },
+   {
+    "id": "release_ms",
+    "default": 100,
+    "min": 10,
+    "max": 1000,
+    "step": 10,
+    "label": {
+     "ru": "восстановление, мс",
+     "en": "release, ms"
+    }
+   },
+   {
+    "id": "target_lufs",
+    "default": 0,
+    "min": -24,
+    "max": -6,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость, LUFS (0 — не менять)",
+     "en": "loudness, LUFS (0 — keep)"
+    },
+    "zero_off": true
+   }
+  ]
  }
 }

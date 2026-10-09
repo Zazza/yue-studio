@@ -111,8 +111,14 @@ gate/eq/comp/drive/amp (NAM)/cab/reverb/delay на трек или дорожк�
 `notes` [{t, d, vel}] (секунды трека) → `rebuild_sections` записью `add` (как у синта). Готовые — `fx_presets` со
 `stems: ["perc"]` (у каждого `pattern` и `swing` — рисунок, который строит студия).
 
+**Сведение и мастер:** место в стерео — `rebuild_sections` с `place {pan, width}`: у записи `add` — место партии,
+своей записью `{child_id 0, stems: [дорожка], place}` — место дорожки (на все её правки). Мастер — запись
+`{child_id 0, master: true, engine: [glue…, limiter {target_lufs, ceiling_db}]}`: на весь собранный микс на воркере,
+ответ — LUFS и истинный пик. Послушать мастер на готовом миксе — `fx_apply` `file` (вариант-микс) `preview`;
+записать в тот же файл — `in_place`. Готовые мастера — `fx_presets` со `stems: ["master"]`.
+
 **Пресеты звука** (рецепт обработки трека целиком: правки дорожек + финал на микс → версия «трек · пресет»):
-`sound_presets` · `sound_preset_create` / `sound_preset_update` (target_lufs — громкость результата, у update не передан — прежний; specs — правки на весь трек: stems + engine |
+`sound_presets` · `sound_preset_create` / `sound_preset_update` (target_lufs — громкость результата по истинному пику на воркере, master — цепочка движка на микс; у update не переданы — прежние; specs — правки на весь трек: stems + engine |
 chain+params | steps, db; final — цепочка на микс) · `sound_preset_delete`† · `sound_preset_apply` (`db` — громкость записей на этот раз {"индекс": дБ}; сейчас, синхронно:
 разделит, поставит наборы, пересоберёт, финал на результате; ответ — id версии) · `submit` с `sound_preset_ids`
 (до 3; применит открытое приложение, когда трек готов и очередь пуста; у черновика — нельзя).

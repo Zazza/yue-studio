@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"yue-studio/internal/dsp"
@@ -60,6 +61,18 @@ type SectionSpec struct {
 	// Add у записи Engine — добавить обработанный кусок поверх трека, исходную дорожку не вычитать
 	// (синт-партия по аккордам); дорожка "mix" (весь трек как вход, без разделения) — только с Add
 	Add bool `json:"add,omitempty"`
+	// Place — место в стерео. У записи-добавления (Add) — место её партии. Без Engine/Chain/Steps/
+	// Envelope при ChildID 0 и одной дорожке — запись «место дорожки»: матрица ложится на все правки
+	// этой дорожки и на разницу «исходная → на месте» — итог дорожки M·(звук после всех правок)
+	Place *yue.Place `json:"place,omitempty"`
+	// Master у записи Engine — мастер: цепочка движка на весь собранный микс на воркере (одна на трек)
+	Master bool `json:"master,omitempty"`
+}
+
+// isPlace — запись «место дорожки»
+func (s SectionSpec) isPlace() bool {
+	return s.Place != nil && s.ChildID == 0 && !s.Add && !s.Master && len(s.Engine) == 0 && s.Chain == "" &&
+		len(s.Steps) == 0 && len(s.Envelope) == 0
 }
 
 // RebuildResult — новый вариант трека и отчёт по заменам.
@@ -130,13 +143,19 @@ func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	if len(specs) == 0 {
 		return nil, errors.New("нет замен для пересборки")
 	}
+	label := rebuildLabel(specs)
+	all := specs // и записи «место»: их дорожки (части барабанов) тоже скачиваются
 	dir, err := os.MkdirTemp("", fmt.Sprintf("yue-sections-%d-*", parentID))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	needStems := false
+	specs, master, places, err := splitMix(specs)
+	if err != nil {
+		return nil, err
+	}
+	needStems := len(places) > 0
 	for _, sp := range specs {
 		engineAdd := sp.Add && len(sp.Engine) > 0
 		if slices.Contains(sp.Stems, "mix") && !engineAdd {
@@ -157,59 +176,59 @@ func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 			return nil, err
 		}
 	}
-	for _, s := range specs {
+	for _, s := range all { // и место голоса: его вставка — исходная дорожка vocals
 		if (s.ChildID == 0 || s.Revoice) && slices.Contains(s.Stems, "vocals") && parent["vocals"] == "" {
 			if parent["vocals"], err = FetchTemp(ctx, svc, parentID, "stem-vocals.flac", dir, tmpPattern); err != nil {
 				return nil, fmt.Errorf("стем vocals #%d: %w", parentID, err)
 			}
 		}
 	}
-	if err := fetchDetailStems(ctx, svc, parentID, specs, parent, dir); err != nil {
+	if err := fetchDetailStems(ctx, svc, parentID, all, parent, dir); err != nil {
 		return nil, err
 	}
 
 	inputs := []string{base}
 	var ins []dsp.Insert
+	var tags []string // дорожка каждой вставки: на неё ложится место дорожки
 	reports := make([]InsertReport, 0, len(specs))
 	for i, s := range specs {
-		if s.ChildID == 0 && (s.Chain != "" || len(s.Steps) > 0) {
-			fx, err := stemFxInserts(s, parent, dir, i, &inputs)
-			if err != nil {
-				return nil, err
-			}
-			rep := InsertReport{Aligned: true}
-			if len(fx) > 0 {
-				rep.Gain = fx[0].Gain // гейн первой обработанной дорожки (выравнивание + дБ)
-			}
-			ins = append(ins, fx...)
-			reports = append(reports, rep)
-			continue
-		}
-		if s.ChildID == 0 && len(s.Engine) > 0 {
-			eng, err := engineInserts(ctx, svc, parentID, s, parent, base, dir, i, &inputs)
-			if err != nil {
-				return nil, err
-			}
-			rep := InsertReport{Aligned: true}
-			if len(eng) > 0 {
-				rep.Gain = eng[0].Gain
-			}
-			ins = append(ins, eng...)
-			reports = append(reports, rep)
-			continue
-		}
-		if s.ChildID == 0 && len(s.Envelope) > 0 {
-			env, err := envelopeInserts(s, parent, dir, i, &inputs)
-			if err != nil {
-				return nil, err
-			}
-			ins = append(ins, env...)
-			reports = append(reports, InsertReport{Aligned: true})
-			continue
-		}
 		if s.ChildID == 0 {
-			ins = append(ins, muteInserts(s, parent, &inputs)...)
-			reports = append(reports, InsertReport{Aligned: true})
+			// правка без рендера — по дорожке за раз: так у каждой вставки известна её дорожка
+			var got []dsp.Insert
+			for _, name := range s.Stems {
+				one := s
+				one.Stems = []string{name}
+				var part []dsp.Insert
+				switch {
+				case s.Chain != "" || len(s.Steps) > 0:
+					part, err = stemFxInserts(one, parent, dir, i, &inputs)
+				case len(s.Engine) > 0:
+					part, err = engineInserts(ctx, svc, parentID, one, parent, base, dir, i, &inputs)
+				case len(s.Envelope) > 0:
+					part, err = envelopeInserts(one, parent, dir, i, &inputs)
+				default:
+					part = muteInserts(one, parent, &inputs)
+				}
+				if err != nil {
+					return nil, err
+				}
+				if s.Add && s.Place != nil {
+					m, _ := dsp.PlaceMatrix(s.Place.Pan, s.Place.Width) // проверено в splitMix
+					for k := range part {
+						part[k].Matrix = &m
+					}
+				}
+				for range part {
+					tags = append(tags, name)
+				}
+				got = append(got, part...)
+			}
+			rep := InsertReport{Aligned: true}
+			if len(got) > 0 && (s.Chain != "" || len(s.Steps) > 0 || len(s.Engine) > 0) {
+				rep.Gain = got[0].Gain // гейн первой обработанной дорожки (выравнивание + дБ)
+			}
+			ins = append(ins, got...)
+			reports = append(reports, rep)
 			continue
 		}
 		child, err := fetchStems(ctx, svc, s.ChildID, dir)
@@ -261,9 +280,11 @@ func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 				FadeIn: fadeIn, FadeOut: fadeOut, LowpassHz: s.KeepHighHz}
 			inputs = append(inputs, child[name], parent[name])
 			ins = append(ins, add, sub)
+			tags = append(tags, name, name)
 		}
 		reports = append(reports, rep)
 	}
+	ins, inputs = placeStems(ins, tags, inputs, places, parent)
 
 	out := dir + "/out.flac"
 	if err := dsp.RunInputs(inputs, out, dsp.InsertsGraph(ins)); err != nil {
@@ -276,11 +297,115 @@ func rebuildSections(ctx context.Context, svc yue.Service, parentID int64, specs
 	if fname == "" {
 		fname = fmt.Sprintf("overdub-inst-%d.flac", lastChild(specs))
 	}
-	v, err := svc.UploadDsp(ctx, parentID, fname, rebuildLabel(specs), data)
+	v, err := svc.UploadDsp(ctx, parentID, fname, label, data)
 	if err != nil {
 		return nil, err
 	}
+	if master != nil {
+		// мастер — на воркере, на весь собранный микс, в тот же файл: студия играет его по имени
+		if v, err = svc.ApplyFx(ctx, parentID, yue.FxRequest{Source: "mix", File: v.File, InPlace: true,
+			Chain: master.Engine}); err != nil {
+			return nil, fmt.Errorf("мастер: %w", err)
+		}
+		// микс без мастера — для «было/стало» правки мастера в студии (иначе мастер лёг бы дважды)
+		if _, err := svc.UploadDsp(ctx, parentID, PremasterFile(fname), label+" · без мастера", data); err != nil {
+			return nil, fmt.Errorf("микс без мастера: %w", err)
+		}
+	}
 	return &RebuildResult{Variant: v, Inserts: reports}, nil
+}
+
+// PremasterFile — «микс без мастера» рядом с миксом студии: overdub-inst-N.flac → overdub-premaster-N.flac
+func PremasterFile(mix string) string {
+	return strings.Replace(mix, "overdub-inst-", "overdub-premaster-", 1)
+}
+
+// splitMix — из записей пересборки отделить мастер (одна активная) и места дорожек (по одному на
+// дорожку); остальные записи — как были. Место только у записи-добавления или своей записью.
+func splitMix(specs []SectionSpec) (rest []SectionSpec, master *SectionSpec, places map[string][4]float64, err error) {
+	places = map[string][4]float64{}
+	for i, s := range specs {
+		if s.Place != nil {
+			if _, err := dsp.PlaceMatrix(s.Place.Pan, s.Place.Width); err != nil {
+				return nil, nil, nil, fmt.Errorf("место: %w", err)
+			}
+		}
+		switch {
+		case s.Master:
+			if len(s.Engine) == 0 {
+				return nil, nil, nil, errors.New("мастер без цепочки движка")
+			}
+			if master != nil {
+				return nil, nil, nil, errors.New("у трека две записи мастера — оставьте одну")
+			}
+			master = &specs[i]
+		case s.isPlace():
+			if len(s.Stems) != 1 || !slices.Contains(engineStems, s.Stems[0]) {
+				return nil, nil, nil, fmt.Errorf("место — одной дорожке трека (не %v)", s.Stems)
+			}
+			name := s.Stems[0]
+			if _, dup := places[name]; dup {
+				return nil, nil, nil, fmt.Errorf("у дорожки %s два места — оставьте одно", name)
+			}
+			places[name], _ = dsp.PlaceMatrix(s.Place.Pan, s.Place.Width)
+		case s.Place != nil && !s.Add:
+			return nil, nil, nil, errors.New("место — у партии-добавления или своей записью дорожки, не у замены")
+		default:
+			rest = append(rest, s)
+		}
+	}
+	return rest, master, places, nil
+}
+
+// placeParent — дорожка, внутри которой часть: части барабанов — в drums, гитара и клавиши — в other
+func placeParent(name string) string {
+	switch {
+	case slices.Contains(drumParts, name):
+		return "drums"
+	case slices.Contains(detailStems, name):
+		return "other"
+	}
+	return ""
+}
+
+// placeStems — место дорожки: матрица на каждую вставку этой дорожки (вклейки, вычитания, эффекты,
+// громкость) и вставка исходной дорожки целиком с матрицей M − I. Матрица линейна, поэтому итог
+// дорожки — M·(исходная + все правки): правки не теряются, исходная не возвращается.
+func placeStems(ins []dsp.Insert, tags, inputs []string, places map[string][4]float64, parent stemSet) ([]dsp.Insert, []string) {
+	for k, name := range tags {
+		// правка части (бочка, гитара) — внутри своей дорожки (барабаны, «прочее»): место дорожки ложится и
+		// на неё; своё место части — сначала (M_дорожки·M_части)
+		m, ok := places[name]
+		if pm, has := places[placeParent(name)]; has {
+			if ok {
+				m = dsp.MulMatrix(pm, m)
+			} else {
+				m, ok = pm, true
+			}
+		}
+		if !ok {
+			continue
+		}
+		if ins[k].Matrix != nil {
+			m = dsp.MulMatrix(m, *ins[k].Matrix)
+		}
+		ins[k].Matrix = &m
+	}
+	names := make([]string, 0, len(places))
+	for name := range places {
+		names = append(names, name)
+	}
+	slices.Sort(names) // порядок входов ffmpeg — один и тот же от пересборки к пересборке
+	for _, name := range names {
+		if parent[name] == "" {
+			continue
+		}
+		m := places[name]
+		d := [4]float64{m[0] - 1, m[1], m[2], m[3] - 1}
+		inputs = append(inputs, parent[name])
+		ins = append(ins, dsp.Insert{Gain: 1, Matrix: &d})
+	}
+	return ins, inputs
 }
 
 // stemLabels — дорожки по-русски, как в студии
@@ -295,6 +420,8 @@ func rebuildLabel(specs []SectionSpec) string {
 	for _, s := range specs {
 		var what string
 		switch {
+		case s.Master:
+			what = "мастер: " + strings.TrimPrefix(EngineLabel(s.Engine), "Движок: ")
 		case s.ChildID > 0:
 			what = fmt.Sprintf("вклейка #%d", s.ChildID)
 		case len(s.Engine) > 0:
@@ -318,12 +445,32 @@ func rebuildLabel(specs []SectionSpec) string {
 			stems = append(stems, cmp.Or(stemLabels[n], n))
 		}
 		label := what + " · " + strings.Join(stems, ", ")
+		if s.isPlace() {
+			label = "место: " + strings.Join(stems, ", ") + " " + placeLabel(*s.Place)
+		}
 		if win := labelWindow(s.From, s.To); win != "" {
 			label += " " + win
 		}
 		parts = append(parts, label)
 	}
 	return strings.Join(parts, " + ")
+}
+
+// placeLabel — «30 % вправо, ширина 1,4», «по центру»
+func placeLabel(p yue.Place) string {
+	var side string
+	switch {
+	case p.Pan > 0:
+		side = fmt.Sprintf("%.0f %% вправо", p.Pan*100)
+	case p.Pan < 0:
+		side = fmt.Sprintf("%.0f %% влево", -p.Pan*100)
+	default:
+		side = "по центру"
+	}
+	if p.Width != 1 {
+		side += ", ширина " + strings.Replace(strconv.FormatFloat(p.Width, 'f', -1, 64), ".", ",", 1)
+	}
+	return side
 }
 
 // labelWindow — «1:20–1:28», «с 1:20»; весь трек — пусто
@@ -667,7 +814,7 @@ func fetchDetailStems(ctx context.Context, svc yue.Service, id int64, specs []Se
 			continue
 		}
 		for _, n := range s.Stems {
-			part := len(s.Engine) > 0 && slices.Contains(drumParts, n) // части — только движку
+			part := (len(s.Engine) > 0 || s.isPlace()) && slices.Contains(drumParts, n) // части — движку и месту
 			if (slices.Contains(detailStems, n) || part) && !slices.Contains(need, n) {
 				need = append(need, n)
 			}

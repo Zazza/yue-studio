@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy import signal
-from scipy.ndimage import maximum_filter1d
+from scipy.ndimage import maximum_filter1d, minimum_filter1d, uniform_filter1d
 
 
 class ChainError(ValueError):
@@ -1431,10 +1431,112 @@ def _perc(x, sr, p, res):
     return y * _db(p["output_db"])
 
 
+# ---------- мастер: склейка шины и ограничитель по истинному пику ----------
+
+GLUE_KNEE_DB = 6.0       # мягкое колено склейки
+LIMIT_OVERSAMPLE = 4     # истинный пик — по передискретизации ×4 (как замер dsp.loudness)
+LIMIT_AHEAD_S = 0.0015   # упреждение ограничителя: громкость опускается к пику заранее, звук не сдвигается
+LIMIT_GAIN_DB = 12.0     # подстройка к цели LUFS — не больше ±12 дБ
+LIMIT_LUFS_TOL = 0.3     # цель LUFS достигнута с точностью ±0,3
+LIMIT_PASSES = 4         # проходов подстройки к цели не больше
+LIMIT_TP_TOL_DB = 0.02   # истинный пик выше потолка на столько — ещё один проход ограничителя
+LIMIT_MARGIN_DB = 0.15   # ограничитель целится ниже потолка на столько (сетка замера другая)
+
+
+def _glue(x, sr, p, _res):
+    """Склейка шины: стерео-связанный детектор RMS (каналы вместе — образ не «гуляет»), сглаживание
+    атакой/восстановлением, мягкое колено; mix — параллельная компрессия (сухой + сжатый). Уровень
+    RMS калиброван по синусу (AES17): синус с пиком −6 дБFS читается как −6 — порог как у пика."""
+    n = x.shape[0]
+    # RMS в окне атаки (центр — без сдвига: обработка офлайн), затем по блокам CTRL
+    pw = uniform_filter1d(np.mean(np.square(x), axis=1), size=max(1, int(p["attack_ms"] / 1000 * sr)), mode="nearest")
+    nb = -(-n // CTRL)
+    pw = np.pad(pw, (0, nb * CTRL - n)).reshape(nb, CTRL).mean(axis=1)
+    lvl = _smooth(pw, _coef(p["attack_ms"], sr), _coef(p["release_ms"], sr), float(pw[0]) if nb else 0.0)
+    lvl_db = 10 * np.log10(np.maximum(lvl * 2, EPS))
+    over = lvl_db - p["threshold_db"]
+    slope = 1 / p["ratio"] - 1
+    w = GLUE_KNEE_DB
+    gr = np.where(2 * over < -w, 0.0,
+                  np.where(2 * over > w, slope * over, slope * (over + w / 2) ** 2 / (2 * w)))
+    g = _ctrl_to_samples(10 ** ((gr + p["makeup_db"]) / 20), n)[:, None]
+    return x * (p["mix"] * g + (1 - p["mix"]))
+
+
+def _true_peaks(x: np.ndarray) -> np.ndarray:
+    """Истинный пик на каждый сэмпл: максимум |x| по каналам и по точкам между сэмплами (×4)."""
+    n = x.shape[0]
+    out = np.zeros(n)
+    for c in range(x.shape[1]):   # по каналу и по фазам: max по узкой оси у numpy в разы медленнее
+        up = _fit(np.abs(signal.resample_poly(x[:, c], LIMIT_OVERSAMPLE, 1)), n * LIMIT_OVERSAMPLE)
+        up = up.reshape(n, LIMIT_OVERSAMPLE)
+        for k in range(LIMIT_OVERSAMPLE):
+            np.maximum(out, up[:, k], out=out)
+        np.maximum(out, np.abs(x[:, c]), out=out)
+    return out
+
+
+def _tp_limit(x: np.ndarray, sr: int, ceiling_db: float, release_ms: float) -> np.ndarray:
+    """Ограничитель по истинному пику без сдвига звука: нужная громкость на блок CTRL — потолок/пик;
+    минимум вперёд на упреждение (+ блок с каждой стороны: интерполяция между блоками не превышает
+    нужного), сглаживание окном упреждения — громкость опускается к пику заранее; восстановление —
+    плавно, спад — сразу. Пики выше потолка после фильтров — ещё проходы."""
+    n = x.shape[0]
+    # запас под потолком: замер (dsp.loudness, стриминги) ищет пик на своей сетке 48 кГц ×4 — точки между
+    # сэмплами другие, и пик «ровно на потолке» там читается на 0,1–0,2 дБ выше
+    c = _db(ceiling_db - LIMIT_MARGIN_DB)
+    y = x
+    for _ in range(3):
+        tp = _true_peaks(y)
+        if tp.max() <= c * _db(LIMIT_TP_TOL_DB):
+            return y
+        nb = -(-n // CTRL)
+        need = np.minimum(1.0, c / np.maximum(np.pad(tp, (0, nb * CTRL - n)).reshape(nb, CTRL).max(axis=1), EPS))
+        ahead = max(1, int(np.ceil(LIMIT_AHEAD_S * sr / CTRL)))
+        h = minimum_filter1d(need, size=2 * ahead + 3, mode="nearest")
+        h = np.minimum(h, uniform_filter1d(h, size=2 * ahead + 1, mode="nearest"))
+        g = _smooth(h, _coef(release_ms, sr), 1.0, float(h[0]) if nb else 1.0)
+        y = y * _ctrl_to_samples(g, n)[:, None]
+    # остаток после проходов (редкие межсэмпловые всплески) — общий сдвиг громкости, а не перегруз
+    tp = float(_true_peaks(y).max()) if n else 0.0
+    return y * (c / tp) if tp > c else y
+
+
+def _lufs(x: np.ndarray, sr: int) -> float | None:
+    import dsp
+    return dsp.loudness(x, sr, true_peak=False).get("lufs")
+
+
+def _limiter(x, sr, p, _res):
+    """Мастер-ограничитель: с target_lufs громкость доводится до цели (по всему входу блока, ±12 дБ,
+    подстройка до ±0,3 LU — ограничитель сам немного снижает громкость), пики — не выше потолка по
+    истинному пику. Без цели громкость не меняется, срезаются только пики выше потолка."""
+    if not x.size or not np.any(x):
+        return x
+    target = p["target_lufs"]
+    if not target:
+        return _tp_limit(x, sr, p["ceiling_db"], p["release_ms"])
+    lin = _lufs(x, sr)
+    if lin is None:
+        return _tp_limit(x, sr, p["ceiling_db"], p["release_ms"])
+    gain = float(np.clip(target - lin, -LIMIT_GAIN_DB, LIMIT_GAIN_DB))
+    y = x
+    for _ in range(LIMIT_PASSES):
+        y = _tp_limit(x * _db(gain), sr, p["ceiling_db"], p["release_ms"])
+        got = _lufs(y, sr)
+        if got is None or abs(got - target) <= LIMIT_LUFS_TOL:
+            break
+        nxt = float(np.clip(gain + target - got, -LIMIT_GAIN_DB, LIMIT_GAIN_DB))
+        if nxt == gain:
+            break   # упёрлись в предел подстройки
+        gain = nxt
+    return y
+
+
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,
           "cab": _cab, "reverb": _reverb, "delay": _delay, "gain": _gain, "sampler": _sampler,
           "bass": _bass, "synth": _synth, "chorus": _chorus, "phaser": _phaser, "flanger": _flanger,
-          "tape": _tape, "spring": _spring, "perc": _perc}
+          "tape": _tape, "spring": _spring, "perc": _perc, "glue": _glue, "limiter": _limiter}
 
 
 def process(audio, sr: int, chain, resources=None) -> np.ndarray:

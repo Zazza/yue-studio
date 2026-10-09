@@ -63,6 +63,9 @@ func registerFxTools(s *Server) {
 				"вычитаемой дорожки в пересборке студии; по умолчанию 0", "number"),
 			"add": prop("у превью: добавление (синт-партия, source mix) — output mix = трек + обработанное, "+
 				"ничего не вычитается; ноты synth — в секундах трека (воркер сдвигает на окно)", "boolean"),
+			"file": prop("вход — вариант трека (dsp-*.flac, overdub-*.flac: микс студии, файл пресета), а не "+
+				"исходный звук; только source mix. Так мастер (glue, limiter) кладётся на готовый микс", "string"),
+			"in_place": prop("с file, не превью: результат записать в тот же вариант (подпись + « · мастер»)", "boolean"),
 		}, "job_id", "chain"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
 			chain, err := argObjects(args, "chain")
@@ -78,6 +81,7 @@ func registerFxTools(s *Server) {
 			req.Preview = argBool(args, "preview")
 			req.Fade = argFloat(args, "fade")
 			req.Add = argBool(args, "add")
+			req.File, req.InPlace = argString(args, "file"), argBool(args, "in_place")
 			out, err := s.client.ApplyFx(context.Background(), argInt(args, "job_id"), req)
 			if err != nil {
 				return "", err

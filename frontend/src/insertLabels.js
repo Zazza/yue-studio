@@ -3,6 +3,7 @@
 // Подпись берём из реестра вклеек (инструмент + окно), для старых файлов вне
 // реестра — из названия рендера («… · drumfill» / «… · сбивка»).
 import { TRICK_INSTRUMENTS } from './abcEdit.js'
+import { isPlaceRecord, placeLabel } from './mixDesk.js'
 
 // роли производных треков: результаты слушают, материал — сырьё для вклеек
 export const RESULT_ROLES = ['variant', 'rebuild', 'continue', 'voice']
@@ -42,7 +43,10 @@ export function mixLabel(file, { applied = [], jobs = [], labelOf, fmt }) {
 
 // строка реестра вклеек: у эффекта на дорожку — «эффект · дорожка», у вклейки/
 // заглушки — название приёма
-export function insertTitle(it, { chainName, stemName, instName }) {
+export function insertTitle(it, { chainName, stemName, instName, placeName }) {
+  // мастер — на весь микс; место дорожки — «место 30 % вправо · гитары»
+  if (it.master && it.engine) return it.label || 'Мастер: ' + it.engine.map((b) => b.type).join(' → ')
+  if (isPlaceRecord(it)) return `${placeName ? placeName(it.place) : 'место ' + placeLabel(it.place)} · ${stemName(it.stems[0])}`
   if (it.chain) return `${chainName(it.chain)} · ${(it.stems || []).map(stemName).join(', ')}`
   // цепочка звукового движка: подпись записи или типы блоков по порядку
   if (it.engine) {

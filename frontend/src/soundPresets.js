@@ -1,6 +1,7 @@
 // Пресеты звука во фронте — чистая логика без DOM: правки студии → записи пресета, строка статуса
 // пресета в карточке трека, выбор пресетов чипами в форме нового трека.
 import RU from './i18n/ru.js'
+import { isMasterRecord, isPlaceRecord } from './mixDesk.js'
 
 // подстановка {имя} — как t() из i18n; по умолчанию русский словарь (тесты и вызов без t)
 const ruT = (key, vars = {}) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), RU[key] ?? key)
@@ -8,16 +9,23 @@ const ruT = (key, vars = {}) => Object.entries(vars).reduce((s, [k, v]) => s.rep
 const KIND = ['engine', 'chain', 'steps']
 
 /** Активные правки «весь трек» с движком, эффектом или педалями → записи пресета
- *  [{stems, engine | chain+params | steps, db}]; skipped — сколько активных правок не вошло
- *  (с окном, вклейки, заглушения, линии громкости). Выключенные не считаются никак. */
+ *  [{stems, engine | chain+params | steps, db}], места дорожек → [{stems, place, db 0}], мастер → master;
+ *  skipped — сколько активных правок не вошло (с окном, вклейки, заглушения, линии громкости).
+ *  Выключенные не считаются никак. */
 export function presetFromEdits(applied) {
   const specs = []
   let skipped = 0
+  let master = []
   for (const it of applied || []) {
     if (it.off) continue
+    // мастер — отдельное поле пресета (цепочка движка на весь микс на воркере)
+    if (isMasterRecord(it)) { master = JSON.parse(JSON.stringify(it.engine)); continue }
+    // место дорожки — запись без обработки
+    if (isPlaceRecord(it)) { specs.push({ stems: [it.stems[0]], place: { ...it.place }, db: 0 }); continue }
     const whole = !(it.from > 0) && !(it.to > 0)
     const kind = KIND.find((k) => it[k] && (!Array.isArray(it[k]) || it[k].length))
-    if (!whole || it.childId > 0 || !kind || it.envelope) { skipped++; continue }
+    // партии-добавления (синт, перкуссия) — по нотам этого трека и на «весь трек как вход»: в пресет не идут
+    if (!whole || it.childId > 0 || !kind || it.envelope || it.add) { skipped++; continue }
     const spec = { stems: [...(it.stems || [])] }
     if (kind === 'engine') spec.engine = JSON.parse(JSON.stringify(it.engine))
     else if (kind === 'chain') Object.assign(spec, { chain: it.chain, params: { ...(it.params || {}) } })
@@ -25,7 +33,7 @@ export function presetFromEdits(applied) {
     spec.db = it.db || 0
     specs.push(spec)
   }
-  return { specs, skipped }
+  return { specs, skipped, master }
 }
 
 const ICONS = { pending: '⏳', running: '⟳', done: '✓', error: '✕' }

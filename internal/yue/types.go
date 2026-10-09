@@ -2,6 +2,7 @@ package yue
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 )
 
@@ -203,6 +204,25 @@ type PresetSpec struct {
 	Params map[string]float64 `json:"params,omitempty"`
 	Steps  []PresetStep       `json:"steps,omitempty"`
 	Db     float64            `json:"db,omitempty"`
+	// Place — место дорожки в стерео (запись «место»: без engine/chain/steps) или партии
+	Place *Place `json:"place,omitempty"`
+}
+
+// Place — место звука в стерео: Pan −1 (лево)…1 (право), Width 0 (моно)…2 (шире); 1 — как есть.
+type Place struct {
+	Pan   float64 `json:"pan"`
+	Width float64 `json:"width"`
+}
+
+// UnmarshalJSON — width не задан — 1 (как есть), а не 0 (моно): {"pan": 0.3} не должен сводить в моно.
+func (p *Place) UnmarshalJSON(b []byte) error {
+	type raw Place
+	r := raw{Width: 1}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return err
+	}
+	*p = Place(r)
+	return nil
 }
 
 // SoundPreset — пресет звука: правки дорожек + финальная цепочка на весь микс. Builtin — встроенный
@@ -215,10 +235,12 @@ type SoundPreset struct {
 	Specs          []PresetSpec `json:"specs"`
 	Final          []PresetStep `json:"final"`
 	ReferenceJobID int64        `json:"reference_job_id,omitempty"`
-	// TargetLUFS — громкость результата: после финала приложение добавляет level с усилением
-	// «цель − громкость микса» (nil — финал как есть)
+	// TargetLUFS — громкость результата: ограничитель limiter воркера в конце мастера доводит микс
+	// до цели по истинному пику −1 dBTP (nil — громкость как есть)
 	TargetLUFS *float64 `json:"target_lufs"`
-	Builtin    bool     `json:"builtin,omitempty"`
+	// Master — цепочка движка на весь микс на воркере после финала (glue, limiter…); пусто — нет
+	Master  []map[string]any `json:"master"`
+	Builtin bool             `json:"builtin,omitempty"`
 }
 
 // JobPreset — пресет у трека: pending (ждёт) → running (применяется) → done (ChildID — версия) | error.

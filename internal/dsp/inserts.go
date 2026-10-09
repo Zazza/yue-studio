@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,6 +22,8 @@ type Insert struct {
 	// LowpassHz > 0 — кусок проходит фильтр нижних частот: при вычитании
 	// старых барабанов их верх (хэт, тарелки) остаётся в треке
 	LowpassHz float64
+	// Matrix — место в стерео (PlaceMatrix): после громкости L' = a·L + b·R, R' = c·L + d·R; nil — как есть
+	Matrix *[4]float64
 }
 
 // окно FFT-маски «только низ» и её задержка (окно × перекрытие 0.75), сэмплов
@@ -45,6 +48,20 @@ func InsertsGraph(ins []Insert) string {
 	}
 	var b strings.Builder
 	labels := "[0:a]"
+	if slices.ContainsFunc(ins, func(in Insert) bool { return in.Matrix != nil }) {
+		// место в стерео: amix берёт раскладку базы — моно-трек свёл бы матрицу обратно в моно; база в стерео
+		// копией канала (L = R = FC), без ослабления −3 дБ, у стерео — как есть. Остальные вставки — так же
+		// (единичной матрицей): моно-кусок amix повысил бы до стерео с −3 дБ (синт громкостью ниже превью,
+		// заглушение не до тишины — кросс-ревью s6 r2)
+		b.WriteString("[0:a]pan=stereo|c0=FL+FC|c1=FR+FC[base];")
+		labels = "[base]"
+		ins = slices.Clone(ins)
+		for i := range ins {
+			if ins[i].Matrix == nil {
+				ins[i].Matrix = &[4]float64{1, 0, 0, 1}
+			}
+		}
+	}
 	for i, in := range ins {
 		if inPlace(in) {
 			writeInPlace(&b, in, i+1)
@@ -81,7 +98,7 @@ func InsertsGraph(ins []Insert) string {
 			fmt.Fprintf(&b, "afade=t=out:st=%.3f:d=%.3f,", in.DurSec-in.FadeOut, in.FadeOut)
 		}
 		ms := max(in.AtSec, 0) * 1000 // дробные мс: ffmpeg округляет до сэмпла так же, как atrim
-		fmt.Fprintf(&b, "adelay=delays=%s:all=1,volume=%.3f[p%d];", ffNum(ms), in.Gain, i+1)
+		fmt.Fprintf(&b, "adelay=delays=%s:all=1,volume=%.3f%s[p%d];", ffNum(ms), in.Gain, matrixFilter(in.Matrix), i+1)
 		labels += fmt.Sprintf("[p%d]", i+1)
 	}
 	fmt.Fprintf(&b, "%samix=inputs=%d:duration=first:normalize=0[out]", labels, len(ins)+1)
@@ -137,10 +154,21 @@ func writeInPlace(b *strings.Builder, in Insert, n int) {
 		fmt.Fprintf(b, "afade=t=out:st=%s:d=%s,", ffNum(max(rel+in.DurSec-fadeOut, 0)), ffNum(fadeOut))
 	}
 	if origin > 0 {
-		fmt.Fprintf(b, "volume=%.3f[wb%[2]d];[za%[2]d][wb%[2]d]concat=n=2:v=0:a=1[p%[2]d];", in.Gain, n)
+		fmt.Fprintf(b, "volume=%.3f[wb%[2]d];[za%[2]d][wb%[2]d]concat=n=2:v=0:a=1%[3]s[p%[2]d];", in.Gain, n, matrixFilter(in.Matrix))
 		return
 	}
-	fmt.Fprintf(b, "volume=%.3f[p%d];", in.Gain, n)
+	fmt.Fprintf(b, "volume=%.3f%s[p%d];", in.Gain, matrixFilter(in.Matrix), n)
+}
+
+// matrixFilter — продолжение цепочки куска матрицей места; nil — пусто. Каналы — по именам: у
+// стерео-входа FL/FR, у моно — FC (его нет у стерео, FL/FR нет у моно — pan берёт их нулём); моно —
+// это L = R = FC, поэтому коэффициент FC — сумма строки (aformat повышал моно до стерео с −3 дБ)
+func matrixFilter(m *[4]float64) string {
+	if m == nil {
+		return ""
+	}
+	return fmt.Sprintf(",pan=stereo|c0=%s*FL+%s*FR+%s*FC|c1=%s*FL+%s*FR+%s*FC",
+		ffNum(m[0]), ffNum(m[1]), ffNum(m[0]+m[1]), ffNum(m[2]), ffNum(m[3]), ffNum(m[2]+m[3]))
 }
 
 // ffNum — число для опций ffmpeg без экспоненты: «5e-05» он как время не разбирает

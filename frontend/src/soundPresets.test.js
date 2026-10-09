@@ -91,7 +91,7 @@ describe('presetFromEdits — правки студии → пресет (ТК23
   })
 
   it('пустой реестр → пусто, ноль пропущенных', () => {
-    expect(presetFromEdits([])).toEqual({ specs: [], skipped: 0 })
+    expect(presetFromEdits([])).toEqual({ specs: [], skipped: 0, master: [] })
   })
 
   it('db по умолчанию 0, если у записи его нет', () => {

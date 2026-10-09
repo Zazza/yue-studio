@@ -6,6 +6,7 @@ import { ref } from 'vue'
 import { api } from '../api.js'
 import { sectionRequest, TRICK_INSTRUMENTS } from '../abcEdit.js'
 import { clampDb, INSERT_DEFAULT_DB } from '../insertMix.js'
+import { withStemPlace, withMaster } from '../mixDesk.js'
 
 const KEY = 'yue_insert_queue'
 // применённые вклейки по трекам: {parentId: [{childId, instId, from, to, lead,
@@ -71,6 +72,10 @@ async function doRebuild(parentId) {
     ...(it.engine ? { engine: it.engine } : {}),
     // добавление поверх трека (синт): исходная дорожка не вычитается
     ...(it.add ? { add: true } : {}),
+    // место в стерео: у партии-добавления — её место, своей записью — место дорожки
+    ...(it.place ? { place: it.place } : {}),
+    // мастер: цепочка движка на весь собранный микс на воркере
+    ...(it.master ? { master: true } : {}),
   })))
   // отчёт Go: встала ли вклейка по бочке или по плану (UI предупреждает).
   // Пишем в АКТУАЛЬНЫЙ реестр, а не в снимок до await: пока шла пересборка,
@@ -82,7 +87,14 @@ async function doRebuild(parentId) {
   }
   applied.value = { ...applied.value, [parentId]: [...cur] }
   save()
+  if (r && r.variant) mixMetricsBy.value = { ...mixMetricsBy.value, [parentId]: r.variant.metrics || null }
   return r
+}
+// метрики последнего микса с правками (после мастера — его громкость и пик): строка «мастер: −14 LUFS…»
+const mixMetricsBy = ref({})
+const mixMetrics = (parentId) => mixMetricsBy.value[parentId] || null
+function setMixMetrics(parentId, metrics) {
+  mixMetricsBy.value = { ...mixMetricsBy.value, [parentId]: metrics || null }
 }
 // перенос правок на новую версию трека (пересборка): правки без рендера (эффекты, педали, движок,
 // громкость, линии; childId ≤ 0) — сразу в реестр новой версии как есть (с off): в очереди тик не
@@ -171,11 +183,12 @@ async function addStemPedals(parentId, { stem, steps, from = 0, to = 0, label = 
 // цепочка звукового движка воркера на дорожку в окне: одна запись реестра,
 // считается на воркере при пересборке; label — подпись в списке вставок
 // add — добавить кусок поверх трека, исходную дорожку не вычитать (синт-партия на «mix» — без разделения)
-async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = '', add = false }) {
+async function addStemEngine(parentId, { stem, chain, from = 0, to = 0, label = '', add = false, place = null }) {
   const item = {
     childId: -(Date.now() * 100 + (muteSeq++ % 100)), instId: 'engine', from, to, lead: 0, beat: 0, db: 0,
     stems: [stem], fadeIn: 0, fadeOut: 0, keepHighHz: 0, engine: (chain || []).map((b) => ({ ...b })), label,
     ...(add ? { add: true } : {}),
+    ...(add && place ? { place: { ...place } } : {}),
   }
   applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId), item] }
   save()
@@ -242,6 +255,28 @@ async function replaceEngine(parentId, childId, { chain, label } = {}) {
   it.engine = (chain || []).map((b) => ({ ...b }))
   if (label) it.label = label
   applied.value = { ...applied.value, [parentId]: [...list] }
+  save()
+  return rebuild(parentId)
+}
+
+// место дорожки в стерео (пульт): одна запись на дорожку, центр — запись убирается
+async function setStemPlace(parentId, stem, place) {
+  applied.value = { ...applied.value, [parentId]: withStemPlace(appliedFor(parentId), stem, place) }
+  save()
+  return rebuild(parentId)
+}
+// место партии-добавления (синт, перкуссия) — у самой записи
+async function setPlace(parentId, childId, place) {
+  const it = appliedFor(parentId).find((x) => x.childId === childId)
+  if (!it) return null
+  it.place = { ...place }
+  applied.value = { ...applied.value, [parentId]: [...appliedFor(parentId)] }
+  save()
+  return rebuild(parentId)
+}
+// мастер трека: одна запись, новая заменяет прежнюю
+async function setMaster(parentId, { chain, label = '' }) {
+  applied.value = { ...applied.value, [parentId]: withMaster(appliedFor(parentId), chain, label) }
   save()
   return rebuild(parentId)
 }
@@ -330,5 +365,5 @@ async function tickOnce() {
 setInterval(tick, 3000)
 
 export function useInserts() {
-  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, setOff, remove, replaceEngine, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEngines, addStemEnvelope, carryTo, flush, latestFile, mixFile, isBuilding }
+  return { pending, applied, register, byParent, appliedFor, rebuild, setDb, setOff, remove, replaceEngine, selectAlt, addMute, addMutes, addStemFx, addStemPedals, addStemEngine, addStemEngines, addStemEnvelope, setStemPlace, setPlace, setMaster, mixMetrics, setMixMetrics, carryTo, flush, latestFile, mixFile, isBuilding }
 }

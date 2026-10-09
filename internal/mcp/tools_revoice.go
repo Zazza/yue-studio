@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -35,10 +36,14 @@ func registerRevoiceTools(s *Server) {
 		InputSchema: props(map[string]any{
 			"job_id": prop("ID трека (версии), в котором меняются дорожки", "integer"),
 			"specs": map[string]any{"type": "array", "description": "замены: {child_id, from, to (0 — до конца трека), lead?, beat_sec?, " +
-				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?, add?} — chain/params: эффект на " +
+				"stems, db?, fade_in?, fade_out?, keep_high_hz?, revoice?, chain?, params?, steps?, envelope?, engine?, add?, place?, master?} — chain/params: эффект на " +
 				"дорожки stems в окне (голосовые цепочки — с выравниванием громкости по исходной дорожке, db сверху); " +
 				"steps [{chain, params, off}] вместо chain — цепочка эффектов по порядку (педали, dsp_presets). " +
 				"envelope [{t, db}] при child_id 0 — линия громкости дорожек stems по всему треку (как volume_envelope). engine [{type, …}] при child_id 0 — цепочка звукового движка воркера (как fx_apply, блоки — fx_blocks, готовые — fx_presets) на дорожки stems в окне (и на части барабанов kick/snare/toms/hh/ride/crash — только при дорожках RoFormer; замена ударов — блок sampler): считается на воркере, звук не сдвигается, хвост реверба/дилея/сэмплов звучит после to. add true у записи engine — добавить кусок поверх трека, исходную дорожку не вычитать; stems [\"mix\"] (без разделения) — только с add: так ложится синт-партия (блок synth с notes в секундах трека, аккорды — chord_grid). " +
+				"place {pan −1…1 (лево…право), width 0…2 (0 — моно, 1 — как есть)}: у записи add — место партии в стерео; отдельной записью " +
+				"{child_id 0, stems [одна дорожка], place} — место дорожки (ложится на все её правки, одна на дорожку). " +
+				"master true у записи engine — мастер: цепочка движка (glue, limiter с target_lufs — громкость к цели по истинному пику) " +
+				"на весь собранный микс на воркере, одна на трек; ответ — громкость и пик после мастера. " +
 				"stems: drums/bass/other/vocals; при child_id 0 ещё guitar/piano — гитара и клавиши внутри other " +
 				"(заменить куском их нельзя)", "items": map[string]any{"type": "object"}},
 			"as_track":  prop("сделать вариант версией-треком", "boolean"),
@@ -60,6 +65,10 @@ func registerRevoiceTools(s *Server) {
 			}
 			var b strings.Builder
 			fmt.Fprintf(&b, "вариант %s у трека #%d\n", res.Variant.File, jobID)
+			if lufs, ok := res.Variant.Metrics["lufs"].(float64); ok && slices.ContainsFunc(specs, func(x studio.SectionSpec) bool { return x.Master }) {
+				tp, _ := res.Variant.Metrics["true_peak_db"].(float64)
+				fmt.Fprintf(&b, "  мастер: %.1f LUFS, истинный пик %.1f dBTP\n", lufs, tp)
+			}
 			for _, r := range res.Inserts {
 				how := "по плану"
 				if r.Aligned {
@@ -474,10 +483,26 @@ func parseSectionSpecs(raw any) ([]studio.SectionSpec, error) {
 			Db: argFloat(m, "db"), FadeIn: argFloat(m, "fade_in"), FadeOut: argFloat(m, "fade_out"),
 			KeepHighHz: argFloat(m, "keep_high_hz"), Revoice: argBool(m, "revoice"),
 			Chain: argString(m, "chain"), Params: argNumMap(m, "params"), Steps: steps, Envelope: argEnvelope(m, "envelope"),
-			Engine: engine, Add: argBool(m, "add"),
+			Engine: engine, Add: argBool(m, "add"), Place: placeArg(m["place"]), Master: argBool(m, "master"),
 		})
 	}
 	return out, nil
+}
+
+// placeArg — {pan, width} → место в стерео; нет поля — nil, width не задан — 1 (как есть)
+func placeArg(raw any) *yue.Place {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	p := &yue.Place{Width: 1}
+	if _, ok := m["pan"]; ok {
+		p.Pan = argFloat(m, "pan")
+	}
+	if _, ok := m["width"]; ok {
+		p.Width = argFloat(m, "width")
+	}
+	return p
 }
 
 // engineArg — цепочка звукового движка записи пересборки как есть ([{type, …}]);

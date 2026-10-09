@@ -229,18 +229,23 @@ def _migrate():
             created_at TEXT NOT NULL
         );
         """)
-        if "target_lufs" not in [r[1] for r in conn.execute("PRAGMA table_info(sound_presets)")]:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(sound_presets)")]
+        if "target_lufs" not in cols:
             conn.execute("ALTER TABLE sound_presets ADD COLUMN target_lufs REAL")
+        if "master" not in cols:   # мастер на воркере (этап 6): цепочка движка на весь микс
+            conn.execute("ALTER TABLE sound_presets ADD COLUMN master TEXT NOT NULL DEFAULT '[]'")
         # встроенные — upsert по slug: рецепт из кода (правка встроенного доходит до старой базы), id
         # прежний; пользователь их не меняет и не удаляет, свои пресеты (slug NULL) не трогаются
         for b in sound_presets.BUILTIN:
             conn.execute(
-                "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,builtin,created_at) "
-                "VALUES(?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name, note=excluded.note, "
-                "specs=excluded.specs, final=excluded.final, reference_job_id=excluded.reference_job_id, "
-                "target_lufs=excluded.target_lufs, builtin=1",
+                "INSERT INTO sound_presets(slug,name,note,specs,final,reference_job_id,target_lufs,master,builtin,"
+                "created_at) VALUES(?,?,?,?,?,?,?,?,1,?) ON CONFLICT(slug) DO UPDATE SET name=excluded.name, "
+                "note=excluded.note, specs=excluded.specs, final=excluded.final, "
+                "reference_job_id=excluded.reference_job_id, target_lufs=excluded.target_lufs, "
+                "master=excluded.master, builtin=1",
                 (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
-                 b["reference_job_id"], b.get("target_lufs"), "2026-10-08T00:00:00"))
+                 b["reference_job_id"], b.get("target_lufs"), json.dumps(b.get("master", [])),
+                 "2026-10-08T00:00:00"))
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1130,7 +1135,7 @@ def _preset_dict(row) -> dict:
     return {"id": row["id"], "slug": row["slug"] or "", "name": row["name"], "note": row["note"],
             "specs": json.loads(row["specs"] or "[]"), "final": json.loads(row["final"] or "[]"),
             "reference_job_id": row["reference_job_id"], "target_lufs": row["target_lufs"],
-            "builtin": bool(row["builtin"])}
+            "master": json.loads(row["master"] or "[]"), "builtin": bool(row["builtin"])}
 
 
 def _parse_engine(chain):
@@ -1140,7 +1145,7 @@ def _parse_engine(chain):
 
 def _preset_body(body) -> dict:
     if not isinstance(body, dict):
-        raise HTTPException(422, "пресет — объект {name, note, specs, final, reference_job_id}")
+        raise HTTPException(422, "пресет — объект {name, note, specs, final, reference_job_id, target_lufs, master}")
     try:
         return sound_presets.validate(body, _parse_engine)
     except sound_presets.PresetError as e:
@@ -1160,10 +1165,10 @@ async def create_sound_preset(request: Request):
     p = _preset_body(await request.json())
     with db_lock, db() as conn:
         cur = conn.execute(
-            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,target_lufs,created_at) "
-            "VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO sound_presets(name,note,specs,final,reference_job_id,target_lufs,master,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
             (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]), p["reference_job_id"],
-             p["target_lufs"], time.strftime("%Y-%m-%dT%H:%M:%S")))
+             p["target_lufs"], json.dumps(p["master"]), time.strftime("%Y-%m-%dT%H:%M:%S")))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (cur.lastrowid,)).fetchone()
     return _preset_dict(row)
 
@@ -1185,10 +1190,10 @@ async def update_sound_preset(preset_id: int, request: Request):
     p = _preset_body(body)
     with db_lock, db() as conn:
         _own_preset(conn, preset_id)
-        conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=?, target_lufs=? "
-                     "WHERE id=?",
+        conn.execute("UPDATE sound_presets SET name=?, note=?, specs=?, final=?, reference_job_id=?, target_lufs=?, "
+                     "master=? WHERE id=?",
                      (p["name"], p["note"], json.dumps(p["specs"]), json.dumps(p["final"]),
-                      p["reference_job_id"], p["target_lufs"], preset_id))
+                      p["reference_job_id"], p["target_lufs"], json.dumps(p["master"]), preset_id))
         row = conn.execute("SELECT * FROM sound_presets WHERE id=?", (preset_id,)).fetchone()
     return _preset_dict(row)
 
@@ -1531,6 +1536,8 @@ def list_references():
 
 
 DSP_NAME_RE = re.compile(r"^(dsp|overdub|preview|stem)-[a-z0-9.-]+\.flac$")
+# вход движка-варианта (/fx file): эффекты, пресеты и миксы студии — не превью и не дорожки
+FX_FILE_RE = re.compile(r"^(dsp|overdub)-[a-z0-9.-]+\.flac$")
 
 
 # ---------- Лирика: whisper-распознавание и адаптация-перевод ----------
@@ -2886,6 +2893,10 @@ class FxIn(BaseModel):
     pad: bool = False
     # добавление (синт-партия): в превью «в миксе» — трек + обработанное, а не замена дорожки
     add: bool = False
+    # вход — вариант трека (микс студии, файл пресета), а не исходный звук; только source mix
+    file: str = ""
+    # результат — в тот же вариант file (мастер на миксе студии: имя микса не меняется); не превью
+    in_place: bool = False
 
 
 def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
@@ -2910,6 +2921,7 @@ def _fx_window_weights(n: int, sr: int, frm: float | None, to: float | None):
 
 def _fx_render(job_id: int, req: FxIn) -> dict:
     import hashlib
+    import uuid
     import numpy as np
     import soundfile as sf
     import fx_engine
@@ -2923,11 +2935,17 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
         raise HTTPException(422, "output must be mix or solo")
     if len(req.label) > DSP_LABEL_MAX:
         raise HTTPException(422, f"label longer than {DSP_LABEL_MAX} chars")
+    if req.file and (not FX_FILE_RE.match(req.file) or req.source != "mix"):
+        raise HTTPException(422, "file — вариант трека dsp-*.flac или overdub-*.flac, только с source mix")
+    if req.in_place and (not req.file or req.preview):
+        raise HTTPException(422, "in_place — только с file и без preview")
     row = _job_row(job_id)
     if row is None or not row["audio_file"]:
         raise HTTPException(404, "job or audio not found")
     jdir = JOBS_DIR / str(job_id)
-    src = jdir / row["audio_file"]
+    src = jdir / (req.file or row["audio_file"])
+    if req.file and not src.is_file():
+        raise HTTPException(404, f"у трека нет варианта {req.file}")
     info = sf.info(str(src))
     sr, n = info.samplerate, info.frames
     dur = n / sr
@@ -2967,8 +2985,16 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     if req.preview:
         used = [src] if req.source == "mix" else [src, jdir / f"stem-{req.source}.flac"]
         # ноты синта в запросе — от начала трека, превью считает кусок с from: сдвинуть на окно
-        chain = _fx_window(synth_window, chain, frm, to - frm + req.fade, part, sr)   # опора — сам вход (трек при source mix)
-        return _fx_preview(job_id, jdir, req, chain, track, part, sr, used)
+        full = None
+        if req.source == "mix" and any(b["type"] == "limiter" for b in chain):
+            # только на весь микс (мастер): на дорожке в окне кусок вклеивается с краями — там прежний путь
+            # громкость к цели меряется по всему входу: превью — отрезок полного рендера, а не окно отдельно;
+            # считается только при промахе кэша превью (полный трек — секунды)
+            whole = _fx_window(synth_window, chain, 0.0, n / sr, part, sr)
+            full = lambda: _fx_process(job_id, part.astype(np.float32), sr, whole).astype(np.float64)  # noqa: E731
+        # опора уровня партии — сам вход (трек при source mix)
+        chain = _fx_window(synth_window, chain, frm, to - frm + req.fade, part, sr)
+        return _fx_preview(job_id, jdir, req, chain, track, part, sr, used, full)
 
     # синт на весь трек — тот же общий уровень партии, что у превью (служебные значения — только от воркера)
     chain = _fx_window(synth_window, chain, 0.0, n / sr, part, sr)
@@ -2982,19 +3008,43 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     else:
         out = track + delta
 
-    key = json.dumps({"chain": chain, "from": frm, "to": to, "output": req.output}, sort_keys=True)
+    key = {"chain": chain, "from": frm, "to": to, "output": req.output}
+    if req.file:
+        key["file"] = req.file   # та же цепочка на треке и на варианте — разные результаты
+    key = json.dumps(key, sort_keys=True)
     fname = f"dsp-fx-{req.source}-{hashlib.sha1(key.encode()).hexdigest()[:8]}.flac"
     label = req.label or f"Движок: {' → '.join(b['type'] for b in chain)} · {req.source}"
+    if req.in_place:
+        # мастер на миксе: тот же файл, подпись прежняя + « · мастер»
+        fname = req.file
+        try:
+            label = json.loads((jdir / f"{fname}.metrics.json").read_text()).get("label") or fname
+        except (OSError, ValueError):
+            label = fname
+        if req.label:
+            label = req.label
+        elif not label.endswith(" · мастер"):
+            label += " · мастер"
     target = jdir / fname
     created = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # на месте — через временный файл: оборванная запись не портит микс; своё имя на запрос и не *.flac —
+    # список вариантов его не видит, параллельные записи не сталкиваются
+    tmp = target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.part") if req.in_place else target
     try:
-        sf.write(str(target), out, sr, subtype=info.subtype if info.subtype in ("PCM_16", "PCM_24") else "PCM_24")
+        sf.write(str(tmp), out, sr, format="FLAC",   # временное имя .part — формат не по расширению
+                 subtype=info.subtype if info.subtype in ("PCM_16", "PCM_24") else "PCM_24")
+        if tmp != target:
+            tmp.replace(target)
         metrics = analyze_file(target)
         (jdir / f"{fname}.metrics.json").write_text(json.dumps(
             {"file": fname, "created_at": created, "metrics": metrics, "label": label}, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001
-        target.unlink(missing_ok=True)
-        (jdir / f"{fname}.metrics.json").unlink(missing_ok=True)
+        if req.in_place:
+            if tmp != target:
+                tmp.unlink(missing_ok=True)   # микс не трогаем
+        else:
+            target.unlink(missing_ok=True)
+            (jdir / f"{fname}.metrics.json").unlink(missing_ok=True)
         log.exception("fx render failed for job %s", job_id)
         raise HTTPException(500, f"fx render failed: {friendly_error(e)}") from e
     peak = float(np.max(np.abs(out))) if out.size else 0.0
@@ -3081,8 +3131,8 @@ def perc_window(b: dict, frm: float, win: float, track=None, sr: int = 0) -> dic
     """Удары perc (секунды трека) → для куска окна [frm, frm + win): сдвиг на frm, место удара НЕ меняется
     (в отличие от ноты синта удар нельзя «подтянуть» к окну); начатые раньше PERC_LEAD_S до окна (отзвучали) и
     начатые после — отброшены; _until — край окна + FX_SAMPLER_TAIL_MAX_S (удар у края звучит в хвост превью, как
-    у sampler; дальше буфер всё равно кончается); _t0 — начало окна в треке (сдвиги «по-живому» от места удара в треке). Уровень —
-    общий для партии, как у synth: громкость трека и сырых ударов на ячейках ВСЕХ ударов."""
+    у sampler; дальше буфер всё равно кончается); _t0 — начало окна в треке (сдвиги «по-живому» от места удара
+    в треке). Уровень — общий для партии, как у synth: громкость трека и сырых ударов на ячейках ВСЕХ ударов."""
     import numpy as np
     import fx_engine
     b = {k: v for k, v in b.items() if not k.startswith("_")}   # служебные поля ставит только воркер
@@ -3188,7 +3238,7 @@ def _mtime_or_zero(p: Path) -> float:
 
 
 def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr: int,
-                used: list[Path]) -> dict:
+                used: list[Path], full=None) -> dict:
     """Превью куска [from, to) (+ хвост реверба/дилея): вход после to — тишина, в миксе
     к треку добавляется разница «обработанное − исходное». Тот же запрос — тот же файл."""
     import hashlib
@@ -3206,6 +3256,8 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
     end = min(stop + int(tail * sr), n)
     key = {"source": req.source, "chain": chain, "from": req.from_, "to": req.to,
            "output": req.output, "files": _fx_stamp(used, chain)}
+    if req.file:
+        key["file"] = req.file           # версия файла — в files (mtime)
     if fade:
         key["fade"] = req.fade           # без края — ключ как у превью этапа 3 (кэш не сбрасывается)
     if req.pad:
@@ -3231,7 +3283,11 @@ def _fx_preview(job_id: int, jdir: Path, req: FxIn, chain: list, track, part, sr
         k = np.arange(stop - a, dtype=np.float64)
         w = np.minimum(1.0, k / fade) * np.clip((b + fade - (a + k)) / fade, 0.0, 1.0)
         seg[:stop - a] *= w[:, None]
-    wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
+    if full is not None:
+        # full — полный рендер (ограничитель к цели LUFS); вход окна без краёв — тот же отрезок
+        wet, seg = full()[a:end], part[a:end]
+    else:
+        wet = _fx_process(job_id, seg.astype(np.float32), sr, chain).astype(np.float64)
     if req.add:
         out = wet if req.output == "solo" else track[a:end] + wet     # поверх трека, ничего не вычитая
     else:

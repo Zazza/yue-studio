@@ -467,12 +467,100 @@
   ]
  },
  {
+  "id": "master-stream",
+  "stems": [
+   "master"
+  ],
+  "name": {
+   "ru": "Мастер: стриминг −14 LUFS",
+   "en": "Master: streaming −14 LUFS"
+  },
+  "note": {
+   "ru": "Лёгкая склейка шины и громкость −14 LUFS (как у стримингов), пики не выше −1 dBTP — без перегруза в mp3.",
+   "en": "Light bus glue and −14 LUFS (streaming level), peaks at most −1 dBTP — no clipping after mp3."
+  },
+  "chain": [
+   {
+    "type": "glue",
+    "threshold_db": -18,
+    "ratio": 1.5,
+    "attack_ms": 30,
+    "release_ms": 300
+   },
+   {
+    "type": "limiter",
+    "ceiling_db": -1,
+    "target_lufs": -14
+   }
+  ]
+ },
+ {
+  "id": "master-loud",
+  "stems": [
+   "master"
+  ],
+  "name": {
+   "ru": "Мастер: громко −11 LUFS",
+   "en": "Master: loud −11 LUFS"
+  },
+  "note": {
+   "ru": "Плотнее и громче: срез инфранизов, склейка 2:1, −11 LUFS, пики −1 dBTP. Ударам меньше места — для громкого рока.",
+   "en": "Denser and louder: sub cut, 2:1 glue, −11 LUFS, peaks −1 dBTP. Less room for hits — for loud rock."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 30
+   },
+   {
+    "type": "glue",
+    "threshold_db": -20,
+    "ratio": 2,
+    "attack_ms": 10,
+    "release_ms": 200
+   },
+   {
+    "type": "limiter",
+    "ceiling_db": -1,
+    "target_lufs": -11
+   }
+  ]
+ },
+ {
+  "id": "master-soft-glue",
+  "stems": [
+   "master"
+  ],
+  "name": {
+   "ru": "Мастер: мягкая склейка",
+   "en": "Master: soft glue"
+  },
+  "note": {
+   "ru": "Параллельная склейка (60 % сжатого): партии держатся вместе, громкость и пики не трогаются.",
+   "en": "Parallel glue (60% compressed): parts sit together, loudness and peaks untouched."
+  },
+  "chain": [
+   {
+    "type": "glue",
+    "threshold_db": -22,
+    "ratio": 1.5,
+    "attack_ms": 30,
+    "release_ms": 400,
+    "mix": 0.6
+   }
+  ]
+ },
+ {
   "id": "synth-solina",
   "stems": [
    "synth"
   ],
   "style": "pad",
   "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
   "name": {
    "ru": "Струнный ансамбль (Solina)",
    "en": "String ensemble (Solina)"
@@ -517,6 +605,10 @@
   ],
   "style": "pad",
   "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
   "name": {
    "ru": "Пэд с хорусом (Juno)",
    "en": "Chorus pad (Juno)"
@@ -644,6 +736,10 @@
   ],
   "style": "pad",
   "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
   "name": {
    "ru": "Медь (CS-80)",
    "en": "Brass (CS-80)"
@@ -693,6 +789,10 @@
   ],
   "style": "pad",
   "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
   "name": {
    "ru": "Орган (Farfisa)",
    "en": "Organ (Farfisa)"
@@ -732,6 +832,10 @@
   ],
   "style": "pad",
   "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
   "name": {
    "ru": "Орган (Vox Continental)",
    "en": "Organ (Vox Continental)"
@@ -814,6 +918,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": 0.3,
+   "width": 1
+  },
   "pattern": "eighths",
   "swing": 0,
   "name": {
@@ -839,6 +947,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": 0.3,
+   "width": 1
+  },
   "pattern": "sixteenths",
   "swing": 0.1,
   "name": {
@@ -864,6 +976,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": -0.3,
+   "width": 1
+  },
   "pattern": "sixteenths",
   "swing": 0.15,
   "name": {
@@ -890,6 +1006,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": -0.4,
+   "width": 1
+  },
   "pattern": "backbeat",
   "swing": 0,
   "name": {
@@ -955,6 +1075,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": 0.2,
+   "width": 1
+  },
   "pattern": "fours",
   "swing": 0,
   "name": {
@@ -1029,6 +1153,10 @@
   "stems": [
    "perc"
   ],
+  "place": {
+   "pan": 0.35,
+   "width": 1
+  },
   "pattern": "eighths",
   "swing": 0,
   "name": {

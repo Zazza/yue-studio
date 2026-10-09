@@ -16,11 +16,12 @@ function strSpec(s, key) {
   return (s.strings || []).find((p) => p.id === key)
 }
 
-// число в границы описания; zero_off — 0 значит «выкл» и остаётся 0
+// число в границы описания; zero_off — 0 значит «выкл» и остаётся 0: у положительных границ (срез, Гц) —
+// всё ≤ 0, у отрицательных (цель LUFS −24…−6) — всё выше верхней границы, ползунок тянется до 0
 export function clampParam(p, value) {
   let v = Number(value)
   if (!Number.isFinite(v)) v = p.default
-  if (p.zero_off && v <= 0) return 0
+  if (p.zero_off && (p.max < 0 ? v > p.max : v <= 0)) return 0
   return Math.min(p.max, Math.max(p.min, v))
 }
 

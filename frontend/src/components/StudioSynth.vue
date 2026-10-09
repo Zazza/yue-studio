@@ -11,12 +11,14 @@ import { usePlayer } from '../composables/usePlayer.js'
 import { useWindowPlay } from '../composables/useWindowPlay.js'
 import VSelect from '../VSelect.vue'
 import ChainEditor from './ChainEditor.vue'
+import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain } from '../fxChain.js'
 import { applyEngine } from '../engineRun.js'
 import { partNotes } from '../synthPart.js'
 import { previewWindow, applyWindow } from '../trackDesk.js'
+import { normPlace } from '../mixDesk.js'
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -37,6 +39,8 @@ const presetId = ref(SYNTHS[0]?.id || '')
 const style = ref(SYNTHS[0]?.style || 'pad')
 const octave = ref(SYNTHS[0]?.octave || 0)
 const chain = ref(SYNTHS[0] ? fromWorkerChain(SYNTHS[0].chain, BLOCKS) : [])
+// место партии в стерео (у готовых — своё: пэды шире, хэт/шейкер в стороне); ложится в пересборке
+const place = ref(normPlace(SYNTHS[0]?.place))
 const busy = ref('')
 const msg = ref('')
 const err = ref('')
@@ -61,6 +65,7 @@ const ready = computed(() => !busy.value && notes.value.length > 0 && chain.valu
 watch(presetId, () => {
   const p = preset.value
   if (!p) return
+  place.value = normPlace(p.place)
   chain.value = fromWorkerChain(p.chain, BLOCKS)
   style.value = p.style || 'pad'
   octave.value = p.octave || 0
@@ -113,11 +118,12 @@ async function apply() {
   msg.value = ''
   const jobId = props.job.id
   const label = t('synth.label', { name: tr(preset.value?.name) || t('synth.own'), style: t('synth.style.' + style.value) })
+  const placeNow = { ...place.value }
   const snap = { jobId, dur: props.job.duration_sec, src: 'mix', ...target.value, chain: workerChain(), label }
   busy.value = 'apply'
   try {
     const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old') })
-    await inserts.addStemEngine(jobId, { ...rec, add: true })
+    await inserts.addStemEngine(jobId, { ...rec, add: true, place: placeNow })
     msg.value = t('synth.applied')
     emit('applied')
   } catch (e) { err.value = String(e) } finally { busy.value = '' }
@@ -143,6 +149,7 @@ async function apply() {
       <label class="muted">{{ t('synth.level') }}
         <input v-model.number="db" type="range" min="-30" max="6" step="1" :title="t('synth.level.tip')" /> {{ db }} {{ t('studio.inserts.dbUnit') }}</label>
     </div>
+    <div class="dsp-row"><span class="muted">{{ t('mix.place') }}</span> <PlaceControls v-model="place" :disabled="!!busy" /></div>
     <p v-if="preset" class="muted studio-box-hint">{{ tr(preset.note) }}</p>
     <details>
       <summary class="muted">{{ t('synth.edit') }}</summary>

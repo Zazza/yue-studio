@@ -191,11 +191,47 @@ export const fxPresets = [
     ],
   },
 
+  // ---------- мастер (этап 6): на весь собранный микс, на воркере; limiter — громкость к цели по истинному пику ----------
+  {
+    id: 'master-stream', stems: ['master'],
+    name: { ru: 'Мастер: стриминг −14 LUFS', en: 'Master: streaming −14 LUFS' },
+    note: {
+      ru: 'Лёгкая склейка шины и громкость −14 LUFS (как у стримингов), пики не выше −1 dBTP — без перегруза в mp3.',
+      en: 'Light bus glue and −14 LUFS (streaming level), peaks at most −1 dBTP — no clipping after mp3.',
+    },
+    chain: [
+      { type: 'glue', threshold_db: -18, ratio: 1.5, attack_ms: 30, release_ms: 300 },
+      { type: 'limiter', ceiling_db: -1, target_lufs: -14 },
+    ],
+  },
+  {
+    id: 'master-loud', stems: ['master'],
+    name: { ru: 'Мастер: громко −11 LUFS', en: 'Master: loud −11 LUFS' },
+    note: {
+      ru: 'Плотнее и громче: срез инфранизов, склейка 2:1, −11 LUFS, пики −1 dBTP. Ударам меньше места — для громкого рока.',
+      en: 'Denser and louder: sub cut, 2:1 glue, −11 LUFS, peaks −1 dBTP. Less room for hits — for loud rock.',
+    },
+    chain: [
+      { type: 'eq', highpass_hz: 30 },
+      { type: 'glue', threshold_db: -20, ratio: 2, attack_ms: 10, release_ms: 200 },
+      { type: 'limiter', ceiling_db: -1, target_lufs: -11 },
+    ],
+  },
+  {
+    id: 'master-soft-glue', stems: ['master'],
+    name: { ru: 'Мастер: мягкая склейка', en: 'Master: soft glue' },
+    note: {
+      ru: 'Параллельная склейка (60 % сжатого): партии держатся вместе, громкость и пики не трогаются.',
+      en: 'Parallel glue (60% compressed): parts sit together, loudness and peaks untouched.',
+    },
+    chain: [{ type: 'glue', threshold_db: -22, ratio: 1.5, attack_ms: 30, release_ms: 400, mix: 0.6 }],
+  },
+
   // ---------- синты (этап 4): блок synth (ноты партии подставляет студия по аккордам трека) + эффекты ----------
   // пэды — на октаву выше гитар (C5…B5): в регистре гитар пэд сливается с ними и не слышен даже громким
   // (прослушивание «Gone» #683/#685 — «не слышу», #687 октавой выше — «отчётливо»)
   {
-    id: 'synth-solina', stems: ['synth'], style: 'pad', octave: 1,
+    id: 'synth-solina', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Струнный ансамбль (Solina)', en: 'String ensemble (Solina)' },
     note: { ru: 'Мягкие «струны» 70-х: три расстроенные пилы, медленная атака и густой ансамбль-хорус — холодная подушка под гитары (Joy Division, Молчат Дома).', en: '70s soft "strings": three detuned saws, slow attack and a thick ensemble chorus — a cold bed under guitars.' },
     chain: [
@@ -205,7 +241,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-juno', stems: ['synth'], style: 'pad', octave: 1,
+    id: 'synth-juno', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Пэд с хорусом (Juno)', en: 'Chorus pad (Juno)' },
     note: { ru: 'Пульс с суб-октавой через тёплый фильтр, медленно «дышащий» от LFO, и фирменный хорус — тёплый пэд 80-х.', en: 'Pulse with a sub-octave through a warm filter slowly breathing with the LFO, and the signature chorus — a warm 80s pad.' },
     chain: [
@@ -232,7 +268,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-cs80-brass', stems: ['synth'], style: 'pad', octave: 1,
+    id: 'synth-cs80-brass', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Медь (CS-80)', en: 'Brass (CS-80)' },
     note: { ru: 'Расстроенные пилы и фильтр, раскрывающийся на атаке, с медленным вибрато — «Blade Runner»-медь, торжественно и тревожно.', en: 'Detuned saws and a filter opening on the attack with slow vibrato — Blade Runner style brass, solemn and uneasy.' },
     chain: [
@@ -242,7 +278,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-farfisa', stems: ['synth'], style: 'pad', octave: 1,
+    id: 'synth-farfisa', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Орган (Farfisa)', en: 'Organ (Farfisa)' },
     note: { ru: 'Квадрат с октавой сверху и быстрым вибрато, без атаки, через пружину — гаражный орган 60-х.', en: 'Square with an octave on top and fast vibrato, no attack, through a spring — a 60s garage organ.' },
     chain: [
@@ -251,7 +287,7 @@ export const fxPresets = [
     ],
   },
   {
-    id: 'synth-vox-continental', stems: ['synth'], style: 'pad', octave: 1,
+    id: 'synth-vox-continental', stems: ['synth'], style: 'pad', octave: 1, place: { pan: 0, width: 1.5 },
     name: { ru: 'Орган (Vox Continental)', en: 'Organ (Vox Continental)' },
     note: { ru: 'Треугольник с квадратом на октаву выше, лёгкое вибрато и старая лента — тонкий «стеклянный» орган (The Doors, The Animals).', en: 'Triangle with a square an octave up, light vibrato and old tape — a thin "glassy" organ.' },
     chain: [
@@ -272,25 +308,25 @@ export const fxPresets = [
 
   // ---------- перкуссия по сетке (этап 5): блок perc (удары подставляет студия по тактам трека) + эффекты ----------
   {
-    id: 'perc-hat8', stems: ['perc'], pattern: 'eighths', swing: 0,
+    id: 'perc-hat8', stems: ['perc'], place: { pan: 0.3, width: 1 }, pattern: 'eighths', swing: 0,
     name: { ru: 'Хэт восьмыми (808)', en: 'Hi-hat eighths (808)' },
     note: { ru: 'Сухой закрытый хэт драм-машины восьмыми, слабые доли тише — пульс поверх живых барабанов.', en: 'A dry closed drum-machine hat in eighths, weak beats softer — a pulse on top of the drums.' },
     chain: [{ type: 'perc', voice: 1, tone: 1, decay: 0.8, rel_db: -16 }],
   },
   {
-    id: 'perc-hat16', stems: ['perc'], pattern: 'sixteenths', swing: 0.1,
+    id: 'perc-hat16', stems: ['perc'], place: { pan: 0.3, width: 1 }, pattern: 'sixteenths', swing: 0.1,
     name: { ru: 'Хэт шестнадцатыми (808)', en: 'Hi-hat sixteenths (808)' },
     note: { ru: 'Частый хэт шестнадцатыми с лёгким свингом — движение в куплете, диско и пост-панк.', en: 'Busy sixteenth hat with a light swing — motion for verses, disco and post-punk.' },
     chain: [{ type: 'perc', voice: 1, tone: 1.1, decay: 0.6, rel_db: -18 }],
   },
   {
-    id: 'perc-shaker16', stems: ['perc'], pattern: 'sixteenths', swing: 0.15,
+    id: 'perc-shaker16', stems: ['perc'], place: { pan: -0.3, width: 1 }, pattern: 'sixteenths', swing: 0.15,
     name: { ru: 'Шейкер шестнадцатыми', en: 'Shaker sixteenths' },
     note: { ru: 'Мягкий шейкер с подтянутым свингом и «живым» разбросом — воздух и шорох между ударами.', en: 'A soft shaker with swing and a human spread — air and rustle between the hits.' },
     chain: [{ type: 'perc', voice: 2, tone: 1, decay: 1, humanize_ms: 6, rel_db: -20 }],
   },
   {
-    id: 'perc-tamb24', stems: ['perc'], pattern: 'backbeat', swing: 0,
+    id: 'perc-tamb24', stems: ['perc'], place: { pan: -0.4, width: 1 }, pattern: 'backbeat', swing: 0,
     name: { ru: 'Бубен на 2 и 4', en: 'Tambourine on 2 and 4' },
     note: { ru: 'Бубен на слабые доли вместе с малым — классика соула и брит-попа, припев становится шире.', en: 'Tambourine on the backbeat with the snare — soul and britpop classic, widens a chorus.' },
     chain: [{ type: 'perc', voice: 6, tone: 1, decay: 1, humanize_ms: 4, rel_db: -16 }, { type: 'reverb', decay_s: 1.2, predelay_ms: 10, lowpass_hz: 8000, wet: 0.15 }],
@@ -302,7 +338,7 @@ export const fxPresets = [
     chain: [{ type: 'perc', voice: 3, tone: 1, decay: 1, rel_db: -14 }, { type: 'reverb', decay_s: 0.9, predelay_ms: 5, lowpass_hz: 7000, wet: 0.2 }],
   },
   {
-    id: 'perc-cowbell4', stems: ['perc'], pattern: 'fours', swing: 0,
+    id: 'perc-cowbell4', stems: ['perc'], place: { pan: 0.2, width: 1 }, pattern: 'fours', swing: 0,
     name: { ru: 'Ковбелл четвертями', en: 'Cowbell quarters' },
     note: { ru: 'Ковбелл 808 на каждую долю — фанк и нью-вейв, звучит нарочито и смешно; тише — держит темп.', en: 'An 808 cowbell on every beat — funk and new wave, deliberately cheeky; quieter it keeps time.' },
     chain: [{ type: 'perc', voice: 4, tone: 1, decay: 0.8, rel_db: -20 }],
@@ -320,7 +356,7 @@ export const fxPresets = [
     chain: [{ type: 'perc', voice: 0, kit: 'osdk/kick', rel_db: -12 }],
   },
   {
-    id: 'perc-ride8', stems: ['perc'], pattern: 'eighths', swing: 0,
+    id: 'perc-ride8', stems: ['perc'], place: { pan: 0.35, width: 1 }, pattern: 'eighths', swing: 0,
     name: { ru: 'Райд восьмыми (osdk)', en: 'Ride eighths (osdk)' },
     note: { ru: 'Живая тарелка райд восьмыми — открывает припев и бридж, звенит дольше хэта.', en: 'A real ride cymbal in eighths — opens up a chorus or bridge, rings longer than a hat.' },
     chain: [{ type: 'perc', voice: 0, kit: 'osdk/ride', rel_db: -18 }],

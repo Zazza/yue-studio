@@ -11,12 +11,14 @@ import { useInserts } from '../composables/useInserts.js'
 import { usePlayer } from '../composables/usePlayer.js'
 import { useWindowPlay } from '../composables/useWindowPlay.js'
 import ChainEditor from './ChainEditor.vue'
+import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import { fromWorkerChain, toWorkerChain, missingRequired } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { insertTitle, insertWindow } from '../insertLabels.js'
 import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection } from '../trackDesk.js'
+import { stemPlace } from '../mixDesk.js'
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -192,6 +194,14 @@ async function applyRhythm() {
   } catch (e) { err.value = String(e) } finally { busy.value = ''; loadAssets() }
 }
 
+// место дорожки в стерео: отпустил ползунок — запись «место» заменяется, трек пересобирается
+const placeOf = (stem) => stemPlace(inserts.appliedFor(props.job.id), stem)
+async function setPlace(stem, place) {
+  err.value = ''
+  busy.value = 'place'
+  try { await inserts.setStemPlace(props.job.id, stem, place); emit('applied') } catch (e) { err.value = String(e) } finally { busy.value = '' }
+}
+
 async function installKit(name) {
   err.value = ''
   busy.value = 'kit'
@@ -232,6 +242,7 @@ async function upload(kind) {
       <span v-for="e in row.edits" :key="e.childId" class="desk-chip" :class="{ off: e.off }"
             :title="e.off ? t('desk.chip.off') : ''">{{ insertTitle(e, names) }} · {{ insertWindow(e, win) }}</span>
       <span class="spacer"></span>
+      <PlaceControls :model-value="placeOf(row.stem)" :disabled="!!busy" @update:model-value="(p) => setPlace(row.stem, p)" />
       <button class="ghost small-btn" :class="{ on: open === row.stem }" @click="toggleRow(row.stem)">
         {{ open === row.stem ? t('desk.close') : t('desk.sound') }}</button>
     </div>

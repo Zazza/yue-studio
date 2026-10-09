@@ -13,6 +13,7 @@ import { useRevoice } from '../composables/useRevoice.js'
 import { revoiceSpecKinds, vocalEndsQuiet, voiceSource } from '../vocalParts.js'
 import { INSERT_DEFAULT_DB, INSERT_MAX_DB, INSERT_MIN_DB } from '../insertMix.js'
 import { insertTitle, insertWindow, mixChildId, mixLabel } from '../insertLabels.js'
+import { isPlaceRecord, placeLabel } from '../mixDesk.js'
 import { applyFoundTones } from '../dspTones.js'
 import { isFlat, bumpRange } from '../envelope.js'
 import { ONE_CLICK_LEVELS, oneClickParams } from '../oneClick.js'
@@ -27,6 +28,8 @@ import TrackDesk from './TrackDesk.vue'
 import StudioPresets from './StudioPresets.vue'
 import StudioSynth from './StudioSynth.vue'
 import StudioPerc from './StudioPerc.vue'
+import StudioMaster from './StudioMaster.vue'
+import PlaceControls from './PlaceControls.vue'
 
 // стиль импортированного трека — должен совпадать с IMPORT_STYLE в worker/yue_worker.py
 const IMPORT_STYLE = '(импорт внешнего трека)'
@@ -852,6 +855,7 @@ const insertNames = {
   chainName: (id) => (dspChains.value.find((c) => c.id === id) || { name: id }).name,
   stemName: (s) => t('studio.dsp.target.' + s),
   instName: (id) => t('studio.trick.inst.' + id),
+  placeName: (p) => t('mix.place') + ' ' + placeLabel(p, { center: t('mix.w.center'), right: t('mix.w.right'), left: t('mix.w.left'), width: t('mix.width') }),
 }
 const insertWin = computed(() => ({ fmt: fmtDur, toEnd: t('studio.inserts.toEnd'), whole: t('studio.inserts.whole') }))
 const dbBusy = ref(false)
@@ -897,8 +901,27 @@ function removeEdit(it) {
   })
 }
 function editEngine(it) {
+  // мастер правится в своём блоке «Мастер» (шаг «Готово»), прочие цепочки — в «Дорожках»
+  if (it.master) {
+    if (masterBox.value) masterBox.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (masterRef.value) masterRef.value.editRecord(it)
+    return
+  }
   if (deskBox.value) deskBox.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
   if (deskRef.value) deskRef.value.editRecord(it)
+}
+const masterRef = ref(null)
+const masterBox = ref(null)
+// место в стерео из «Правок трека»: у партии — её запись, у записи «место» — место дорожки
+async function onPlace(it, place) {
+  dbBusy.value = true
+  rollErr.value = ''
+  const prev = mixFile.value
+  try {
+    const r = isPlaceRecord(it) ? await inserts.setStemPlace(props.job.id, it.stems[0], place)
+      : await inserts.setPlace(props.job.id, it.childId, place)
+    await afterEdit(r, prev)
+  } catch (e) { rollErr.value = String(e) } finally { dbBusy.value = false }
 }
 function playMix() {
   const file = mixFile.value
@@ -1788,7 +1811,9 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
               <input type="checkbox" :checked="!it.off" :disabled="dbBusy" :title="t('studio.edits.on.tip')" @change="toggleEdit(it)" />
               <strong>{{ insertTitle(it, insertNames) }}</strong>
               <span class="muted">{{ insertWindow(it, insertWin) }}</span>
-              <label v-if="it.db > -60" class="od-gain">{{ t('studio.inserts.db') }}
+              <PlaceControls v-if="it.add || isPlaceRecord(it)" :model-value="it.place" :disabled="dbBusy || it.off"
+                             @update:model-value="(p) => onPlace(it, p)" />
+              <label v-if="it.db > -60 && !isPlaceRecord(it) && !it.master" class="od-gain">{{ t('studio.inserts.db') }}
                 <input type="range" :min="INSERT_MIN_DB" :max="INSERT_MAX_DB" step="1" :value="it.db"
                        :disabled="dbBusy || it.off" @change="onInsertDb(it, $event.target.value)" />
                 {{ it.db > 0 ? '+' : '' }}{{ it.db }} {{ t('studio.inserts.dbUnit') }}
@@ -1944,6 +1969,12 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           </details>
 
           <h3 id="st-done" class="studio-step">4 · {{ t('studio.step.done') }} <span class="muted">{{ t('studio.step.done.sub') }}</span></h3>
+          <div ref="masterBox" class="studio-box">
+            <div class="studio-box-head"><span><AppIcon name="sliders" /> {{ t('mix.master') }}</span> <span class="muted studio-box-hint">{{ t('mix.master.sub') }}</span></div>
+            <div class="studio-box-body">
+              <StudioMaster ref="masterRef" :job="job" :sel="selRange" :cursor="waveCursor" @applied="reloadVariants" />
+            </div>
+          </div>
           <div class="studio-box">
             <div class="studio-box-head"><span>{{ t('preset.title') }}</span> <span class="muted studio-box-hint">{{ t('preset.sub') }}</span></div>
             <div class="studio-box-body">

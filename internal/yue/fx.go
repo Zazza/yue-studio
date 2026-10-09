@@ -24,6 +24,10 @@ type FxRequest struct {
 	Pad bool `json:"pad,omitempty"`
 	// Add — добавление (синт-партия): превью «в миксе» = трек + обработанное, без замены дорожки
 	Add bool `json:"add,omitempty"`
+	// File — вход не исходный звук трека, а его вариант (микс студии, файл пресета); только с Source mix
+	File string `json:"file,omitempty"`
+	// InPlace — результат записать в тот же вариант File (мастер на миксе; не превью)
+	InPlace bool `json:"in_place,omitempty"`
 }
 
 // ApplyFx — цепочка движка на трек/дорожку → вариант dsp-fx-*.flac (список вариантов).

@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BLOCKS_JSON = Path(__file__).resolve().with_name("fx_blocks.json")
 TYPES = ("gate", "eq", "comp", "drive", "amp", "cab", "reverb", "delay", "gain", "sampler", "bass")
 SYNTH_TYPES = ("synth", "chorus", "phaser", "flanger", "tape", "spring", "perc")   # perc — этап 5
+MASTER_TYPES = ("glue", "limiter")   # этап 6: склейка и ограничитель мастера
 PREVIEW_RE = re.compile(r"^preview-fx-[0-9a-f]{8}\.flac$")
 TAIL = 3.0
 MAX_PREVIEWS = 8
@@ -1309,7 +1310,7 @@ class TestBlocksCopies(unittest.TestCase):
         # прежние типы — в прежнем порядке первыми; за ними блоки синтов (карточка
         # internal-own-track, этап 4, условия 23–24; их порядок карточка не задаёт)
         self.assertEqual(tuple(b)[:len(TYPES)], TYPES, "типы блоков и их порядок показа")
-        self.assertEqual(set(tuple(b)[len(TYPES):]), set(SYNTH_TYPES), "блоки синтов")
+        self.assertEqual(set(tuple(b)[len(TYPES):]), set(SYNTH_TYPES + MASTER_TYPES), "блоки синтов и мастера")
 
     def test_gain_block_described(self):
         # условие 12: блок «громкость» — один параметр gain_db, −24…+24, по умолчанию 0

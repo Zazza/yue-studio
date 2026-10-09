@@ -37,13 +37,19 @@ func argPreset(args map[string]any) (yue.SoundPreset, error) {
 	if err := argJSON(args, "target_lufs", &p.TargetLUFS); err != nil {
 		return p, err
 	}
+	if err := argJSON(args, "master", &p.Master); err != nil {
+		return p, err
+	}
 	err := argJSON(args, "final", &p.Final)
 	return p, err
 }
 
 const presetSpecHelp = "specs — правки дорожек на весь трек: [{stems: [дорожки], ровно одно из engine (цепочка " +
 	"движка, как в fx_apply) | chain+params (эффект dsp_chains) | steps (педали [{chain, params, off}]), db}]; " +
-	"final — цепочка ffmpeg на весь микс после правок: [{chain, params, off}] (dsp_chains)."
+	"final — цепочка ffmpeg на весь микс после правок: [{chain, params, off}] (dsp_chains). " +
+	"Запись {stems: [одна дорожка], place: {pan −1…1, width 0…2}} без обработки — место дорожки в стерео. " +
+	"master — цепочка движка на весь микс на воркере после финала ([{type: glue|limiter|eq|comp…}], fx_blocks); " +
+	"target_lufs ложится в limiter (истинный пик −1 dBTP; нет limiter — дописывается)."
 
 func registerPresetTools(s *Server) {
 	s.Register(Tool{
@@ -62,13 +68,14 @@ func registerPresetTools(s *Server) {
 	})
 	s.Register(Tool{
 		Name:        "sound_preset_create",
-		Description: "Сохранить свой пресет звука. " + presetSpecHelp + " Нужно хоть что-то из specs/final.",
+		Description: "Сохранить свой пресет звука. " + presetSpecHelp + " Нужно хоть что-то из specs/final/master/target_lufs.",
 		InputSchema: props(map[string]any{
 			"name":             prop("название (1–80 символов)", "string"),
 			"note":             prop("описание: какой звук получается", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
-			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; null — без цели"},
+			"master":           map[string]any{"type": "array", "description": "мастер на воркере: блоки движка [{type, …}]", "items": map[string]any{"type": "object"}},
+			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): ограничитель мастера доведёт по цели; null — без цели"},
 			"reference_job_id": prop("трек-эталон, по которому настраивался (необязательно)", "integer"),
 		}, "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -92,7 +99,8 @@ func registerPresetTools(s *Server) {
 			"note":             prop("описание", "string"),
 			"specs":            map[string]any{"type": "array", "description": "правки дорожек", "items": map[string]any{"type": "object"}},
 			"final":            map[string]any{"type": "array", "description": "финал на весь микс", "items": map[string]any{"type": "object"}},
-			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): после финала громкость выставится по цели; не передан — прежняя, null — снять"},
+			"master":           map[string]any{"type": "array", "description": "мастер на воркере: блоки движка; не передан — прежний, [] — снять", "items": map[string]any{"type": "object"}},
+			"target_lufs":      map[string]any{"type": []string{"number", "null"}, "description": "громкость результата, LUFS (−24…−6): ограничитель мастера доведёт по цели; не передан — прежняя, null — снять"},
 			"reference_job_id": prop("трек-эталон (необязательно)", "integer"),
 		}, "preset_id", "name"),
 		Handler: func(s *Server, args map[string]any) (string, error) {
@@ -100,15 +108,23 @@ func registerPresetTools(s *Server) {
 			if err != nil {
 				return "", err
 			}
-			// цель не передана — прежняя: правка описания не должна стирать громкость пресета
-			if _, given := args["target_lufs"]; !given {
+			// цель и мастер не переданы — прежние: правка описания не должна стирать громкость пресета
+			_, givenTarget := args["target_lufs"]
+			_, givenMaster := args["master"]
+			if !givenTarget || !givenMaster {
 				list, err := s.client.SoundPresets(context.Background())
 				if err != nil {
 					return "", err
 				}
 				for _, old := range list {
-					if old.ID == argInt(args, "preset_id") {
+					if old.ID != argInt(args, "preset_id") {
+						continue
+					}
+					if !givenTarget {
 						p.TargetLUFS = old.TargetLUFS
+					}
+					if !givenMaster {
+						p.Master = old.Master
 					}
 				}
 			}

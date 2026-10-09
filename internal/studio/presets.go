@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -19,13 +18,6 @@ import (
 // Пресеты звука: рецепт обработки готового трека (правки дорожек на весь трек + финальная
 // цепочка ffmpeg на весь микс) → новая версия-трек «<трек> · <пресет>». Применяет приложение
 // (и MCP вручную): пересборка дорожек и ffmpeg живут на ПК, воркер хранит рецепты и статусы.
-
-const (
-	// maxTargetGain — сколько дБ финал по целевой громкости может добавить или снять (граница цепочки level)
-	maxTargetGain = 12.0
-	// targetCeiling — потолок пиков после целевой громкости, дБ
-	targetCeiling = -1.0
-)
 
 // PresetResult — версия, которую сделал пресет: ChildID — трек-версия, File — вариант-источник.
 type PresetResult struct {
@@ -43,7 +35,8 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 	}
 	// части барабанов пересборка обрабатывает только движком: эффект/педали на них молча пропали бы
 	for _, sp := range p.Specs {
-		if len(sp.Engine) == 0 && slices.ContainsFunc(sp.Stems, func(n string) bool { return slices.Contains(drumParts, n) }) {
+		placeOnly := sp.Place != nil && sp.Chain == "" && len(sp.Steps) == 0 // место части — без обработки, можно
+		if len(sp.Engine) == 0 && !placeOnly && slices.ContainsFunc(sp.Stems, func(n string) bool { return slices.Contains(drumParts, n) }) {
 			return nil, fmt.Errorf("пресет «%s»: на частях барабанов (%s) — только цепочка движка", p.Name, strings.Join(sp.Stems, ", "))
 		}
 	}
@@ -54,7 +47,6 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 		return nil, err
 	}
 	file := job.AudioFile
-	var mixMetrics map[string]any // замер громкости того, на что ляжет финал
 	if len(p.Specs) > 0 {
 		specs := make([]SectionSpec, 0, len(p.Specs))
 		for _, s := range p.Specs {
@@ -64,23 +56,9 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 		if err != nil {
 			return nil, fmt.Errorf("пересборка дорожек: %w", err)
 		}
-		file, mixMetrics = res.Variant.File, res.Variant.Metrics
+		file = res.Variant.File
 	}
-	steps := activeSteps(p.Final)
-	if p.TargetLUFS != nil {
-		if len(p.Specs) == 0 {
-			if mixMetrics, err = svc.AnalyzeJob(ctx, jobID); err != nil {
-				return nil, fmt.Errorf("громкость трека: %w", err)
-			}
-		}
-		lufs, ok := mixMetrics["lufs"].(float64)
-		if !ok {
-			return nil, errors.New("нет замера громкости микса — целевую громкость не выставить")
-		}
-		gain := math.Max(-maxTargetGain, math.Min(maxTargetGain, *p.TargetLUFS-lufs))
-		steps = append(steps, dsp.Step{Chain: "level", Params: map[string]float64{"gain": math.Round(gain*10) / 10, "ceiling": targetCeiling}})
-	}
-	if len(steps) > 0 {
+	if steps := activeSteps(p.Final); len(steps) > 0 {
 		graph, _, err := dsp.StepsGraph(steps)
 		if err != nil {
 			return nil, fmt.Errorf("финал: %w", err)
@@ -88,6 +66,19 @@ func ApplySoundPreset(ctx context.Context, svc yue.Service, jobID int64, p yue.S
 		v, err := RunGraph(ctx, svc, jobID, file, graph, fmt.Sprintf("dsp-preset-%d.flac", p.ID), p.Name)
 		if err != nil {
 			return nil, fmt.Errorf("финал: %w", err)
+		}
+		file = v.File
+	}
+	if master := presetMaster(p); len(master) > 0 {
+		// мастер и громкость к цели — на воркере (истинный пик), на файле после финала: вариант
+		// пресета — на месте, звук самого трека не трогается — обычный вариант движка
+		req := yue.FxRequest{Source: "mix", Chain: master, Label: p.Name}
+		if file != job.AudioFile {
+			req.File, req.InPlace = file, true
+		}
+		v, err := svc.ApplyFx(ctx, jobID, req)
+		if err != nil {
+			return nil, fmt.Errorf("мастер: %w", err)
 		}
 		file = v.File
 	}
@@ -118,9 +109,38 @@ func findJob(ctx context.Context, svc yue.Service, id int64) (*yue.Job, error) {
 	return nil, fmt.Errorf("job %d has no audio (not found)", id)
 }
 
+// presetMaster — цепочка мастера пресета с громкостью к цели: target_lufs ложится в ограничитель
+// (есть без цели — получает её; своя цель ограничителя важнее), нет ограничителя — дописывается.
+// Копия: пресет не меняется.
+func presetMaster(p yue.SoundPreset) []map[string]any {
+	out := make([]map[string]any, 0, len(p.Master)+1)
+	limiter := -1
+	for _, b := range p.Master {
+		c := make(map[string]any, len(b))
+		for k, v := range b {
+			c[k] = v
+		}
+		if c["type"] == "limiter" {
+			limiter = len(out)
+		}
+		out = append(out, c)
+	}
+	if p.TargetLUFS == nil {
+		return out
+	}
+	if limiter < 0 {
+		return append(out, map[string]any{"type": "limiter", "target_lufs": *p.TargetLUFS})
+	}
+	if t, _ := out[limiter]["target_lufs"].(float64); t == 0 {
+		out[limiter]["target_lufs"] = *p.TargetLUFS
+	}
+	return out
+}
+
 // presetSection — правка пресета → запись пересборки: эффект на дорожки на весь трек
 func presetSection(s yue.PresetSpec) SectionSpec {
-	sec := SectionSpec{Stems: slices.Clone(s.Stems), Db: s.Db, Engine: s.Engine, Chain: s.Chain, Params: s.Params}
+	sec := SectionSpec{Stems: slices.Clone(s.Stems), Db: s.Db, Engine: s.Engine, Chain: s.Chain, Params: s.Params,
+		Place: s.Place}
 	for _, st := range s.Steps {
 		sec.Steps = append(sec.Steps, dsp.Step{Chain: st.Chain, Params: st.Params, Off: st.Off})
 	}

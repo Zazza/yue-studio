@@ -71,7 +71,11 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        линейными краями: рост с from, спад после to (пересборка студии вклеивает кусок
                        вместо исходной дорожки с теми же фейдами); pad: true — файл от начала трека (до from —
                        тишина), чтобы вставить его без задержки (adelay ffmpeg ошибается на сэмпл); add: true — добавление
-                       (синт): output mix = трек + обработанное; ноты synth — от начала трека, воркер сдвигает их на from
+                       (синт): output mix = трек + обработанное; ноты synth — от начала трека, воркер сдвигает их на from;
+                       file — вход не исходный звук, а вариант трека (dsp-*.flac | overdub-*.flac; только source mix;
+                       неверное имя → 422, нет файла → 404); in_place: true (с file, не превью) — результат в тот же
+                       вариант (метрики заново, к подписи « · мастер») — мастер студии на миксе с правками. Превью
+                       с limiter считается по всему входу (громкость к цели) и режется окном
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}], kits: [{name: «osdk/kick», samples}]} —
                        захваты NAM, IR и наборы сэмплов барабанов
 POST /fx/kits/install?name=osdk|growlybass  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
@@ -102,11 +106,13 @@ GET  /jobs/{id}/vocal_contour?from=&to=  высота голоса по такт
 GET  /jobs/{id}/chord_grid  аккорды и секции плана по тактам звука: {bpm, bars [{start, end, chord, section}]}
                        (доли — по барабанам, нет — по миксу; сдвиг плана — по хроме гармонии); нет плана → 404,
                        нет долей → 422. Для синт-партии (блок synth, ноты — секунды трека)
-GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, builtin}]:
+GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, final, reference_job_id, target_lufs, master, builtin}]:
                        встроенные (slug transmission, sex-on-fire; при старте обновляются по slug из кода, id прежний) первыми
-POST /sound-presets    {name, note?, specs?, final?, reference_job_id?, target_lufs?} → пресет с id. target_lufs
-                       (−24…−6 или null) — громкость результата: после финала приложение добавляет level с
-                       усилением «цель − громкость микса» (±12 дБ, потолок −1). specs — до 16 правок
+POST /sound-presets    {name, note?, specs?, final?, master?, reference_job_id?, target_lufs?} → пресет с id.
+                       master — цепочка движка (до 16 блоков, проверка как у /fx) на весь микс на воркере после
+                       финала; target_lufs (−24…−6 или null) — громкость результата: ложится в limiter мастера
+                       (истинный пик −1 dBTP; нет limiter — дописывается). Запись specs {stems: [одна], place:
+                       {pan −1…1, width 0…2}} без обработки — место дорожки в стерео. specs — до 16 правок
                        на весь трек: {stems: [vocals|drums|bass|other|guitar|piano|kick|snare|toms|hh|ride|crash],
                        ровно одно из engine (цепочка движка, проверка как у /fx) | chain+params (dsp-цепочка) |
                        steps [{chain, params, off}] (до 12), db −24…24}; final — до 12 шагов {chain, params, off}

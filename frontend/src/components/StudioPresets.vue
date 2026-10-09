@@ -8,6 +8,7 @@ import { api } from '../api.js'
 import { useInserts } from '../composables/useInserts.js'
 import VSelect from '../VSelect.vue'
 import { presetFromEdits, withLevels } from '../soundPresets.js'
+import { placeLabel } from '../mixDesk.js'
 
 const props = defineProps({ job: { type: Object, required: true } })
 const emit = defineEmits(['applied'])
@@ -35,7 +36,8 @@ const changed = computed(() => Object.keys(levels.value).length > 0)
 const stemName = (s) => t('studio.dsp.target.' + s)
 // подпись записи пресета: дорожки и что с ними (для ползунка громкости)
 const specLabel = (sp) => (sp.stems || []).map(stemName).join(', ') +
-  (sp.engine ? ' · ' + sp.engine.map((b) => b.type).join(' → ') : sp.chain ? ' · ' + sp.chain : sp.steps ? ' · ' + t('pedals') : '')
+  (sp.engine ? ' · ' + sp.engine.map((b) => b.type).join(' → ') : sp.chain ? ' · ' + sp.chain : sp.steps ? ' · ' + t('pedals')
+    : sp.place ? ' · ' + t('mix.place') + ' ' + placeLabel(sp.place) : '')
 const levelOf = (i) => (i in levels.value ? levels.value[i] : (current.value.specs[i].db || 0))
 function setLevel(i, v) {
   const base = current.value.specs[i].db || 0
@@ -45,8 +47,11 @@ function setLevel(i, v) {
   levels.value = next
 }
 watch(presetId, () => { levels.value = {} })
+const finalPreset = computed(() => presets.value.find((p) => p.id === finalFrom.value) || {})
+// мастер пресета: свой из «Правок трека», иначе — как у пресета, чей финал взят
+const masterOut = computed(() => (fromEdits.value.master.length ? fromEdits.value.master : finalPreset.value.master || []))
 const canSave = computed(() => !busy.value && name.value.trim() && (fromEdits.value.specs.length || finalSteps.value.length ||
-  (presets.value.find((p) => p.id === finalFrom.value) || {}).target_lufs != null))
+  masterOut.value.length || finalPreset.value.target_lufs != null))
 
 onMounted(load)
 async function load() {
@@ -79,7 +84,8 @@ async function saveLevels() {
   try {
     const c = withLevels(p, levels.value)    // свой пресет: без id/slug/builtin встроенного
     const saved = await api.soundPresetCreate({ name: (p.name + ' · ' + t('preset.mine')).slice(0, 80), note: c.note || '',
-      specs: c.specs, final: c.final, target_lufs: c.target_lufs ?? null, reference_job_id: c.reference_job_id || 0 })
+      specs: c.specs, final: c.final, master: c.master || [], target_lufs: c.target_lufs ?? null,
+      reference_job_id: c.reference_job_id || 0 })
     msg.value = t('preset.saved', { name: saved.name })
     await load()
     presetId.value = saved.id
@@ -92,8 +98,9 @@ async function save() {
   try {
     const p = await api.soundPresetCreate({ name: name.value.trim(), note: note.value.trim(),
       specs: fromEdits.value.specs, final: JSON.parse(JSON.stringify(finalSteps.value)),
+      master: JSON.parse(JSON.stringify(masterOut.value)),
       // «финал как у X» — с его целевой громкостью: у встроенных громкость вынесена из финала в цель
-      target_lufs: (presets.value.find((p) => p.id === finalFrom.value) || {}).target_lufs ?? null })
+      target_lufs: finalPreset.value.target_lufs ?? null })
     msg.value = t('preset.saved', { name: p.name })
     saveOpen.value = false
     name.value = ''
@@ -126,7 +133,8 @@ async function save() {
     <button class="ghost small-btn" :disabled="!!busy" @click="saveLevels">{{ t('preset.level.save') }}</button>
   </div>
   <div v-if="saveOpen" class="preset-save">
-    <p class="muted">{{ t('preset.save.count', { n: fromEdits.specs.length, m: fromEdits.skipped }) }}</p>
+    <p class="muted">{{ t('preset.save.count', { n: fromEdits.specs.length, m: fromEdits.skipped }) }}
+      <span v-if="fromEdits.master.length"> · {{ t('mix.master.inPreset') }}</span></p>
     <div class="dsp-row">
       <input v-model="name" maxlength="80" :placeholder="t('preset.save.name')" />
       <input v-model="note" maxlength="500" :placeholder="t('preset.save.note')" class="preset-note" />
