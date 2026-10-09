@@ -2776,16 +2776,22 @@ class TestSynthTimeAndLevel(unittest.TestCase):
         y = _synth([_snote(0.1, 1.0, [69])], output_db=-6)
         self.assertAlmostEqual(_db(float(np.abs(y).max())), -12, delta=0.5)
 
-    def test_input_content_does_not_matter(self):
-        # вход — только длина: тишина, тихий и громкий шум дают тот же выход
-        rng = np.random.default_rng(1)
-        notes = [_snote(0.1, 1.0, [57, 64])]
-        base = _synth(notes)
-        for amp in (0.01, 0.9):
-            with self.subTest(amp=amp):
-                x = (amp * rng.standard_normal(2 * SR)).astype(np.float32)
-                y = _synth(notes, x=x)
-                self.assertTrue(np.allclose(y, base, atol=1e-6), "выход зависит от содержимого входа")
+    # условие 29 (прослушивание #681: пэд по пику −6 тонул в плотном припеве): громкость синта — от трека.
+    # Прежний тест «вход не влияет» заменён: условие изменилось по прослушиванию, не под код.
+    def test_tk53_level_relative_to_input(self):
+        t = np.arange(2 * SR) / SR
+        x = (10 ** (-20 / 20) * np.sqrt(2) * np.sin(2 * np.pi * 100 * t)).astype(np.float32)   # RMS −20 дБFS
+        notes = [_snote(0.5, 1.0, [69])]
+        for rel, want in ((-10, -30), (0, -20)):
+            with self.subTest(rel=rel):
+                y = _synth(notes, x=x, rel_db=rel)
+                seg = y[int(0.6 * SR):int(1.4 * SR)]
+                rms = 20 * np.log10(np.sqrt(np.mean(seg ** 2)))
+                self.assertAlmostEqual(rms, want, delta=1.0)
+
+    def test_tk53_silent_input_peak_mode(self):
+        y = _synth([_snote(0.1, 1.0, [69])], rel_db=-10)          # вход по умолчанию — тишина
+        self.assertAlmostEqual(20 * np.log10(np.abs(y).max()), -6.0, delta=0.5)
 
 
 @unittest.skipUnless(_HAS_DEPS, _SKIP)

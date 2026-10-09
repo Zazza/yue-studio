@@ -36,7 +36,6 @@ const sections = ref([])          // выбранные секции
 const presetId = ref(SYNTHS[0]?.id || '')
 const style = ref(SYNTHS[0]?.style || 'pad')
 const octave = ref(SYNTHS[0]?.octave || 0)
-const db = ref(-12)               // громкость партии к треку, дБ (синт выходит с пиком −6 дБFS)
 const chain = ref(SYNTHS[0] ? fromWorkerChain(SYNTHS[0].chain, BLOCKS) : [])
 const busy = ref('')
 const msg = ref('')
@@ -49,6 +48,12 @@ const styleOptions = computed(() => STYLES.map((s) => ({ value: s, label: t('syn
 // секции плана по порядку появления, без повторов
 const allSections = computed(() => [...new Set(((grid.value && grid.value.bars) || []).map((b) => b.section).filter(Boolean))])
 const notes = computed(() => (grid.value ? partNotes(grid.value.bars, { style: style.value, octave: octave.value, sections: sections.value }) : []))
+// громкость партии относительно трека — это rel_db блока synth: верхний ползунок и крутилка в редакторе цепочки —
+// один параметр, а не два (кросс-ревью: второй ничего не делал)
+const db = computed({
+  get: () => { const b = chain.value.find((x) => x.type === 'synth'); return b ? b.params.rel_db : -10 },
+  set: (v) => { chain.value = chain.value.map((b) => (b.type === 'synth' ? { ...b, params: { ...b.params, rel_db: Number(v) } } : b)) },
+})
 const listenWin = computed(() => previewWindow(props.sel, props.cursor, props.job.duration_sec))
 const target = computed(() => applyWindow(props.sel))
 const ready = computed(() => !busy.value && notes.value.length > 0 && chain.value.some((b) => b.type === 'synth' && b.on))
@@ -77,18 +82,16 @@ function toggleSection(s) {
   sections.value = sections.value.includes(s) ? sections.value.filter((x) => x !== s) : [...sections.value, s]
 }
 
-// цепочка воркеру: ноты партии — в блок synth (секунды трека; воркер сдвигает их на окно превью)
+// цепочка воркеру: ноты партии — в блок synth (секунды трека; воркер сдвигает их на окно превью); громкость —
+// относительно трека там, где играет синт (rel_db): по пику пэд тонул в плотном припеве (прослушивание #681)
 function workerChain() {
   return toWorkerChain(chain.value).map((b) => (b.type === 'synth' ? { ...b, notes: notes.value } : b))
 }
 
-// громкость партии — блоком gain в конце цепочки (у правки студии свой дБ, а превью его не знает)
-function withLevel(c) { return [...c, { type: 'gain', gain_db: Number(db.value) }] }
-
 async function playAfter() {
   err.value = ''
   const jobId = props.job.id
-  const req = { source: 'mix', chain: withLevel(workerChain()), output: 'mix', preview: true, add: true, ...listenWin.value }
+  const req = { source: 'mix', chain: workerChain(), output: 'mix', preview: true, add: true, ...listenWin.value }
   await toggleArtifact('synth-after', t('instr.after'), async () => {
     busy.value = 'preview'
     try {
@@ -108,7 +111,7 @@ async function apply() {
   msg.value = ''
   const jobId = props.job.id
   const label = t('synth.label', { name: tr(preset.value?.name) || t('synth.own'), style: t('synth.style.' + style.value) })
-  const snap = { jobId, dur: props.job.duration_sec, src: 'mix', ...target.value, chain: withLevel(workerChain()), label }
+  const snap = { jobId, dur: props.job.duration_sec, src: 'mix', ...target.value, chain: workerChain(), label }
   busy.value = 'apply'
   try {
     const rec = await applyEngine(api, snap, { oldMsg: t('instr.engine.old') })
@@ -136,7 +139,7 @@ async function apply() {
       <label class="muted">{{ t('synth.octave') }}
         <input v-model.number="octave" type="number" min="-2" max="2" step="1" style="width: 3.5em" /></label>
       <label class="muted">{{ t('synth.level') }}
-        <input v-model.number="db" type="range" min="-24" max="6" step="1" /> {{ db }} {{ t('studio.inserts.dbUnit') }}</label>
+        <input v-model.number="db" type="range" min="-30" max="6" step="1" :title="t('synth.level.tip')" /> {{ db }} {{ t('studio.inserts.dbUnit') }}</label>
     </div>
     <p v-if="preset" class="muted studio-box-hint">{{ tr(preset.note) }}</p>
     <details>

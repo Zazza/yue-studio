@@ -812,6 +812,17 @@
     }
    },
    {
+    "id": "rel_db",
+    "default": -10,
+    "min": -30,
+    "max": 6,
+    "step": 0.5,
+    "label": {
+     "ru": "громкость к треку, дБ (−10 — на 10 дБ тише трека)",
+     "en": "level vs track, dB (−10 — 10 dB below the track)"
+    }
+   },
+   {
     "id": "output_db",
     "default": 0,
     "min": -24,

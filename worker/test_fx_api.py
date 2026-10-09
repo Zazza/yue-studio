@@ -721,7 +721,7 @@ class TestTailsChainErrors422(_FxApiCase):
 
 SYN_DUR = 16.0
 SYN_TRACK_HZ = 100            # тон трека: в solo-файле его быть не должно
-SYN_SINE = {"osc1": 4, "osc2": 4, "osc2_semi": 0, "osc_mix": 0, "unison": 1, "detune_cents": 0,
+SYN_SINE = {"rel_db": 0, "osc1": 4, "osc2": 4, "osc2_semi": 0, "osc_mix": 0, "unison": 1, "detune_cents": 0,
             "sub": 0, "noise": 0, "cutoff_hz": 16000, "resonance": 0, "env_amount": 0,
             "vib_cents": 0, "lfo_cutoff": 0, "attack_s": 0.005, "decay_s": 0.05, "sustain": 1,
             "release_s": 0.05, "output_db": 0}
@@ -844,3 +844,72 @@ class TestSynthWindowPrep(unittest.TestCase):
         self.assertEqual(out["_until"], 4.0)
         import fx_engine
         fx_engine.parse_chain([out])          # лимит начала ноты не мешает
+
+
+
+@unittest.skipUnless(_OK, _SKIP)
+class TestSynthRefLevel(unittest.TestCase):
+    """Кросс-ревью условия 29: уровень синта — от громкости трека по ВСЕМ нотам партии, одинаково для превью
+    любого окна и для пересборки (было: по окну — тихий куплет и весь трек давали разницу до 18 дБ)."""
+
+    def test_ref_same_for_any_window(self):
+        import numpy as np
+        import yue_worker as w
+        sr = 1000
+        track = np.concatenate([np.full((15 * sr, 2), 0.01), np.full((25 * sr, 2), 0.1)])   # тихо, затем громко
+        chain = [{"type": "synth", "notes": [{"t": 2.0, "d": 30.0, "midi": [60]}]}]
+        a = w.synth_window(chain, 0.0, 15.0, track, sr)[0]["_ref_rms"]
+        b = w.synth_window(chain, 0.0, 40.0, track, sr)[0]["_ref_rms"]
+        self.assertAlmostEqual(a, b)
+        self.assertAlmostEqual(a, float(np.sqrt(np.mean(track[2 * sr:32 * sr] ** 2))), places=6)
+
+
+    def test_window_level_equals_full(self):
+        # кросс-ревью r2: тихая нота (vel 0,1) в окне превью звучит так же, как в полном рендере (было +17 дБ)
+        import numpy as np
+        import fx_engine
+        import yue_worker as w
+        sr = 8000
+        track = np.full((40 * sr, 1), 0.1)
+        blk = {"type": "synth", "osc1": 4, "cutoff_hz": 16000, "release_s": 0.05, "rel_db": -10,
+               "notes": [{"t": 1.0, "d": 10.0, "midi": [69], "vel": 0.1},
+                         {"t": 20.0, "d": 10.0, "midi": [69], "vel": 1.0}]}
+        short = w.synth_window([blk], 0.0, 15.0, track, sr)
+        full = w.synth_window([blk], 0.0, 40.0, track, sr)
+        ys = fx_engine.process(track[:15 * sr], sr, short)
+        yf = fx_engine.process(track, sr, full)
+        seg = slice(3 * sr, 9 * sr)
+        rs, rf = (20 * np.log10(np.sqrt(np.mean(y[seg] ** 2))) for y in (ys, yf))
+        self.assertAlmostEqual(rs, rf, delta=0.5)
+
+
+    def test_late_window_in_long_slow_note(self):
+        # кросс-ревью r3: окно с 20 с внутри длинной ноты с медленной атакой/спадом — уровень как в полном рендере
+        import numpy as np
+        import fx_engine
+        import yue_worker as w
+        sr = 8000
+        track = np.full((40 * sr, 1), 0.1)
+        blk = {"type": "synth", "osc1": 4, "cutoff_hz": 16000, "attack_s": 5, "decay_s": 5, "sustain": 0.2,
+               "release_s": 0.05, "notes": [{"t": 1.0, "d": 35.0, "midi": [69], "vel": 1.0}]}
+        win = w.synth_window([blk], 20.0, 10.0, track, sr)
+        full = w.synth_window([blk], 0.0, 40.0, track, sr)
+        yw = fx_engine.process(track[20 * sr:30 * sr], sr, win)
+        yf = fx_engine.process(track, sr, full)
+        rw = 20 * np.log10(np.sqrt(np.mean(yw[2 * sr:8 * sr] ** 2)))
+        rf = 20 * np.log10(np.sqrt(np.mean(yf[22 * sr:28 * sr] ** 2)))
+        self.assertAlmostEqual(rw, rf, delta=0.5)
+
+
+    def test_private_fields_from_request_ignored(self):
+        # кросс-ревью r4: присланные _until/_ref_rms/_syn_rms не меняют уровень партии
+        import yue_worker as w
+        import numpy as np
+        sr = 8000
+        track = np.full((10 * sr, 1), 0.1)
+        blk = {"type": "synth", "osc1": 4, "notes": [{"t": 1.0, "d": 5.0, "midi": [69], "vel": 1.0}]}
+        clean = w.synth_window([blk], 0.0, 10.0, track, sr)[0]
+        dirty = w.synth_window([dict(blk, _until=0.0, _ref_rms=1000.0, _syn_rms=1e-11, _syn_peak=0.0)],
+                               0.0, 10.0, track, sr)[0]
+        for k in ("_until", "_ref_rms", "_syn_rms", "_syn_peak"):
+            self.assertAlmostEqual(dirty[k], clean[k], msg=k)

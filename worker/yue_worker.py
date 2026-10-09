@@ -2967,9 +2967,11 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
     if req.preview:
         used = [src] if req.source == "mix" else [src, jdir / f"stem-{req.source}.flac"]
         # ноты синта в запросе — от начала трека, превью считает кусок с from: сдвинуть на окно
-        chain = synth_window(chain, frm, to - frm + req.fade)
+        chain = synth_window(chain, frm, to - frm + req.fade, part, sr)   # опора — сам вход (трек при source mix)
         return _fx_preview(job_id, jdir, req, chain, track, part, sr, used)
 
+    # синт на весь трек — тот же общий уровень партии, что у превью (служебные значения — только от воркера)
+    chain = synth_window(chain, 0.0, n / sr, part, sr)
     wet = _fx_process(job_id, part.astype(np.float32), sr, chain).astype(np.float64)
 
     # в треке меняется только разница «обработанная − исходная»: вне окна трек побитно тот же
@@ -3001,10 +3003,35 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
             "clipped": peak > 1.0}
 
 
-SYNTH_LEAD_S = 1.0   # нота, начатая задолго до окна, считается с этой секунды до окна (атака успевает пройти)
+SYNTH_LEAD_S = 1.0   # нота, начатая задолго до окна, считается не раньше чем за столько (и за атаку+спад) до окна
 
 
-def synth_window(chain: list, frm: float, win: float) -> list:
+def synth_ref_rms(track, sr: int, notes: list) -> float:
+    """Громкость трека (RMS, по всем каналам) там, где звучат ноты партии (секунды трека), — опора уровня синта:
+    одна и та же для превью любого окна и для пересборки (иначе 15 с тихого куплета и весь трек давали партию
+    разной громкости). Нот нет — 0."""
+    import numpy as np
+    n = len(track)
+    m = np.zeros(n, dtype=bool)
+    for nt in notes:
+        a, b = max(0, int(nt["t"] * sr)), min(n, int((nt["t"] + nt["d"]) * sr))
+        if b > a:
+            m[a:b] = True
+    return float(np.sqrt(np.mean(np.asarray(track)[m] ** 2))) if m.any() else 0.0
+
+
+def synth_part_level(blk: dict, n: int, sr: int) -> tuple[float, float]:
+    """Громкость (RMS там, где звучит) и пик сырой партии синта по всем нотам на всём треке — один раз на запрос
+    (пэд на всю песню ~2 с): общий множитель уровня для любого окна."""
+    import numpy as np
+    import fx_engine
+    full = fx_engine.parse_chain([blk])[0]          # умолчания блока (в эндпоинте цепочка уже разобрана)
+    y = fx_engine._synth_notes(n, sr, 1, dict(full, output_db=0.0, _raw=True))[:, 0]
+    m = np.abs(y) > 1e-6
+    return (float(np.sqrt(np.mean(y[m] ** 2))) if m.any() else 0.0), float(np.abs(y).max()) if len(y) else 0.0
+
+
+def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -> list:
     """Ноты synth (секунды трека) → для куска окна [frm, frm + win): сдвиг на frm; отзвучавшие до окна и
     начатые после — отброшены; начатые до окна — не раньше SYNTH_LEAD_S до окна (иначе синт считал бы минуты
     сэмплов, а давняя нота упиралась бы в лимит начала); длинные — до края окна; _until — глушить синт на краю
@@ -3014,14 +3041,24 @@ def synth_window(chain: list, frm: float, win: float) -> list:
         if b["type"] != "synth":
             out.append(b)
             continue
+        # служебные поля (_until, _ref_rms, …) ставит только воркер: присланные в запросе — выбросить до расчётов
+        b = {k: v for k, v in b.items() if not k.startswith("_")}
         notes = []
         for nt in b["notes"]:
             t, end = nt["t"] - frm, nt["t"] - frm + nt["d"]
             if end <= 0 or t >= win:
                 continue
-            t = max(t, -SYNTH_LEAD_S)
+            # запас до окна — не меньше атаки и спада огибающих: дальше нота в удержании, уровень как в полном рендере
+            lead = max(SYNTH_LEAD_S, b.get("attack_s", 0) + b.get("decay_s", 0) + 0.1,
+                       b.get("f_attack_s", 0) + b.get("f_decay_s", 0) + 0.1)
+            t = max(t, -lead)
             notes.append(dict(nt, t=t, d=min(end, win) - t))
-        out.append(dict(b, notes=notes, _until=win))
+        blk = dict(b, notes=notes, _until=win)
+        if track is not None:
+            # общий уровень партии: громкость трека и синта по ВСЕМ нотам (синт — сырой, без нормировки окна)
+            blk["_ref_rms"] = synth_ref_rms(track, sr, b["notes"])
+            blk["_syn_rms"], blk["_syn_peak"] = synth_part_level(b, len(track), sr)
+        out.append(blk)
     return out
 
 

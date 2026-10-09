@@ -136,7 +136,7 @@ def parse_chain(chain) -> list[dict]:
         where = f"{where} ({t})"
         nums, strs = SPEC[t], STR_SPEC.get(t, {})
         allowed = set(nums) | set(strs) | {"type"} | ({"bands"} if t == "eq" else set()) | \
-            ({"notes", "_until"} if t == "synth" else set())
+            ({"notes", "_until", "_ref_rms", "_syn_rms", "_syn_peak"} if t == "synth" else set())
         extra = set(blk) - allowed
         if extra:
             raise ChainError(f"{where}: неизвестный параметр {sorted(extra)[0]}")
@@ -159,6 +159,9 @@ def parse_chain(chain) -> list[dict]:
             norm["notes"] = _parse_notes(where, blk.get("notes", []))
             if _num(blk.get("_until")):   # край окна превью (ставит воркер); зажим — огромное не ломает расчёт
                 norm["_until"] = min(max(float(blk["_until"]), 0.0), 86400.0)
+            for k in ("_ref_rms", "_syn_rms", "_syn_peak"):   # общий уровень партии (ставит воркер); зажим 0…1e3
+                if _num(blk.get(k)):
+                    norm[k] = min(max(float(blk[k]), 0.0), 1000.0)
         if t == "sampler" and norm.get("kit_open") and (norm.get("kit_mid") or norm.get("kit_low")):
             raise ChainError(f"{where}: kit_open (открытые удары) нельзя вместе с kit_mid/kit_low (тамы по высоте)")
         out.append(norm)
@@ -1098,7 +1101,7 @@ def _synth_notes(n: int, sr: int, ch: int, p: dict) -> np.ndarray:
         lo = max(0, a)
         y[lo:b] += seg[lo - a:]
     pk = np.abs(y).max()
-    if pk > EPS:
+    if pk > EPS and not p.get("_raw"):   # _raw — без нормировки по пику окна (уровень задаёт общий множитель партии)
         y *= 10 ** (-6 / 20) / pk * 10 ** (p["output_db"] / 20)
     # край окна: _until (секунды; ставит воркер для превью) — синт молчит дальше, затухание не заходит в хвост
     # эффектов; без него — конец буфера
@@ -1222,10 +1225,33 @@ def _spring(x, sr, p, _res=None):
     return out
 
 
+SYNTH_QUIET_DB = -60.0   # вход тише (RMS там, где звучит синт) — громкость синта по пику, а не от трека
+
+
 def _synth(x, sr, p, _res):
-    """Синт по нотам партии: вход — только длина (содержимое не слушается), выход — ноты notes [{t, d, midi[], vel}]
-    (t — от начала окна), пик −6 дБFS + output_db."""
-    return _synth_notes(x.shape[0], sr, x.shape[1], p)
+    """Синт по нотам партии notes [{t, d, midi[], vel}] (t — от начала окна). Громкость — от входа (трека при
+    source mix): RMS выхода там, где синт звучит, = RMS входа на тех же отсчётах · rel_db (прослушивание #681:
+    по пику −6 пэд тонул в плотном припеве); тихий вход — пик −6 дБFS. Сверху output_db."""
+    if _num(p.get("_ref_rms")) and _num(p.get("_syn_rms")):
+        # превью/пересборка: один множитель на всю партию (воркер посчитал громкость трека и синта по всем нотам) —
+        # любое окно звучит так же, как этот кусок в треке; тихий трек — по пику всей партии (−6 дБFS)
+        y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0, _raw=True))
+        if p["_syn_rms"] <= EPS:
+            return y * 0.0
+        if p["_ref_rms"] > _db(SYNTH_QUIET_DB):
+            g = p["_ref_rms"] * _db(p.get("rel_db", -10.0)) / p["_syn_rms"]
+        else:
+            g = _db(-6.0) / max(float(p.get("_syn_peak", 0.0)), EPS)
+        return y * g * _db(p["output_db"])
+    y = _synth_notes(x.shape[0], sr, x.shape[1], dict(p, output_db=0.0))
+    mask = np.abs(y).max(axis=1) > 1e-6
+    if mask.any():
+        # опора — громкость трека по всем нотам партии (_ref_rms ставит воркер для превью и пересборки), иначе —
+        # вход окна на звучащих отсчётах
+        rin = float(p["_ref_rms"]) if _num(p.get("_ref_rms")) else _rms(x[mask])
+        if rin > _db(SYNTH_QUIET_DB):
+            y = y * (rin * _db(p.get("rel_db", -10.0)) / max(_rms(y[mask]), EPS))
+    return y * _db(p["output_db"])
 
 
 BLOCKS = {"gate": _gate, "eq": _eq, "comp": _comp, "drive": _drive, "amp": _amp,

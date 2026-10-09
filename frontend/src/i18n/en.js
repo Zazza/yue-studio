@@ -790,6 +790,7 @@ export default {
   'synth.octave': 'octave',
   'synth.level': 'level',
   'synth.edit': 'synth sound and effects',
+  'synth.level.tip': 'Part level vs the track where it plays: −10 — 10 dB below the track, 0 — level',
   'synth.notes': 'notes: {n}',
   'synth.apply.tip': 'The part into the track on top of everything (window — the selection, none — whole track); an entry in “Track edits”',
   'synth.applied': 'Done: the part is in the track, the track is rebuilt.',
