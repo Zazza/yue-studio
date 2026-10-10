@@ -110,9 +110,10 @@ export function presetTree(presets) {
 export function presetOptions(presets) {
   const out = []
   for (const f of presetTree(presets)) {
+    if (!f.family) out.push({ value: 'head:', label: `— ${f.label} —`, title: f.label, disabled: true })   // свои — один заголовок
     for (const g of f.genres) {
       const head = `— ${f.label} · ${g.genre} —`
-      out.push({ value: `head:${f.family}:${g.genre}`, label: head, title: head, disabled: true })
+      if (f.family) out.push({ value: `head:${f.family}:${g.genre}`, label: head, title: head, disabled: true })
       // search — поиск по семье и течению («электроника» находит пресеты, а не только заголовок)
       for (const p of g.items) out.push({ value: p.id, label: p.name, title: p.note || p.name, search: `${f.label} ${g.genre}` })
     }

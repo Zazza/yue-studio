@@ -32,7 +32,7 @@ lint-front: ## линт фронтенда (eslint)
 	cd frontend && npx eslint src
 
 lint-worker: ## линт воркера (ruff)
-	cd worker && (command -v ruff >/dev/null && ruff check . || echo 'ruff не установлен — пропущено (CI проверит)')
+	cd worker && if command -v ruff >/dev/null; then ruff check .; else echo 'ruff не установлен — pip install ruff' >&2; exit 1; fi
 
 fmt: ## форматирование Go
 	gofmt -w .

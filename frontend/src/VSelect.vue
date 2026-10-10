@@ -123,7 +123,7 @@ onUnmounted(() => {
           <input ref="search" v-model="query" @keydown="onSearchKey" />
         </li>
         <li v-if="searchable && !shown.length" class="off">—</li>
-        <li v-for="o in shown" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }"
+        <li v-for="o in shown" :key="o.value" :class="{ sel: String(o.value) === String(modelValue), off: o.disabled }" :title="o.title"
             @mousedown.prevent="pick(o)"><template v-if="o.icon"><AppIcon :name="o.icon" /> </template>{{ o.label }}</li>
       </ul>
     </Teleport>
