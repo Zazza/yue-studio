@@ -91,4 +91,8 @@ function add() {
 .instr-on { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .instr-band { border-left: 2px solid var(--line, #2a2a35); padding-left: 8px; margin: 4px 0; }
 .spacer { flex: 1; }
+/* средняя колонка сжимается (длинное имя захвата NAM — с многоточием), правая — по кнопке «загрузить…»:
+   с колонкой 52px из общего .dsp-params кнопка вылезала за край — у страницы появлялась горизонтальная прокрутка */
+.dsp-params label { grid-template-columns: 190px minmax(0, 1fr) minmax(52px, auto); }
+.dsp-params :deep(.vselect) { min-width: 0; }
 </style>

@@ -6,7 +6,7 @@ const { open, title, body, doConfirm, cancelConfirm } = useConfirm()
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" @click.self="cancelConfirm">
+  <div v-if="open" class="modal-backdrop">
     <div class="modal confirm-modal">
       <div class="modal-head">
         <h2>{{ title }}</h2>

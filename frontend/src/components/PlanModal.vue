@@ -15,7 +15,7 @@ const abc = defineModel('abc', { type: String, default: '' })
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" @click.self="emit('close')">
+  <div v-if="open" class="modal-backdrop">
     <div class="modal">
       <div class="modal-head">
         <h2>{{ t('plan.title') }} <span class="muted">{{ t('plan.advanced') }}</span></h2>

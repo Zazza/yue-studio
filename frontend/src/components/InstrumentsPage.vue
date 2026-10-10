@@ -1,88 +1,88 @@
 <script setup>
-// Страница «Инструменты»: кусок дорожки трека через цепочку звукового движка воркера
-// (педали → усилитель NAM → кабинет → пространство) — послушать «было/стало», понравилось —
-// та же цепочка на весь трек вариантом. Описание блоков — fxBlocks.json (копия
-// worker/fx_blocks.json), логика цепочки — fxChain.js, готовые цепочки — fxPresets.js.
+// Страница «Инструменты»: короткая фраза (гитара записью, бас и барабаны нотами) играет по кругу через
+// цепочку звукового движка воркера (педали → усилитель NAM → кабинет → пространство); любая правка — пересчёт
+// круга через PHRASE_DEBOUNCE_MS и продолжение с того же места. Трек здесь не нужен: трек — это студия.
+// Описание блоков — fxBlocks.json (копия worker/fx_blocks.json), логика цепочки — fxChain.js, готовые цепочки —
+// fxPresets.js, семья фразы и место в круге — phraseLoop.js.
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { useI18n } from '../i18n/index.js'
 import { api } from '../api.js'
 import { ensureKits as ensureKitsOn } from '../engineRun.js'
-import { useInserts } from '../composables/useInserts.js'
 import { usePlayer } from '../composables/usePlayer.js'
-import { useWindowPlay } from '../composables/useWindowPlay.js'
+import { useConfirm } from '../composables/useConfirm.js'
+import { useInstruments } from '../composables/useInstruments.js'
+import { instrumentFromPreset } from '../myInstruments.js'
+import { installKit as installKitOn } from '../kitProgress.js'
+import KitProgress from './KitProgress.vue'
 import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import ChainEditor from './ChainEditor.vue'
 import { toWorkerChain, fromWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
-import { groupPresets } from '../presetGroups.js'
+import { groupPresets, groupOptions, itemOptions, groupOf } from '../presetGroups.js'
+import { familyOf, phraseStems, pagePresets, phaseAfter, phraseFamily, phraseChain } from '../phraseLoop.js'
 
 const { t, locale } = useI18n()
 const emit = defineEmits(['close'])
-const { toggleArtifact, playBtn } = usePlayer()
-const before = useWindowPlay('instr-before', () => t('instr.before'))
-const inserts = useInserts()
+const { nowPlaying, nowPlayingKey, refreshPlayer } = usePlayer()
+const { askConfirm } = useConfirm()
+const { all: instruments, reload: reloadMine } = useInstruments()
 
-const SOURCES = ['mix', 'vocals', 'drums', 'bass', 'other', 'guitar', 'piano',
-  'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
-const LEN_MIN = 3
-// дорожки, которые пересборка студии меняет движком (Go: studio.engineStems): и части барабанов
-const STUDIO_STEMS = ['vocals', 'drums', 'bass', 'other', 'guitar', 'piano', 'kick', 'snare', 'toms', 'hh', 'ride', 'crash']
-const LEN_MAX = 60
+const PHRASE_DEBOUNCE_MS = 250   // пересчёт — после последней правки, а не на каждый шаг крутилки
+const LOOP_ID = 2 ** 40          // «трек» круга в плеере (Go: phraseLoopID)
+const LOOP_SEC = 180             // длина разложенного круга (Go: loopSeconds); у конца — запуск заново
+const LOOP_KEY = 'instr-loop'
+const TEMPO_MIN = 0.5
+const TEMPO_MAX = 1.5
 
-const jobs = ref([])
-const jobId = ref('')
-const stems = ref([])          // имена дорожек трека (stem-<имя>.flac)
-const source = ref('other')
-const start = ref(20)
-const len = ref(15)
-const solo = ref(false)
-const chain = ref(fromWorkerChain(fxPresets[0].chain, BLOCKS))
-const presetId = ref(fxPresets[0].id)
+// готовые и свои; перкуссия без группы — своя группа «Перкуссия по сетке» (в списке «Разное» её не найти)
+const withGroup = (p) => (p.group || familyOf(p) !== 'perc' ? p : { ...p, group: 'perc' })
+const presets = computed(() => pagePresets(instruments.value).map(withGroup))
+const first = pagePresets(fxPresets)[0]
+const chain = ref(fromWorkerChain(first.chain, BLOCKS))
+const presetId = ref(first.id)
+const phrases = ref([])
+const phraseId = ref('')
+const tempo = ref(1)
+const bypass = ref(false)
 const assets = ref({ amps: [], irs: [] })
 const engineOn = ref(true)
-const engineKnown = ref(false) // воркер умеет превью движка (в /config есть fx_preview); до ответа — нет
+const phrasesKnown = ref(true)   // воркер умеет фразы (в /config есть fx_phrases); до ответа — не пугать
+const playing = ref(false)
 const busy = ref('')
 const err = ref('')
 const note = ref('')
-const lastPreview = ref(null)  // {file, duration_sec, clipped, key}
 
 const tr = (lbl) => (lbl && (lbl[locale.value] || lbl.ru)) || ''
-const job = computed(() => jobs.value.find((j) => String(j.id) === jobId.value) || null)
-const jobOptions = computed(() => jobs.value.map((j) => ({ value: String(j.id), label: `#${j.id} · ${j.title || ''}` })))
-const sourceOptions = computed(() => SOURCES
-  .filter((s) => s === 'mix' || stems.value.includes(s))
-  .map((s) => ({ value: s, label: t('studio.dsp.target.' + s) })))
-const preset = computed(() => fxPresets.find((p) => p.id === presetId.value))
-// синты играют ноты партии по аккордам — их место в студии («Синт по аккордам»), не на дорожке трека
-const stemPresets = fxPresets.filter((p) => !(p.stems || []).includes('synth'))
-const presetGroups = computed(() => groupPresets(stemPresets, locale.value))
+const preset = computed(() => presets.value.find((p) => p.id === presetId.value))
+const family = computed(() => familyOf(preset.value))
+const presetGroups = computed(() => groupPresets(presets.value, locale.value))
+// два списка: группа и инструмент в ней; поиск — только внутри группы
+const groupId = ref('')
+const groupOpts = computed(() => groupOptions(presetGroups.value, t('instr.group.other')))
+const itemOpts = computed(() => itemOptions(presetGroups.value.find((g) => g.group === groupId.value), locale.value))
+watch([presetGroups, presetId], () => {
+  if (!presetGroups.value.some((g) => g.group === groupId.value && g.items.some((p) => p.id === presetId.value))) {
+    groupId.value = groupOf(presetGroups.value, presetId.value)
+  }
+}, { immediate: true })
+// выбрали другую группу — инструмент из неё (иначе второй список показывал бы чужой пресет голым id)
+watch(groupId, (g) => {
+  const grp = presetGroups.value.find((x) => x.group === g)
+  if (grp && grp.items.length && !grp.items.some((p) => p.id === presetId.value)) applyPreset(grp.items[0].id)
+})
+const familyPhrases = computed(() => phrases.value.filter((p) => p.family === phraseFamily(family.value)))
+const phraseOpts = computed(() => familyPhrases.value.map((p) => ({ value: p.id, label: tr(p.name) })))
+const phrase = computed(() => phrases.value.find((p) => p.id === phraseId.value) || null)
+// семья сменилась (гитара → барабаны) — фраза этой семьи; у синта — фраза его стиля (пэд, арпеджио…)
+watch([familyPhrases, presetId], ([list]) => {
+  const own = preset.value?.style && list.find((p) => p.style === preset.value.style)
+  if (own && family.value === 'synth') phraseId.value = own.id
+  else if (!list.some((p) => p.id === phraseId.value)) phraseId.value = list[0]?.id || ''
+})
 const missing = computed(() => missingRequired(chain.value, BLOCKS))
-const end = computed(() => Math.min(Number(start.value) + Number(len.value), job.value?.duration_sec || Infinity))
-const ready = computed(() => engineOn.value && engineKnown.value && job.value && !missing.value.length &&
-  toWorkerChain(chain.value).length > 0 && (source.value === 'mix' || stems.value.includes(source.value)))
-
-async function loadJobs() {
-  try {
-    jobs.value = ((await api.jobs()) || []).filter((j) => j.status === 'done' && j.audio_file)
-    if (!jobId.value && jobs.value.length) jobId.value = String(jobs.value[0].id)
-  } catch (e) { err.value = String(e) }
-}
-
-let stemsReq = 0
-async function loadStems() {
-  const req = ++stemsReq            // ответ для уже сменившегося трека — отбросить
-  stems.value = []
-  const j = job.value
-  if (!j) return
-  let names = []
-  try {
-    names = ((await api.jobStems(j.id)) || []).map((s) => s.name)
-  } catch { /* старый воркер или нет дорожек — останется «весь трек» */ }
-  if (req !== stemsReq) return
-  stems.value = names
-  if (!sourceOptions.value.some((o) => o.value === source.value)) source.value = 'mix'
-}
+const ready = computed(() => engineOn.value && phrasesKnown.value && !!phraseId.value && !missing.value.length)
 
 async function loadAssets() {
   try { assets.value = (await api.fxAssets()) || { amps: [], irs: [] } } catch { assets.value = { amps: [], irs: [] } }
@@ -91,128 +91,105 @@ async function loadAssets() {
 async function loadConfig() {
   try {
     const c = await api.workerConfig()
-    engineKnown.value = !!(c && c.fx_preview)   // воркер этапа 2 превью не знает — делал бы варианты
+    phrasesKnown.value = !!(c && c.fx_phrases)
     engineOn.value = !!(c && c.fx_engine)
-  } catch { engineKnown.value = false }
+  } catch { phrasesKnown.value = false }
+}
+
+async function loadPhrases() {
+  try {
+    phrases.value = (await api.fxPhrases()) || []
+  } catch (e) {
+    phrases.value = []
+    err.value = String(e)
+  }
 }
 
 onMounted(async () => {
-  await Promise.all([loadJobs(), loadAssets(), loadConfig()])
+  reloadMine()                        // свои инструменты: первая загрузка могла упасть (старый воркер, сеть)
+  await Promise.all([loadAssets(), loadConfig()])
+  await loadPhrases()   // и у «старого» по /config воркера: не знает — ошибка текстом, а не пустой список
   chain.value = withAmp(chain.value)   // пресет по умолчанию с усилителем — захват по подсказке пресета
-  fitStart()
-  await loadStems()
 })
-function fitStart() {
-  const dur = job.value?.duration_sec
-  if (dur && Number(start.value) > dur - LEN_MIN) start.value = Math.max(0, Math.floor(dur - LEN_MIN))
-}
-watch(jobId, () => { lastPreview.value = null; fitStart(); loadStems() })
 
 const onKey = (e) => { if (e.key === 'Escape') emit('close') }
 onMounted(() => window.addEventListener('keydown', onKey))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  if (playing.value) stopLoop()      // закрыли страницу — круг не играет ещё три минуты сам по себе
+})
 
 // захват не выбран — по подсказке пресета (amp_hint), иначе первый загруженный: пресет с amp без захвата молчит
 const withAmp = (c) => fillAmp(c, assets.value.amps, preset.value?.amp_hint)
 
 function applyPreset(id) {
   presetId.value = id
-  const p = fxPresets.find((x) => x.id === id)
+  const p = presets.value.find((x) => x.id === id)
   if (p) chain.value = withAmp(fromWorkerChain(p.chain, BLOCKS))
 }
 
+// ---------- свои инструменты ----------
 
-function window_() {
-  const from = Math.max(0, Number(start.value) || 0)
-  const l = Math.min(LEN_MAX, Math.max(LEN_MIN, Number(len.value) || 15))
-  const dur = job.value?.duration_sec || from + l
-  return { from, to: Math.min(from + l, dur) }
+const nameMode = ref('')         // '' | 'new' — «сохранить как мой», 'rename' — переименовать свой
+const myName = ref('')
+
+function askName(mode) {
+  nameMode.value = mode
+  myName.value = mode === 'rename' ? preset.value?.title || '' : ''
+}
+
+async function saveName() {
+  const name = myName.value.trim()
+  if (!name) return
+  err.value = ''
+  try {
+    if (nameMode.value === 'rename') {
+      const body = instrumentFromPreset(preset.value, preset.value.chain, name)
+      await api.fxInstrumentUpdate(preset.value.wid, body)
+      await reloadMine()
+    } else {
+      const r = await api.fxInstrumentCreate(instrumentFromPreset(preset.value, toWorkerChain(chain.value), name))
+      await reloadMine()
+      presetId.value = `my-${r.id}`      // новый свой сразу выбран; цепочка в редакторе та же
+    }
+    nameMode.value = ''
+  } catch (e) { err.value = String(e) }
+}
+
+// свой: заменить цепочку текущей из редактора
+async function saveMine() {
+  err.value = ''
+  try {
+    await api.fxInstrumentUpdate(preset.value.wid, instrumentFromPreset(preset.value, toWorkerChain(chain.value), preset.value.title))
+    await reloadMine()
+    note.value = t('instr.my.saved')
+  } catch (e) { err.value = String(e) }
+}
+
+function deleteMine() {
+  const p = preset.value
+  askConfirm(t('instr.my.del.title'), p.title, async () => {
+    err.value = ''
+    try {
+      await api.fxInstrumentDelete(p.wid)
+      await reloadMine()
+      // после удаления — первый инструмент той же группы, иначе первый вообще
+      const grp = presetGroups.value.find((g) => g.group === p.group)
+      applyPreset((grp && grp.items[0]?.id) || presets.value[0].id)
+    } catch (e) { err.value = String(e) }
+  })
 }
 
 // наборы сэмплов, которых нет на воркере, — скачать перед расчётом (по требованию)
-// workerChain — уже собранная до первого await цепочка: пока качается набор, форму могут поменять;
-// after — какое «занято» вернуть после скачивания (на кнопках снова «считаю»)
-async function ensureKits(workerChain, after) {
+async function ensureKits(workerChain) {
   const got = await ensureKitsOn(api, workerChain, assets.value.kits, () => { busy.value = 'kit' })
-  if (!got.length) return
-  await loadAssets()
-  busy.value = after
+  if (got.length) await loadAssets()
 }
 
 async function installKit(name) {
   err.value = ''
   busy.value = 'kit'
-  try { await api.installFxKit(name); await loadAssets() } catch (e) { err.value = String(e) } finally { busy.value = '' }
-}
-
-function request(preview) {
-  const req = { source: source.value, chain: toWorkerChain(chain.value), output: solo.value ? 'solo' : 'mix' }
-  if (preview) Object.assign(req, window_(), { preview: true })
-  return req
-}
-
-async function makeStems() {
-  busy.value = 'stems'
-  err.value = ''
-  try { await api.makeStems(job.value.id); await loadStems() } catch (e) { err.value = String(e) } finally { busy.value = '' }
-}
-
-// «стало»: превью воркера (повтор тех же настроек — тот же файл, без пересчёта)
-async function playAfter() {
-  err.value = ''
-  note.value = ''
-  await toggleArtifact('instr-after', t('instr.after'), async () => {
-    const j = job.value             // трек сменят во время расчёта — играть файл того, для кого считали
-    const req = request(true)       // весь запрос — до первого await (скачивание набора)
-    try {
-      await ensureKits(req.chain, 'preview')
-      busy.value = 'preview'
-      const r = await api.applyFx(j.id, req)
-      lastPreview.value = r
-      if (r && r.clipped) note.value = t('instr.clipped')
-      await api.playFile(j.id, r.file, r.duration_sec || len.value)
-    } catch (e) { err.value = String(e); throw e } finally { busy.value = '' }
-  })
-}
-
-// «было»: тот же кусок без обработки — с той же секунды, стоп в конце куска
-async function playBefore() {
-  err.value = ''
-  const { from, to } = window_()
-  const file = source.value === 'mix' || !solo.value ? job.value.audio_file : `stem-${source.value}.flac`
-  await before.play({ jobId: job.value.id, file, dur: job.value.duration_sec, from, to })
-}
-
-// понравилось — та же цепочка на весь трек вариантом и сразу отдельным треком
-async function toTrack() {
-  busy.value = 'apply'
-  err.value = ''
-  const j = job.value               // трек/пресет сменят во время расчёта — вариант и имя остаются свои
-  const title = `${j.title || '#' + j.id} · ${tr(preset.value?.name) || t('instr.title')}`
-  const req = request(false)        // весь запрос — до первого await (скачивание набора)
-  try {
-    await ensureKits(req.chain, 'apply')
-    const v = await api.applyFx(j.id, req)
-    await api.variantToTrack(j.id, v.file, title)
-    note.value = t('instr.toTrack.done')
-  } catch (e) { err.value = String(e) } finally { busy.value = '' }
-}
-
-// та же цепочка на дорожку трека в окне куска — в реестр пересборки студии (копится со
-// вклейками, звучит в треке после пересборки); весь трек — только эффектами студии
-async function toStudio() {
-  busy.value = 'studio'
-  err.value = ''
-  const j = job.value
-  const { from, to } = window_()
-  const label = t('engine.label', { name: tr(preset.value?.name) || t('instr.title') })
-  const stem = source.value          // всё — до первого await (скачивание набора)
-  const workerChain = toWorkerChain(chain.value)
-  try {
-    await ensureKits(workerChain, 'studio')
-    await inserts.addStemEngine(j.id, { stem, chain: workerChain, from, to, label })
-    note.value = t('instr.toStudio.done')
-  } catch (e) { err.value = String(e) } finally { busy.value = '' }
+  try { await installKitOn(api, name); await loadAssets() } catch (e) { err.value = String(e) } finally { busy.value = '' }
 }
 
 async function upload(kind) {
@@ -222,10 +199,111 @@ async function upload(kind) {
     if (r) { await loadAssets(); chain.value = withAmp(chain.value) }
   } catch (e) { err.value = String(e) }
 }
+
+// ---------- круг ----------
+
+let loop = null          // {phase, cycle}: с какого места круга запущен файл и длина круга
+let playQueue = Promise.resolve()   // загрузки круга в плеер — строго по одной
+
+function enqueuePlay(fn) {
+  const next = playQueue.then(fn, fn)
+  playQueue = next.catch(() => false)
+  return next
+}
+let seq = 0              // ответ устаревшего расчёта (успели покрутить ещё) — отбросить
+let timer = null
+let poll = null
+
+function request() {
+  const tmp = Number(tempo.value)
+  // ноты синта и удары перкуссии — по тактам круга этой фразы и темпа
+  return { phrase: phraseId.value, tempo: tmp, chain: phraseChain(toWorkerChain(chain.value), preset.value, phrase.value, tmp),
+    stems: phraseStems(preset.value), bypass: bypass.value }
+}
+
+// посчитать круг и запустить его с места, где играл прежний (доля круга та же)
+async function render() {
+  const my = ++seq
+  const req = request()              // весь запрос — до первого await (скачивание набора)
+  err.value = ''
+  try {
+    // без обработки воркер оставляет только блоки, которые сами играют ноты (synth, perc), — качать их наборы, но не
+    // наборы эффектов: сухая фраза не должна ждать (или падать без сети) из-за набора, который не прозвучит
+    await ensureKits(req.bypass ? req.chain.filter((b) => b.type === 'synth' || b.type === 'perc') : req.chain)
+    if (my !== seq || !playing.value) return   // остановили или покрутили, пока качался набор
+    busy.value = 'loop'
+    const r = await api.fxPhrase(req)
+    if (my !== seq || !playing.value) return
+    let phase = 0
+    if (loop) {
+      const st = await api.audioState()
+      if (st && st.job_id === LOOP_ID) phase = phaseAfter(loop.phase, st.position_sec || 0, loop.cycle, r.cycle_sec)
+    }
+    // загрузки в плеер — по очереди и только актуальная: старый запуск, дождавшийся ответа позже нового (стоп →
+    // другие настройки → ▶), не подменяет звук и состояние круга
+    const played = await enqueuePlay(async () => {
+      if (my !== seq || !playing.value) return false
+      await api.playLoop(r.file, phase)
+      if (my !== seq || !playing.value) {   // остановили или перезапустили, пока плеер грузил круг
+        if (!playing.value) await api.stopAudio().catch(() => { /* плеер уже стоит */ })
+        return false
+      }
+      return true
+    })
+    if (!played) return
+    loop = { phase, cycle: r.cycle_sec }
+    note.value = r.clipped ? t('instr.clipped') : ''
+    nowPlaying.value = `${t('instr.title')}: ${phraseOpts.value.find((o) => o.value === req.phrase)?.label || ''}`
+    nowPlayingKey.value = LOOP_KEY
+  } catch (e) {
+    if (my === seq) err.value = String(e)
+  } finally {
+    if (my === seq || !playing.value) busy.value = ''   // остановлен — занятость снимается (иначе редактор выключен)
+  }
+}
+
+function schedule() {
+  if (!playing.value) return
+  clearTimeout(timer)
+  timer = setTimeout(render, PHRASE_DEBOUNCE_MS)
+}
+
+// плеер занят другим (▶ трека) — круг остановлен; у конца разложенного файла — тот же круг заново
+async function watchPlayer() {
+  if (!playing.value || !loop || busy.value) return
+  let st
+  try { st = await api.audioState() } catch { return }
+  if (!st || st.job_id !== LOOP_ID) { playing.value = false; loop = null; clearInterval(poll); return }
+  if (st.position_sec > LOOP_SEC - 5) schedule()
+}
+
+async function startLoop() {
+  if (!ready.value) return
+  playing.value = true
+  loop = null
+  clearInterval(poll)
+  poll = setInterval(watchPlayer, 1000)
+  await render()
+  if (err.value) stopLoop()
+}
+
+async function stopLoop() {
+  playing.value = false
+  seq++
+  loop = null
+  clearTimeout(timer)
+  clearInterval(poll)
+  busy.value = ''
+  try { await api.stopAudio() } catch { /* плеер уже стоит */ }
+  if (nowPlayingKey.value === LOOP_KEY) nowPlayingKey.value = ''
+  refreshPlayer()
+}
+
+watch([chain, phraseId, tempo, bypass], schedule, { deep: true })
 </script>
 
 <template>
-  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop page-backdrop">
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('instr.title') }}</h2>
@@ -233,65 +311,61 @@ async function upload(kind) {
       </div>
       <div class="page-modal-body">
         <p class="muted">{{ t('instr.desc') }}</p>
-        <p v-if="!engineKnown" class="err">{{ t('instr.engine.old') }}</p>
+        <p v-if="!phrasesKnown" class="err">{{ t('instr.phrases.old') }}</p>
         <p v-else-if="!engineOn" class="err">{{ t('instr.engine.off') }}</p>
+        <p v-if="err" class="err">{{ err }}</p>
+        <p v-if="note" class="muted">{{ note }}</p>
+        <KitProgress />
 
-        <div class="dsp-params">
+        <div class="instr-pick">
           <label>
-            <span>{{ t('instr.track') }}</span>
-            <VSelect v-model="jobId" :options="jobOptions" searchable />
-            <span></span>
+            <span class="muted">{{ t('instr.group') }}</span>
+            <VSelect v-model="groupId" :options="groupOpts" />
           </label>
           <label>
-            <span :title="t('instr.source.tip')">{{ t('instr.source') }}</span>
-            <VSelect v-model="source" :options="sourceOptions" />
-            <span>
-              <button v-if="job && !stems.length" class="ghost small-btn" :disabled="!!busy" @click.prevent="makeStems">
-                {{ busy === 'stems' ? t('instr.stems.busy') : t('instr.stems.make') }}
-              </button>
-            </span>
+            <span class="muted">{{ t('instr.item') }}</span>
+            <VSelect :model-value="presetId" :options="itemOpts" searchable @update:model-value="applyPreset" />
           </label>
           <label>
-            <span>{{ t('instr.start') }}</span>
-            <input v-model.number="start" type="range" min="0" :max="Math.max(0, (job?.duration_sec || 60) - LEN_MIN)" step="0.5" />
-            <span class="dsp-pval">{{ Number(start).toFixed(1) }} {{ t('instr.sec') }}</span>
+            <span class="muted" :title="t('instr.phrase.tip')">{{ t('instr.phrase') }}</span>
+            <VSelect v-model="phraseId" :options="phraseOpts" />
           </label>
-          <label>
-            <span>{{ t('instr.len') }}</span>
-            <input v-model.number="len" type="range" :min="LEN_MIN" :max="LEN_MAX" step="1" />
-            <span class="dsp-pval">{{ len }} {{ t('instr.sec') }}</span>
-          </label>
-        </div>
-
-        <div v-for="(g, gi) in presetGroups" :key="g.group" class="voice-presets">
-          <span class="muted">{{ g.label || (gi === 0 ? t('instr.presets') : t('instr.presets.more')) }}</span>
-          <button v-for="p in g.items" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
-                  :title="tr(p.note)" @click="applyPreset(p.id)">{{ tr(p.name) }}</button>
         </div>
         <p v-if="preset" class="muted voice-hint">{{ tr(preset.note) }}</p>
+        <div class="corpus-actions">
+          <template v-if="!nameMode">
+            <button class="ghost small-btn" :title="t('instr.my.saveAs.tip')" @click="askName('new')">{{ t('instr.my.saveAs') }}</button>
+            <template v-if="preset?.mine">
+              <button class="ghost small-btn" :title="t('instr.my.save.tip')" @click="saveMine">{{ t('instr.my.save') }}</button>
+              <button class="ghost small-btn" @click="askName('rename')">{{ t('instr.my.rename') }}</button>
+              <button class="ghost small-btn" @click="deleteMine">{{ t('instr.my.del') }}</button>
+            </template>
+          </template>
+          <template v-else>
+            <input v-model="myName" class="instr-name" maxlength="80" :placeholder="t('instr.my.name')" @keydown.enter="saveName" />
+            <button class="primary small-btn" :disabled="!myName.trim()" @click="saveName">{{ t('instr.my.ok') }}</button>
+            <button class="ghost small-btn" @click="nameMode = ''">{{ t('common.cancel') }}</button>
+          </template>
+        </div>
+        <p v-if="phrasesKnown && phrases.length && !familyPhrases.length" class="muted">{{ t('instr.phrases.none') }}</p>
+
+        <div class="corpus-actions">
+          <button class="primary" :disabled="!playing && !ready" :title="t('instr.loop.tip')"
+                  @click="playing ? stopLoop() : startLoop()">
+            <AppIcon :name="playing ? 'stop' : 'play'" /> {{ playing ? t('instr.loop.stop') : t('instr.loop.play') }}
+          </button>
+          <label class="instr-on" :title="t('instr.fx.tip')"><input type="checkbox" :checked="!bypass" @change="bypass = !$event.target.checked" /> {{ t('instr.fx') }}</label>
+          <label class="instr-tempo" :title="t('instr.tempo.tip')">
+            <span>{{ t('instr.tempo') }}</span>
+            <input v-model.number="tempo" type="range" :min="TEMPO_MIN" :max="TEMPO_MAX" step="0.05" />
+            <span class="dsp-pval">×{{ Number(tempo).toFixed(2) }}</span>
+          </label>
+          <span v-if="busy === 'loop'" class="muted">{{ t('instr.loop.busy') }}</span>
+          <span v-else-if="busy === 'kit'" class="muted">{{ t('instr.kit.busy') }}</span>
+        </div>
 
         <ChainEditor v-model="chain" :assets="assets" :busy="busy" @upload="upload" @install-kit="installKit" />
         <p v-if="missing.length" class="err">{{ t('instr.needAmp') }}</p>
-
-        <div class="corpus-actions">
-          <label class="instr-on" :title="t('instr.solo.tip')"><input v-model="solo" type="checkbox" :disabled="source === 'mix'" /> {{ t('instr.solo') }}</label>
-          <button class="primary" :disabled="!ready || !!busy" :title="t('instr.after.tip')" @click="playAfter">
-            <template v-if="busy === 'preview'">{{ t('instr.busy') }}</template>
-            <template v-else>{{ playBtn('instr-after') }} {{ t('instr.after') }}</template>
-          </button>
-          <button class="ghost" :disabled="!job" :title="t('instr.before.tip')" @click="playBefore">{{ playBtn('instr-before') }} {{ t('instr.before') }}</button>
-          <span class="spacer"></span>
-          <button class="ghost" :disabled="!ready || !!busy || !STUDIO_STEMS.includes(source)" :title="t('instr.toStudio.tip')" @click="toStudio">
-            {{ busy === 'studio' ? t('instr.busy') : t('instr.toStudio') }}
-          </button>
-          <button class="ghost" :disabled="!ready || !!busy" :title="t('instr.toTrack.tip')" @click="toTrack">
-            {{ busy === 'apply' ? t('instr.busy') : t('instr.toTrack') }}
-          </button>
-        </div>
-        <p v-if="note" class="muted">{{ note }}</p>
-        <p v-if="err" class="err">{{ err }}</p>
-        <p class="muted voice-hint">{{ t('instr.window', { from: window_().from.toFixed(1), to: end.toFixed(1) }) }}</p>
-
       </div>
     </section>
   </div>
@@ -299,6 +373,8 @@ async function upload(kind) {
 
 <style scoped>
 .instr-on { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.spacer { flex: 1; }
-.small-btn.on { border-color: var(--accent, #7aa2f7); }
+.instr-tempo { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.instr-pick { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; }
+.instr-name { min-width: 240px; }
+.instr-pick label { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
 </style>

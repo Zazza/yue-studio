@@ -91,7 +91,7 @@ function applyAbc(p) {
 </script>
 
 <template>
-  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop page-backdrop">
     <section class="panel lib page-modal">
       <div class="page-modal-head">
         <h2>{{ t('corpus.title') }}</h2>

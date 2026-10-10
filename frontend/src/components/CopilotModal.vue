@@ -66,7 +66,7 @@ function insert() {
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" @click.self="emit('close')">
+  <div v-if="open" class="modal-backdrop">
     <div class="modal cop-modal">
       <div class="modal-head">
         <h2>{{ t('copilot.title') }}</h2>

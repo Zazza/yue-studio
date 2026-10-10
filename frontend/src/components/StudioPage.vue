@@ -25,6 +25,7 @@ import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 import PedalBoard from './PedalBoard.vue'
 import TrackDesk from './TrackDesk.vue'
+import KitProgress from './KitProgress.vue'
 import StudioPresets from './StudioPresets.vue'
 import StudioSynth from './StudioSynth.vue'
 import StudioPerc from './StudioPerc.vue'
@@ -1562,6 +1563,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
       <nav v-if="rollData" class="studio-steps">
         <button v-for="(st, i) in STUDIO_STEPS" :key="st" class="ghost small-btn" :class="{ on: activeStep === st }"
                 @click="goStep(st)">{{ i + 1 }} · {{ t('studio.step.' + st) }}</button>
+        <!-- качается набор сэмплов (пульт, синт, перкуссия) — прогресс в прилипшей полосе шагов, виден из любого раздела -->
+        <KitProgress />
       </nav>
       <div class="roll-block" @mouseup="barSelEnd" @mouseleave="barSelEnd">
         <p v-if="rollBusy" class="muted">{{ t('studio.parsing') }}</p>

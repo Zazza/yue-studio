@@ -1115,7 +1115,7 @@ function onWindowClick(e) {
   <!-- страницы-модалки поверх основного контента: ✕/Esc/клик по фону закрывают -->
   <!-- библиотека — после формы нового трека: открывается поверх неё, закрылась — форма на месте -->
   <!-- новый трек — такая же страница-модалка, как голоса и свои треки -->
-  <div v-if="newTrackPage" class="modal-backdrop page-backdrop" @click.self="newTrackPage = false">
+  <div v-if="newTrackPage" class="modal-backdrop page-backdrop">
     <section class="panel page-modal form newtrack-modal">
       <div class="page-modal-head">
         <h2>{{ t('form.title') }}</h2>

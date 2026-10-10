@@ -78,9 +78,26 @@ POST /jobs/{id}/fx     звуковой движок: {source: mix|vocals|drums|
                        с limiter считается по всему входу (громкость к цели) и режется окном
 GET  /fx/assets        {amps: [{name, latency}], irs: [{name, sr, seconds}], kits: [{name: «osdk/kick», samples}]} —
                        захваты NAM, IR и наборы сэмплов барабанов
-POST /fx/kits/install?name=osdk|growlybass  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
+GET  /fx/kits/progress  идущая установка набора {name, part, done, total, bytes}; ничего не ставится — {}
+POST /fx/kits/install?name=osdk|growlybass|swagbass|blackblue|meatbass|pastabass|vsco-…|…  воркер качает набор из своего каталога (GitHub) → {name, parts, downloaded};
                        повтор — без сети; неизвестное имя → 422; сбой сети → 502 (без полукаталога)
 POST /fx/assets?kind=amp|ir&name=  загрузить .nam / .wav (байты тела, ≤ 50 МБ) → {name, kind}
+GET  /fx/phrases       фразы страницы «Инструменты»: [{id, family: guitar|bass|drums|synth, name {ru,en}, bpm, beats,
+                       chords, style, parts, cycle_sec}] — гитара записями (GuitarSet, CC BY 4.0, worker/phrases/), бас и
+                       барабаны нотами; synth — тишина, ноты блоков synth/perc (t от начала круга) кладёт клиент по тактам
+                       (beats/4, аккорды chords по кругу); у барабанов часть perc — тишина под перкуссию
+POST /fx/phrase        {phrase, tempo 0.5…1.5 (1), chain, stems [] (части под цепочку; пусто — все), bypass} →
+                       {file, cycle_sec, clipped} — bypass оставляет только блоки synth/perc; круг через цепочку на входе из двух кругов (хвосты конца круга —
+                       в его начале, играет по кругу без шва), громкость — по сухой фразе (A-RMS), пик ≤ 0,99.
+                       Кэш (последние 40) — повтор без пересчёта. Движок выключен → 503; нет фразы → 404; темп,
+                       цепочка, часть не из фразы → 422. С amp — в очереди GPU
+GET  /fx/phrase/files/{file}  WAV 16 бит стерео круга (имя — из ответа /fx/phrase; чужое → 404)
+GET  /fx/instruments   свои инструменты [{id, name, base, group, stems, chain, extra, created_at}] по id
+POST /fx/instruments   {name 1…80, base (id готовой), group ≤ 40, stems (непустой, известные дорожки + synth, perc),
+                       chain (блоки движка; synth/perc без notes — можно), extra {style, octave, pattern, swing, accent,
+                       amp_hint, place}} → созданный; неверное → 422
+PUT  /fx/instruments/{id}  пришедшие поля заменяются → обновлённый; нет id → 404
+DELETE /fx/instruments/{id}  → {ok}; нет id → 404
 POST /jobs/{id}/variant_track  {file, title, voice_src?} — вариант DSP-эффекта (dsp-*.flac) отдельным
                        треком-готов: копия аудио + партитура исходника, стемы/минус работают
                        (parent_id = исходник, role = variant)

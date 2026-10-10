@@ -18,7 +18,7 @@ const close = () => emit('close', dontShow.value)
 </script>
 
 <template>
-  <div class="modal-backdrop" @click.self="close" @keydown.esc="close">
+  <div class="modal-backdrop" @keydown.esc="close">
     <div class="modal welcome-modal" role="dialog" aria-modal="true">
       <div class="modal-head welcome-head">
         <img class="welcome-logo" src="../assets/logo.png" alt="" width="32" height="32">

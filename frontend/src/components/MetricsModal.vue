@@ -135,7 +135,7 @@ defineExpose({ openFor })
 </script>
 
 <template>
-  <div v-if="open" class="modal-backdrop" @click.self="open = false">
+  <div v-if="open" class="modal-backdrop">
     <div class="modal metrics-modal">
       <div class="modal-head">
         <h2>Метрики эффектов — {{ title || ('#' + (job && job.id) + ' ' + (job && job.title)) }}</h2>

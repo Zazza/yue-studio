@@ -19,8 +19,11 @@ if [[ "$CMD" == "worker" ]]; then
 EOF'
   scp -q worker/yue_worker.py worker/arc.py worker/plancheck.py worker/dsp.py worker/sheetsage.py worker/stems.py \
         worker/abcparse.py worker/whisper_run.py worker/llm.py worker/media.py worker/waveform.py \
-        worker/voice.py worker/seedvc_run.py worker/sep_run.py worker/fx_engine.py worker/drumsynth.py worker/genres.py worker/fx_presets.json worker/fx_nam.py worker/fx_blocks.json worker/presets.py worker/chordgrid.py worker/seedvc_install.sh worker/requirements-seedvc.txt \
+        worker/voice.py worker/seedvc_run.py worker/sep_run.py worker/fx_engine.py worker/drumsynth.py worker/genres.py worker/fx_presets.json worker/fx_nam.py worker/fx_blocks.json worker/presets.py worker/chordgrid.py worker/phrases.py worker/instruments.py worker/kits_install.py worker/fx_kit_files.json worker/seedvc_install.sh worker/requirements-seedvc.txt \
         "$HOST:~/yue-studio/"
+  # фразы страницы «Инструменты»: записи гитары (GuitarSet, CC BY 4.0) и их происхождение
+  ssh "$HOST" 'mkdir -p ~/yue-studio/phrases'
+  scp -q worker/phrases/*.flac worker/phrases/README.md "$HOST:~/yue-studio/phrases/"
   scp -q deploy/units/yue-worker.service "$HOST:~/yue-studio/units/"
   ssh "$HOST" '
 set -e
@@ -31,6 +34,11 @@ systemctl --user restart yue-worker
 sleep 2
 systemctl --user --no-pager status yue-worker | head -6
 '
+  # наборы сэмплов (барабаны, басы, оркестр) — заранее, чтобы приложение не ждало скачивания; уже стоящие — без
+  # сети; не поставился какой-то — предупреждение, воркер работает (приложение докачает с прогрессом)
+  echo "== kits (первый раз — около 1 ГБ) =="
+  ssh "$HOST" 'cd ~/yue-studio && set -a && { [ -f worker.env ] && . ./worker.env || true; } && set +a && ~/yue/.venv/bin/python kits_install.py' \
+    || echo "!! не все наборы поставились — make worker ещё раз докачает"
   echo "worker OK: http://$(echo "$HOST" | cut -d@ -f2):8091/health"
   exit 0
 fi

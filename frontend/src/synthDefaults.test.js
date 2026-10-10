@@ -6,7 +6,9 @@ import { describe, it, expect } from 'vitest'
 import { fxPresets } from './fxPresets.js'
 import BLOCKS from './fxBlocks.json'
 
-const synths = fxPresets.filter((p) => (p.stems || []).includes('synth'))
+// оркестр (этап 14, orch-*) — регистр по настоящему инструменту (альты, виолончели, тромбоны ниже скрипок), не по
+// правилу «пэд синта октавой выше гитар»; слышимость низких оркестровых пэдов — проверять на слух
+const synths = fxPresets.filter((p) => (p.stems || []).includes('synth') && !String(p.group || '').startsWith('orch-'))
 const pads = synths.filter((p) => p.style === 'pad')
 
 describe('синт слышен: умолчания (ТК63)', () => {

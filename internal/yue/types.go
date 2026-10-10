@@ -45,6 +45,17 @@ type Service interface {
 	FxAssets(ctx context.Context) (map[string]any, error)
 	UploadFxAsset(ctx context.Context, kind, name string, data []byte) (map[string]any, error)
 	InstallFxKit(ctx context.Context, name string) (map[string]any, error)
+	// FxKitProgress — прогресс идущей установки набора ({} — нет)
+	FxKitProgress(ctx context.Context) (map[string]any, error)
+	// фразы страницы «Инструменты»: круг через цепочку, играет по кругу
+	FxPhrases(ctx context.Context) ([]FxPhrase, error)
+	FxPhrase(ctx context.Context, req FxPhraseReq) (*FxPhraseResult, error)
+	FetchPhraseAudio(ctx context.Context, file string) (io.ReadCloser, error)
+	// свои инструменты страницы «Инструменты» (цепочка под своим именем; в студии — вместе с готовыми)
+	FxInstruments(ctx context.Context) ([]FxInstrument, error)
+	FxInstrumentCreate(ctx context.Context, in FxInstrument) (*FxInstrument, error)
+	FxInstrumentUpdate(ctx context.Context, id int64, in FxInstrument) (*FxInstrument, error)
+	FxInstrumentDelete(ctx context.Context, id int64) error
 	ImportTrack(ctx context.Context, name string, data []byte, transcribe bool) (map[string]any, error)
 	TranscribeJob(ctx context.Context, id int64) (map[string]any, error)
 	EnsureMp3(ctx context.Context, id int64) (map[string]any, error)

@@ -18,7 +18,8 @@ test-front: ## тесты фронтенда (vitest)
 
 test-worker: ## тесты воркера (unittest)
 	cd worker && python3 -m unittest test_pure test_plancheck test_voice test_loudness test_grid test_vocal_leak test_roformer_stems \
-		test_fx_engine test_fx_api test_fx_preview test_fx_kits test_sound_presets test_chordgrid test_perc test_master test_tails test_fx_tremolo test_drumsynth test_fx_kits_synth test_fx_tape_level test_fx_reverb_gate test_synth_fm_kit test_fx_kits_flac test_preset_parts test_genre_presets test_synth_level test_genre_levels
+		test_fx_engine test_fx_api test_fx_preview test_fx_kits test_sound_presets test_chordgrid test_perc test_master test_tails test_fx_tremolo test_drumsynth test_fx_kits_synth test_fx_tape_level test_fx_reverb_gate test_synth_fm_kit test_fx_kits_flac test_preset_parts test_genre_presets test_synth_level test_genre_levels \
+		test_phrases test_phrase_api test_phrase_more test_fx_instruments test_orchestra test_kit_download test_kit_cross
 
 ## lint: все линтеры (go vet + golangci-lint, eslint, ruff)
 lint: lint-go lint-front lint-worker

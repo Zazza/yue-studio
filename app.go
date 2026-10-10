@@ -24,6 +24,11 @@ const (
 	fanMin, fanMax = 1, 10
 	// presetTick — как часто приложение ищет пресеты звука, выбранные при создании трека
 	presetTick = 10 * time.Second
+	// loopSeconds — на сколько вперёд раскладывается круг фразы «Инструментов» (3 мин ≈ 35 МБ WAV);
+	// доиграл — страница запускает круг снова с начала
+	loopSeconds = 180.0
+	// phraseLoopID — «id трека» круга фразы в плеере: не совпадает ни с одной джобой
+	phraseLoopID int64 = 1 << 40
 )
 
 var audioFileFilter = []runtime.FileFilter{
@@ -541,6 +546,63 @@ func (a *App) YueApplyFx(id int64, req yue.FxRequest) (*yue.DspVariant, error) {
 // YueFxAssets — захваты NAM и IR, загруженные на воркер.
 func (a *App) YueFxAssets() (map[string]any, error) {
 	return a.yue.FxAssets(a.ctx)
+}
+
+// YueFxPhrases — фразы страницы «Инструменты» (гитара записями, бас и барабаны нотами).
+func (a *App) YueFxPhrases() ([]yue.FxPhrase, error) {
+	return a.yue.FxPhrases(a.ctx)
+}
+
+// YueFxPhrase — круг фразы через цепочку движка (файл в кэше фраз воркера).
+func (a *App) YueFxPhrase(req yue.FxPhraseReq) (*yue.FxPhraseResult, error) {
+	return a.yue.FxPhrase(a.ctx, req)
+}
+
+// YuePlayLoop — круг фразы по кругу во встроенном плеере, с места phaseSec круга: файл раскладывается
+// на loopSeconds вперёд (loopWav), плеер играет его как обычный трек под id phraseLoopID.
+func (a *App) YuePlayLoop(file string, phaseSec float64) error {
+	body, err := a.yue.FetchPhraseAudio(a.ctx, file)
+	if err != nil {
+		return err
+	}
+	data, err := io.ReadAll(body)
+	_ = body.Close()
+	if err != nil {
+		return err
+	}
+	wav, err := loopWav(data, phaseSec, loopSeconds)
+	if err != nil {
+		return err
+	}
+	if err := a.player.Load(phraseLoopID, wav, time.Duration(loopSeconds*float64(time.Second))); err != nil {
+		return err
+	}
+	return a.player.Play()
+}
+
+// YueFxInstruments — свои инструменты (страница «Инструменты», выбор в студии).
+func (a *App) YueFxInstruments() ([]yue.FxInstrument, error) {
+	return a.yue.FxInstruments(a.ctx)
+}
+
+// YueFxInstrumentCreate — сохранить свой инструмент.
+func (a *App) YueFxInstrumentCreate(in yue.FxInstrument) (*yue.FxInstrument, error) {
+	return a.yue.FxInstrumentCreate(a.ctx, in)
+}
+
+// YueFxInstrumentUpdate — заменить поля своего инструмента.
+func (a *App) YueFxInstrumentUpdate(id int64, in yue.FxInstrument) (*yue.FxInstrument, error) {
+	return a.yue.FxInstrumentUpdate(a.ctx, id, in)
+}
+
+// YueFxInstrumentDelete — удалить свой инструмент.
+func (a *App) YueFxInstrumentDelete(id int64) error {
+	return a.yue.FxInstrumentDelete(a.ctx, id)
+}
+
+// YueFxKitProgress — прогресс идущей установки набора на воркере ({} — нет).
+func (a *App) YueFxKitProgress() (map[string]any, error) {
+	return a.yue.FxKitProgress(a.ctx)
 }
 
 // YueInstallFxKit — воркер качает набор сэмплов барабанов (блок sampler) из своего каталога.

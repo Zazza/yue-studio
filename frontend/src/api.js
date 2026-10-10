@@ -7,7 +7,8 @@ import {
   YueTranscribeFile, YueTranscribeJob, YueImportTrack, YueEnsureMp3, YueJobScore, YueJobAbcText, YueJobPreview, YueSubmitOverdub,
   YueJobPeaks, YueJobSpectrumPNG,
   YueRecognizeLyricsFile, YueAdaptLyrics, YueJobLyrics,
-  YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset, YueInstallFxKit,
+  YueMakeStems, YueJobStems, YueMakeMinus, YueApplyFx, YueFxAssets, YueUploadFxAsset, YueInstallFxKit, YueFxPhrases, YueFxPhrase, YuePlayLoop, YueFxKitProgress,
+  YueFxInstruments, YueFxInstrumentCreate, YueFxInstrumentUpdate, YueFxInstrumentDelete,
   YueCorpusCreate, YueCorpusAddTracks, YueCorpusBuild, YueCorpusList, YueCorpusGet, YueCorpusTracks,
   YueVoiceCreate, YueVoices, YueVoiceDelete, YueVariantToTrack, YueVocalContour, YueJobTones, YuePlanCheck, YueJobGrid, YueSplice, YueContinueJob, YueSetHead, YueRenameJob, YueRetryJob, YueSetJobFolder, YueVoiceConvert, YueRebuildSections, YueDspVariantDelete, YueVolumeEnvelope,
   YueChordGrid, YueSoundPresets, YueSoundPresetCreate, YueSoundPresetUpdate, YueSoundPresetDelete, YueApplySoundPreset, YueApplySoundPresetWith, YueSoundPresetRetry,
@@ -50,6 +51,17 @@ export const api = {
   dspVariants: (id) => YueDspVariants(id),
   // звуковой движок воркера: req = {source, chain: [{type, …}], from?, to?, output?, label?}
   applyFx: (id, req) => YueApplyFx(id, req),
+  // фразы «Инструментов»: каталог, круг через цепочку, круг по кругу в плеере с места phase
+  fxPhrases: () => YueFxPhrases(),
+  fxPhrase: (req) => YueFxPhrase(req),
+  playLoop: (file, phase) => YuePlayLoop(file, phase),
+  // прогресс установки набора сэмплов на воркере ({} — ничего не ставится)
+  fxKitProgress: () => YueFxKitProgress(),
+  // свои инструменты (на воркере): список, сохранить, заменить, удалить
+  fxInstruments: () => YueFxInstruments(),
+  fxInstrumentCreate: (body) => YueFxInstrumentCreate(body),
+  fxInstrumentUpdate: (id, body) => YueFxInstrumentUpdate(id, body),
+  fxInstrumentDelete: (id) => YueFxInstrumentDelete(id),
   fxAssets: () => YueFxAssets(),
   uploadFxAsset: (kind) => YueUploadFxAsset(kind),
   installFxKit: (name) => YueInstallFxKit(name),

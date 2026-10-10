@@ -14,6 +14,7 @@ import ChainEditor from './ChainEditor.vue'
 import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
+import { useInstruments } from '../composables/useInstruments.js'
 import { fromWorkerChain, toWorkerChain } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { percHits, barsFromBeat, PERC_PATTERNS } from '../percPart.js'
@@ -31,7 +32,10 @@ const inserts = useInserts()
 const { toggleArtifact, playBtn } = usePlayer()
 const before = useWindowPlay('perc-before', () => t('instr.before'))
 
-const PERCS = fxPresets.filter((p) => (p.stems || []).includes('perc'))
+const PERCS = fxPresets.filter((p) => (p.stems || []).includes('perc'))   // умолчания — первый готовый
+// выбор — готовые и свои (страница «Инструменты»)
+const { all: instruments } = useInstruments()
+const percList = computed(() => instruments.value.filter((p) => (p.stems || []).includes('perc')))
 const bars = ref(null)            // такты [{start, end, section}]
 const beat = ref(null)            // сетка без плана {bpm, offset}: такты — barsFromBeat со сдвигом shift
 const shift = ref(0)              // с какой доли (0…3 от offset) начинается такт — /grid даёт фазу доли, не такта
@@ -48,8 +52,8 @@ const msg = ref('')
 const err = ref('')
 
 const tr = (lbl) => (lbl && (lbl[locale.value] || lbl.ru)) || ''
-const preset = computed(() => PERCS.find((p) => p.id === presetId.value))
-const presetOptions = PERCS.map((p) => ({ value: p.id, label: tr(p.name) }))
+const preset = computed(() => percList.value.find((p) => p.id === presetId.value))
+const presetOptions = computed(() => percList.value.map((p) => ({ value: p.id, label: tr(p.name) })))
 const patternOptions = computed(() => PERC_PATTERNS.map((s) => ({ value: s, label: t('perc.pattern.' + s) })))
 const allSections = computed(() => [...new Set((bars.value || []).map((b) => b.section).filter(Boolean))])
 const hits = computed(() => (bars.value

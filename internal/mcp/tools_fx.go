@@ -36,8 +36,9 @@ const fxChainDoc = "Цепочка — массив блоков по поряд
 	"звучащих ударов (хэт: kit osdk/hh-closed, kit_open osdk/hh-half), choke 1 — новый удар глушит предыдущий; " +
 	"kit_mid/kit_low — тамы по высоте (source toms: kit osdk/tom-small, kit_mid osdk/tom-medium, kit_low osdk/tom-large; " +
 	"высокие удары — kit, низкие — kit_low; с kit_open нельзя); " +
-	"bass {kit «growlybass/bass», division 2 (нот на долю), floor_db −20, output_db 0} — замена баса (source bass) " +
-	"сэмплами бас-гитары: ритм — доли дорожки, высота — по басу, громкость и баланс — как у исходного. " +
+	"bass {kit «growlybass/bass», division 2 (нот на долю), fmin_hz 30, fmax_hz 400 (где искать высоту входа; мелодия — " +
+	"80…1500), floor_db −20, output_db 0} — замена партии (бас; или мелодия скрипкой/флейтой — kit vsco-*) " +
+	"сэмплами набора: ритм — доли дорожки, высота — по входу, громкость и баланс — как у исходного. " +
 	"Пропущенные параметры — по умолчанию. Обработка не сдвигает звук (выход нота в ноту с исходником)."
 
 // registerFxTools — звуковой движок воркера (POST /jobs/{id}/fx, /fx/assets).
@@ -91,6 +92,129 @@ func registerFxTools(s *Server) {
 	})
 
 	s.Register(Tool{
+		Name: "fx_phrase",
+		Description: "Фразы страницы «Инструменты» — короткий круг без трека: гитара (записи чистого звукоснимателя " +
+			"GuitarSet: перебор, бой, протяжные, запил, фанк, джаз), бас и барабаны нотами. Без phrase — каталог фраз " +
+			"{id, family guitar|bass|drums|synth, name, bpm, beats, chords, style, parts, cycle_sec} (synth — тишина: ноты блоков synth/perc " +
+			"кладёт вызывающий по тактам круга: beats/4 тактов, аккорды chords по кругу, t от начала круга). С phrase — круг через цепочку: файл " +
+			"phrase-*.wav (WAV 16 бит стерео, хвосты реверба/дилея завёрнуты в начало круга — играет по кругу без шва), " +
+			"громкость выровнена по сухой фразе; повтор тех же настроек — без пересчёта. tempo — множитель 0,5…1,5; " +
+			"stems — части фразы под цепочку (барабаны: kick/snare/hh/toms/ride/crash; пусто — все); bypass — сухая фраза. " +
+			fxChainDoc,
+		InputSchema: props(map[string]any{
+			"phrase": prop("id фразы из каталога (пусто — каталог)", "string"),
+			"tempo":  prop("множитель темпа 0,5…1,5 (по умолчанию 1)", "number"),
+			"chain":  prop("массив блоков [{type, …параметры}] по порядку", "array", map[string]any{"items": map[string]any{"type": "object"}}),
+			"stems":  prop("части фразы под цепочку (пусто — все)", "array", map[string]any{"items": map[string]any{"type": "string"}}),
+			"bypass": prop("true — сухая фраза без цепочки", "boolean"),
+		}),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			ctx := context.Background()
+			phrase := argString(args, "phrase")
+			if phrase == "" {
+				out, err := s.client.FxPhrases(ctx)
+				if err != nil {
+					return "", err
+				}
+				return toJSON(out), nil
+			}
+			req := yue.FxPhraseReq{Phrase: phrase, Tempo: argFloat(args, "tempo"), Stems: argStringSlice(args, "stems"),
+				Bypass: argBool(args, "bypass")}
+			if req.Tempo == 0 {
+				req.Tempo = 1
+			}
+			if _, ok := args["chain"]; ok {
+				chain, err := argObjects(args, "chain")
+				if err != nil {
+					return "", err
+				}
+				req.Chain = chain
+			}
+			out, err := s.client.FxPhrase(ctx, req)
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "fx_instruments",
+		Description: "Свои инструменты страницы «Инструменты» (на воркере): цепочка движка под своим именем на основе " +
+			"готовой из fx_presets; в приложении — внизу группы готовой с пометкой «(мой)», в студии выбираются вместе с " +
+			"готовыми. action list (по умолчанию) — список {id, name, base, group, stems, chain, extra}; create — name, " +
+			"chain, stems (дорожки, как у готовой), base (id готовой), group, extra (style, octave, pattern, swing, accent, " +
+			"amp_hint, place); update — id и все поля заново; delete — id. " + fxChainDoc,
+		InputSchema: props(map[string]any{
+			"action": prop("list | create | update | delete", "string"),
+			"id":     prop("id своего инструмента (update, delete)", "integer"),
+			"name":   prop("название (1…80 символов)", "string"),
+			"base":   prop("id готовой цепочки из fx_presets, на основе которой", "string"),
+			"group":  prop("группа списка (как у готовой: guitar-drive, synth-pad…)", "string"),
+			"stems":  prop("дорожки инструмента (guitar, bass, kick, synth, perc…)", "array", map[string]any{"items": map[string]any{"type": "string"}}),
+			"chain":  prop("массив блоков [{type, …параметры}] по порядку", "array", map[string]any{"items": map[string]any{"type": "object"}}),
+			"extra":  prop("поля готовой для выбора: style, octave, pattern, swing, accent, amp_hint, place", "object"),
+		}),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			ctx := context.Background()
+			action := argString(args, "action")
+			if action == "" || action == "list" {
+				out, err := s.client.FxInstruments(ctx)
+				if err != nil {
+					return "", err
+				}
+				return toJSON(out), nil
+			}
+			if action == "delete" {
+				if err := s.client.FxInstrumentDelete(ctx, argInt(args, "id")); err != nil {
+					return "", err
+				}
+				return `{"ok":true}`, nil
+			}
+			in := yue.FxInstrument{Name: argString(args, "name"), Base: argString(args, "base"),
+				Group: argString(args, "group"), Stems: argStringSlice(args, "stems")}
+			if _, ok := args["chain"]; ok {
+				chain, err := argObjects(args, "chain")
+				if err != nil {
+					return "", err
+				}
+				in.Chain = chain
+			}
+			if ex, ok := args["extra"].(map[string]any); ok {
+				in.Extra = ex
+			}
+			var out *yue.FxInstrument
+			var err error
+			switch action {
+			case "create":
+				out, err = s.client.FxInstrumentCreate(ctx, in)
+			case "update":
+				out, err = s.client.FxInstrumentUpdate(ctx, argInt(args, "id"), in)
+			default:
+				return "", fmt.Errorf("action: list | create | update | delete")
+			}
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
+		Name: "fx_kit_progress",
+		Description: "Прогресс идущей установки набора сэмплов на воркере (fx_kit_install или первый выбор инструмента в " +
+			"приложении): {name, part, done, total, bytes}; ничего не ставится — {}.",
+		InputSchema: props(nil),
+		Handler: func(s *Server, args map[string]any) (string, error) {
+			out, err := s.client.FxKitProgress(context.Background())
+			if err != nil {
+				return "", err
+			}
+			return toJSON(out), nil
+		},
+	})
+
+	s.Register(Tool{
 		Name: "fx_blocks",
 		Description: "Описание блоков звукового движка для fx_apply: параметры каждого блока с умолчанием, " +
 			"границами, шагом и подписями ru/en (zero_off — 0 значит «выкл»), строковые (захват/IR), полосы eq.",
@@ -131,7 +255,12 @@ func registerFxTools(s *Server) {
 		Name: "fx_kit_install",
 		Description: "Скачать на воркер набор сэмплов: osdk — The Open Source Drum Kit (бочка, малый, хэт " +
 			"закрытый/полузакрытый/полуоткрытый, райд, крэш; общественное достояние) для блока sampler; growlybass — " +
-			"бас-гитара Squier Jazz (Karoryfer, CC0) для блока bass. Повтор — без перекачки, недостающие части " +
+			"бас-гитара Squier Jazz (Karoryfer, CC0) для блока bass; ещё басы Karoryfer (CC0) для блока bass: swagbass " +
+			"(плоские струны, «swagbass/bass»), blackblue (5-струнные: «blackblue/darkblack» пальцами, «blackblue/babyblue» " +
+			"медиатором), meatbass (контрабас щипком, «meatbass/pizz»), pastabass (Bass VI медиатором, «pastabass/linguine»); " +
+			"оркестр VSCO-2 CE (CC0): vsco-violin (solo/ens/pizz/spic), vsco-viola, vsco-cello (ens/pizz/spic), vsco-contrabass " +
+			"(sus/pizz/spic), vsco-harp, vsco-flute/oboe/clarinet/bassoon/trumpet/horn/trombone/tuba (sus/stac), vsco-mallets " +
+			"(glock/marimba/xylo) — блоки synth с kit (партия по аккордам) и bass (замена партии; мелодия — fmin_hz 80, fmax_hz 1500). Повтор — без перекачки, недостающие части " +
 			"докачиваются. Наборы и их части — в fx_assets (kits: «osdk/kick», «osdk/snare», «osdk/hh-closed», " +
 			"«osdk/hh-half», «osdk/hh-open», «osdk/ride», «osdk/crash», «growlybass/bass»). " +
 			"Драм-машины tr808, tr909, linn, cr78, simmons и синт-басы synthbass воркер синтезирует сам, без сети: " +

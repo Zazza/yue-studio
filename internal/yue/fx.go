@@ -1,8 +1,10 @@
 package yue
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 )
 
@@ -48,6 +50,15 @@ func (c *Client) FxAssets(ctx context.Context) (map[string]any, error) {
 	return out, nil
 }
 
+// FxKitProgress — идущая установка набора на воркере {name, part, done, total, bytes}; нет — пустой объект.
+func (c *Client) FxKitProgress(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := c.get(ctx, "/fx/kits/progress", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InstallFxKit — воркер скачивает набор сэмплов барабанов из своего каталога (повтор — без сети).
 func (c *Client) InstallFxKit(ctx context.Context, name string) (map[string]any, error) {
 	var out map[string]any
@@ -65,4 +76,69 @@ func (c *Client) UploadFxAsset(ctx context.Context, kind, name string, data []by
 		return nil, err
 	}
 	return out, nil
+}
+
+// FxPhrase — фраза страницы «Инструменты» (GET /fx/phrases): круг, который играет по кругу.
+type FxPhrase struct {
+	ID       string            `json:"id"`
+	Family   string            `json:"family"` // guitar | bass | drums | synth
+	Name     map[string]string `json:"name"`
+	BPM      float64           `json:"bpm"`
+	Beats    float64           `json:"beats,omitempty"`  // долей в круге (такт — 4 доли)
+	Chords   []string          `json:"chords,omitempty"` // аккорд на такт по кругу — ноты синта кладёт страница
+	Style    string            `json:"style,omitempty"`  // у синт-фразы: pad | arp | pulse | drone
+	Parts    []string          `json:"parts,omitempty"`  // части фразы под цепочку (барабаны — по частям)
+	CycleSec float64           `json:"cycle_sec"`        // длина круга при темпе 1
+}
+
+// FxPhraseReq — круг фразы через цепочку движка (POST /fx/phrase).
+type FxPhraseReq struct {
+	Phrase string           `json:"phrase"`
+	Tempo  float64          `json:"tempo"` // множитель темпа 0,5…1,5
+	Chain  []map[string]any `json:"chain"`
+	Stems  []string         `json:"stems"`  // части под цепочку; пусто — все
+	Bypass bool             `json:"bypass"` // сухая фраза тем же путём (сравнение «обработка вкл/выкл»)
+}
+
+// FxPhraseResult — файл круга в кэше фраз воркера.
+type FxPhraseResult struct {
+	File     string  `json:"file"`
+	CycleSec float64 `json:"cycle_sec"`
+	Clipped  bool    `json:"clipped"`
+}
+
+// FxPhrases — каталог фраз воркера.
+func (c *Client) FxPhrases(ctx context.Context) ([]FxPhrase, error) {
+	var out []FxPhrase
+	if err := c.get(ctx, "/fx/phrases", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FxPhrase — круг фразы через цепочку (с усилителем — в очереди GPU воркера).
+func (c *Client) FxPhrase(ctx context.Context, req FxPhraseReq) (*FxPhraseResult, error) {
+	if req.Chain == nil {
+		req.Chain = []map[string]any{}
+	}
+	if req.Stems == nil {
+		req.Stems = []string{}
+	}
+	var out FxPhraseResult
+	if err := c.postJSON(ctx, "/fx/phrase", req, gpuTimeout, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FetchPhraseAudio — WAV круга из кэша фраз (имя — из ответа FxPhrase).
+func (c *Client) FetchPhraseAudio(ctx context.Context, file string) (io.ReadCloser, error) {
+	if !validFile(file) {
+		return nil, fmt.Errorf("bad filename")
+	}
+	b, err := c.getBytes(ctx, "/fx/phrase/files/"+url.PathEscape(file))
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
 }

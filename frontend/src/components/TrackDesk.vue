@@ -15,6 +15,8 @@ import PlaceControls from './PlaceControls.vue'
 import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
+import { useInstruments } from '../composables/useInstruments.js'
+import { installKit as installKitOn } from '../kitProgress.js'
 import { fromWorkerChain, toWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
 import { groupPresets } from '../presetGroups.js'
 import { DRUM_KITS, DRUM_TREATMENTS } from '../drumKits.js'
@@ -36,6 +38,8 @@ const emit = defineEmits(['applied', 'stems'])
 const { t, locale } = useI18n()
 const inserts = useInserts()
 const { toggleArtifact, playBtn, isPlaying, playBusy } = usePlayer()
+// готовые цепочки и свои инструменты (страница «Инструменты»): свой — внизу своей группы с пометкой «(мой)»
+const { all: instruments } = useInstruments()
 const before = useWindowPlay('desk-before', () => t('instr.before'))
 
 const open = ref('')             // раскрытая дорожка
@@ -145,7 +149,7 @@ function playBeforeWin() {
 async function apply() {
   err.value = ''
   msg.value = ''
-  const p = fxPresets.find((x) => x.id === presetId.value)
+  const p = instruments.value.find((x) => x.id === presetId.value)
   const ed = editing.value
   const snap = {
     jobId: props.job.id, dur: props.job.duration_sec, src: open.value, ...target.value,
@@ -215,12 +219,12 @@ async function setPlace(stem, place) {
 async function installKit(name) {
   err.value = ''
   busy.value = 'kit'
-  try { await api.installFxKit(name); await loadAssets() } catch (e) { err.value = String(e) } finally { busy.value = '' }
+  try { await installKitOn(api, name); await loadAssets() } catch (e) { err.value = String(e) } finally { busy.value = '' }
 }
 async function upload(kind) {
   err.value = ''
   try {
-    if (await api.uploadFxAsset(kind)) { await loadAssets(); chain.value = withAmp(chain.value, fxPresets.find((x) => x.id === presetId.value)?.amp_hint) }
+    if (await api.uploadFxAsset(kind)) { await loadAssets(); chain.value = withAmp(chain.value, instruments.value.find((x) => x.id === presetId.value)?.amp_hint) }
   } catch (e) { err.value = String(e) }
 }
 </script>
@@ -261,7 +265,7 @@ async function upload(kind) {
     </div>
     <div v-if="open === row.stem" class="desk-editor">
       <p v-if="editing" class="muted">{{ t('desk.editing') }}</p>
-      <div v-for="(g, gi) in groupPresets(presetsFor(row.stem, fxPresets), locale)" :key="g.group" class="voice-presets">
+      <div v-for="(g, gi) in groupPresets(presetsFor(row.stem, instruments), locale)" :key="g.group" class="voice-presets">
         <span class="muted">{{ g.label || (gi === 0 ? t('instr.presets') : t('instr.presets.more')) }}</span>
         <button v-for="p in g.items" :key="p.id" class="ghost small-btn" :class="{ on: p.id === presetId }"
                 :title="tr(p.note)" @click="pickPreset(p)">{{ tr(p.name) }}</button>

@@ -37,7 +37,9 @@
 Вручную:
 
 1. Скопировать `worker/*.py` и `worker/fx_blocks.json` (описание блоков звукового движка — без него
-   движок не загрузится) в `~/yue-studio/` на GPU-машину (scp / WinSCP / флешка).
+   движок не загрузится) в `~/yue-studio/` на GPU-машину (scp / WinSCP / флешка), папку `worker/phrases/`
+   (фразы страницы «Инструменты» — записи гитары) — в `~/yue-studio/phrases/`, `worker/fx_kit_files.json` (закреплённые
+   списки файлов наборов — без него оркестр качается через API GitHub и упирается в его лимит) — в `~/yue-studio/`.
 2. Окружение (один раз):
    ```bash
    uv venv ~/yue/.venv --python 3.12
@@ -158,6 +160,22 @@ echo 'YUE_NAM_DEPS=/opt/yue/nam-deps' >> ~/yue-studio/worker.env   # и пере
 - Набор бас-гитары для блока `bass` — Growlybass (Karoryfer Lecolds, Squier Jazz Bass,
   github.com/sfzinstruments/karoryfer.growlybass, лицензия CC0 — без ограничений и без указания автора):
   `fx_kit_install growlybass`, 224 сэмпла (~170 МБ, часть `sustain`), версия закреплена за коммитом.
+- Ещё бас-гитары и контрабас Karoryfer (github.com/sfzinstruments, CC0; один слой силы, первый повтор ноты, версии
+  закреплены): `swagbass` (Ibanez BTB, плоские струны; часть `bass`, 19 сэмплов, ~13 МБ), `blackblue` (5-струнные:
+  `darkblack` пальцами и `babyblue` медиатором, 42 + 41, ~55 МБ), `meatbass` (контрабас щипком, часть `pizz`, 14,
+  ~7 МБ), `pastabass` (Squier Bass VI медиатором, часть `linguine`, 17, ~10 МБ).
+- Оркестр VSCO-2 Community Edition (github.com/sgossner/VSCO-2-CE, CC0; версия закреплена): `vsco-violin` (solo, ens,
+  pizz, spic), `vsco-viola`, `vsco-cello` (ens, pizz, spic), `vsco-contrabass` (sus, pizz, spic), `vsco-harp`,
+  `vsco-flute`/`oboe`/`clarinet`/`bassoon`/`trumpet`/`horn`/`trombone`/`tuba` (sus, stac), `vsco-mallets` (glock,
+  marimba, xylo) — по 5…100 МБ на инструмент, один слой силы. Файлы ставятся под точной высотой `m<MIDI>.wav`: нота из
+  имени + поправка октавы части (VSCO почти везде считает C3 = 60; замер по каждому сэмплу).
+- Наборы ставятся заранее: `make worker` и установщик (`install_worker`) после файлов запускают
+  `~/yue/.venv/bin/python kits_install.py` — все наборы каталога (~1 ГБ в первый раз, дальше — без сети) с прогрессом
+  по наборам; руками — тот же вызов в `~/yue-studio` (можно с именами: `kits_install.py vsco-violin osdk`). Списки
+  файлов новых наборов закреплены в `worker/fx_kit_files.json`: файлы качаются прямыми ссылками
+  raw.githubusercontent.com, без API GitHub (его лимит без ключа — 60 запросов в час на адрес; оркестр — 31 часть).
+  У каждого файла 3 попытки; оборвалось — повтор докачивает, не начиная заново. Набора нет — приложение докачает его при
+  первом выборе и покажет прогресс («качаю набор …: часть, файлы, МБ»; `GET /fx/kits/progress`).
 - Драм-машины `tr808`, `tr909`, `linn`, `cr78`, `simmons` и синт-басы `synthbass` воркер синтезирует сам
   (`worker/drumsynth.py`, без сети и чужих лицензий): `fx_kit_install tr808` пишет 12 частей по 8 слоёв силы удара
   (wav 48 кГц, PCM 16, ~10 МБ на машину), `synthbass` — три баса по полутонам E1…G3 (~15 МБ). Звучание — приближение

@@ -953,6 +953,384 @@
   ]
  },
  {
+  "id": "bass-vintage",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Тёплый винтажный (плоские струны)",
+   "en": "Warm vintage (flatwounds)"
+  },
+  "note": {
+   "ru": "Верх срезан, низ-середина теплее, мягкий компрессор — круглый «глухой» бас старых записей соула и рок-н-ролла.",
+   "en": "Top rolled off, warmer low-mids, gentle compression — the round, dull bass of old soul and rock’n’roll records."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 35,
+    "lowpass_hz": 2500,
+    "bands": [
+     {
+      "freq_hz": 110,
+      "gain_db": 3,
+      "q": 0.9
+     },
+     {
+      "freq_hz": 900,
+      "gain_db": -3,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -22,
+    "ratio": 3,
+    "attack_ms": 25,
+    "release_ms": 200,
+    "makeup_db": 3
+   },
+   {
+    "type": "tape",
+    "wow": 0.05,
+    "flutter": 0.05,
+    "saturation": 0.3,
+    "lowpass_hz": 6000,
+    "hiss": 0
+   }
+  ]
+ },
+ {
+  "id": "bass-fingers",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Пальцами, плотный",
+   "en": "Fingerstyle, tight"
+  },
+  "note": {
+   "ru": "Середина 250 Гц вперёд, компрессор держит ровно — бас «сидит» под барабанами, каждую ноту слышно.",
+   "en": "Mids at 250 Hz forward, steady compression — the bass sits under the drums and every note is heard."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 40,
+    "bands": [
+     {
+      "freq_hz": 80,
+      "gain_db": 2,
+      "q": 1
+     },
+     {
+      "freq_hz": 250,
+      "gain_db": 3,
+      "q": 1
+     },
+     {
+      "freq_hz": 1500,
+      "gain_db": -2,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -26,
+    "ratio": 4,
+    "attack_ms": 15,
+    "release_ms": 150,
+    "makeup_db": 4
+   }
+  ]
+ },
+ {
+  "id": "bass-slap",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Яркий слэп",
+   "en": "Bright slap"
+  },
+  "note": {
+   "ru": "Глубокий низ и звонкий верх, середина вырезана, быстрый компрессор — щелчки струн звенят, как в фанке 80-х.",
+   "en": "Deep lows and a ringing top with scooped mids, fast compression — string pops snap like 80s funk."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 30,
+    "bands": [
+     {
+      "freq_hz": 60,
+      "gain_db": 4,
+      "q": 1
+     },
+     {
+      "freq_hz": 500,
+      "gain_db": -5,
+      "q": 0.8
+     },
+     {
+      "freq_hz": 2500,
+      "gain_db": 5,
+      "q": 1
+     },
+     {
+      "freq_hz": 5000,
+      "gain_db": 3,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -24,
+    "ratio": 6,
+    "attack_ms": 2,
+    "release_ms": 80,
+    "makeup_db": 4
+   }
+  ]
+ },
+ {
+  "id": "bass-funk",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Фанк с компрессором",
+   "en": "Funk, squashed"
+  },
+  "note": {
+   "ru": "Сильный компрессор с быстрой атакой и подъём верхней середины — бас короткий, упругий и «прыгает».",
+   "en": "Heavy compression with a fast attack and upper-mid lift — short, bouncy, springy bass."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 40,
+    "bands": [
+     {
+      "freq_hz": 1000,
+      "gain_db": 2,
+      "q": 1
+     },
+     {
+      "freq_hz": 3000,
+      "gain_db": 3,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -30,
+    "ratio": 8,
+    "attack_ms": 3,
+    "release_ms": 60,
+    "makeup_db": 6
+   }
+  ]
+ },
+ {
+  "id": "bass-rock-drive",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Рок: перегруз вполсилы",
+   "en": "Rock: half drive"
+  },
+  "note": {
+   "ru": "Перегруз подмешан к чистому (низ остаётся плотным), середина и щелчок вперёд — бас пробивается сквозь гитары.",
+   "en": "Drive blended with the clean signal (lows stay solid), mids and click forward — cuts through the guitars."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 40,
+    "bands": [
+     {
+      "freq_hz": 100,
+      "gain_db": 2,
+      "q": 1
+     },
+     {
+      "freq_hz": 800,
+      "gain_db": 3,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "drive",
+    "gain_db": 14,
+    "mix": 0.45,
+    "output_db": -2
+   },
+   {
+    "type": "comp",
+    "threshold_db": -22,
+    "ratio": 4,
+    "attack_ms": 10,
+    "release_ms": 120,
+    "makeup_db": 3
+   }
+  ]
+ },
+ {
+  "id": "bass-metal",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Метал: перегруз и щелчок",
+   "en": "Metal: grind and click"
+  },
+  "note": {
+   "ru": "Плотный перегруз, вырезанная середина и подъём 2,5 кГц — рычащий бас с атакой медиатора под тяжёлые гитары.",
+   "en": "Dense drive, scooped mids and a 2.5 kHz lift — a growling bass with pick attack under heavy guitars."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 40,
+    "bands": [
+     {
+      "freq_hz": 80,
+      "gain_db": 3,
+      "q": 1
+     },
+     {
+      "freq_hz": 400,
+      "gain_db": -4,
+      "q": 0.8
+     },
+     {
+      "freq_hz": 2500,
+      "gain_db": 4,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "drive",
+    "gain_db": 22,
+    "mix": 0.6,
+    "output_db": -4
+   },
+   {
+    "type": "comp",
+    "threshold_db": -20,
+    "ratio": 6,
+    "attack_ms": 5,
+    "release_ms": 100,
+    "makeup_db": 2
+   }
+  ]
+ },
+ {
+  "id": "bass-postpunk",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Пост-панк с хорусом",
+   "en": "Post-punk with chorus"
+  },
+  "note": {
+   "ru": "Низ подрезан, середина вперёд, хорус — бас ведёт мелодию холодным «плывущим» звуком.",
+   "en": "Lows trimmed, mids forward, chorus — the bass leads the melody with a cold, wavering tone."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 70,
+    "bands": [
+     {
+      "freq_hz": 1200,
+      "gain_db": 4,
+      "q": 0.9
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -24,
+    "ratio": 4,
+    "makeup_db": 3
+   },
+   {
+    "type": "chorus",
+    "voices": 2,
+    "depth_ms": 4,
+    "rate_hz": 0.5,
+    "mix": 0.45
+   }
+  ]
+ },
+ {
+  "id": "bass-fretless",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-genre",
+  "name": {
+   "ru": "Мягкий, «безладовый»",
+   "en": "Soft, fretless-like"
+  },
+  "note": {
+   "ru": "Верх убран, лёгкий хорус и немного зала — ноты мягко «поют» и тянутся, как у безладового баса в джазе и поп-балладах.",
+   "en": "Top removed, light chorus and a bit of room — notes sing and glide like a fretless bass in jazz and pop ballads."
+  },
+  "chain": [
+   {
+    "type": "eq",
+    "highpass_hz": 35,
+    "lowpass_hz": 1800,
+    "bands": [
+     {
+      "freq_hz": 200,
+      "gain_db": 2,
+      "q": 1
+     }
+    ]
+   },
+   {
+    "type": "comp",
+    "threshold_db": -24,
+    "ratio": 3,
+    "attack_ms": 20,
+    "makeup_db": 3
+   },
+   {
+    "type": "chorus",
+    "voices": 2,
+    "depth_ms": 2,
+    "rate_hz": 0.3,
+    "mix": 0.3
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1,
+    "predelay_ms": 10,
+    "lowpass_hz": 4000,
+    "wet": 0.12
+   }
+  ]
+ },
+ {
   "id": "vocal-plate",
   "stems": [
    "vocals"
@@ -1948,6 +2326,121 @@
    {
     "type": "bass",
     "kit": "growlybass/bass",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-kit-flat",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: плоские струны (набор)",
+   "en": "Bass: flatwounds (kit)"
+  },
+  "note": {
+   "ru": "На дорожку «бас»: ноты баса играются сэмплами. Ibanez BTB со старыми плоскими струнами (Swagbass) — глухой, круглый звук соула и старого рока. Набор (CC0) — fx_kit_install swagbass.",
+   "en": "On the \"bass\" stem: the bass notes are played with samples. An Ibanez BTB with old flatwound strings (Swagbass) — the dull, round sound of soul and old rock. Kit (CC0) — fx_kit_install swagbass."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "swagbass/bass",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-kit-five",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: 5-струнный пальцами (набор)",
+   "en": "Bass: 5-string fingerstyle (kit)"
+  },
+  "note": {
+   "ru": "На дорожку «бас»: ноты баса играются сэмплами. Пятиструнный Washburn пальцами (Black And Blue, darkblack) — тёплый и плотный, с глубоким низом. Набор (CC0) — fx_kit_install blackblue.",
+   "en": "On the \"bass\" stem: the bass notes are played with samples. A five-string Washburn played with fingers (Black And Blue, darkblack) — warm and dense with deep lows. Kit (CC0) — fx_kit_install blackblue."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "blackblue/darkblack",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-kit-pick",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас: медиатором, яркий (набор)",
+   "en": "Bass: picked, bright (kit)"
+  },
+  "note": {
+   "ru": "На дорожку «бас»: ноты баса играются сэмплами. Пятиструнный бас медиатором на бриджевом звукоснимателе (Black And Blue, babyblue) — яркая атака для панка и рока. Набор (CC0) — fx_kit_install blackblue.",
+   "en": "On the \"bass\" stem: the bass notes are played with samples. A five-string bass picked on the bridge pickup (Black And Blue, babyblue) — a bright attack for punk and rock. Kit (CC0) — fx_kit_install blackblue."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "blackblue/babyblue",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-kit-upright",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Контрабас щипком (набор)",
+   "en": "Upright bass, pizzicato (kit)"
+  },
+  "note": {
+   "ru": "На дорожку «бас»: ноты баса играются сэмплами. Настоящий контрабас 1958 года щипком (Meatbass) — для джаза, рокабилли и акустики. Быстрые ноты звучат мягче. Набор (CC0) — fx_kit_install meatbass.",
+   "en": "On the \"bass\" stem: the bass notes are played with samples. A real 1958 double bass, plucked (Meatbass) — for jazz, rockabilly and acoustic songs. Fast notes come out softer. Kit (CC0) — fx_kit_install meatbass."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "meatbass/pizz",
+    "division": 2,
+    "floor_db": -20
+   }
+  ]
+ },
+ {
+  "id": "bass-kit-six",
+  "stems": [
+   "bass"
+  ],
+  "group": "bass-kit",
+  "name": {
+   "ru": "Бас VI медиатором (набор)",
+   "en": "Bass VI, picked (kit)"
+  },
+  "note": {
+   "ru": "На дорожку «бас»: ноты баса играются сэмплами. Шестиструнный баритон-бас Squier Bass VI с плоскими струнами медиатором (Pastabass) — щёлкающий звук пост-панка и сёрфа. Набор (CC0) — fx_kit_install pastabass.",
+   "en": "On the \"bass\" stem: the bass notes are played with samples. A six-string Squier Bass VI baritone with flatwounds, picked (Pastabass) — the clicky post-punk and surf sound. Kit (CC0) — fx_kit_install pastabass."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "pastabass/linguine",
     "division": 2,
     "floor_db": -20
    }
@@ -3289,6 +3782,1230 @@
     "saturation": 0.4,
     "lowpass_hz": 7000,
     "hiss": 0.1
+   }
+  ]
+ },
+ {
+  "id": "orch-violins-pad",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "pad",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Скрипки: аккорды",
+   "en": "Violins: chords"
+  },
+  "note": {
+   "ru": "Группа скрипок смычком с вибрато тянет аккорды — светлый «киношный» фон над гитарами. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A violin section with vibrato holds the chords — a bright cinematic bed above the guitars. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-violin/ens",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-violas-pad",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "pad",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Альты: аккорды",
+   "en": "Violas: chords"
+  },
+  "note": {
+   "ru": "Альты смычком — середина струнных, теплее и темнее скрипок. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Violas with the bow — the warm, darker middle of the strings. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-viola/ens",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-cellos-pad",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "pad",
+  "octave": -1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Виолончели: аккорды",
+   "en": "Cellos: chords"
+  },
+  "note": {
+   "ru": "Виолончели смычком — низ струнных, тёплый и густой; хорошо под медленные куплеты. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Cellos with the bow — the warm, dense low strings; great under slow verses. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-cello/ens",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-violin-solo",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "drone",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Скрипка соло: тянет",
+   "en": "Solo violin: sustained"
+  },
+  "note": {
+   "ru": "Одна скрипка тянет основной тон и квинту аккорда — тонкая линия, щемящий фон. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "One violin holds the root and fifth of the chord — a thin, aching line. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-violin/solo",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-violins-pizz",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "arp",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Скрипки щипком: арпеджио",
+   "en": "Violins pizzicato: arpeggio"
+  },
+  "note": {
+   "ru": "Скрипки щипком перебирают аккорд восьмыми — лёгкий, «капающий» ритм. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Plucked violins run through the chord in eighths — a light, dripping rhythm. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-violin/pizz",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.2,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.18
+   }
+  ]
+ },
+ {
+  "id": "orch-cellos-pizz",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "pulse",
+  "octave": -1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Виолончели щипком: пульс",
+   "en": "Cellos pizzicato: pulse"
+  },
+  "note": {
+   "ru": "Виолончели щипком бьют основной тон восьмыми — упругий низ, как бас в камерной музыке. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Plucked cellos hit the root in eighths — a springy low end like a chamber bass. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-cello/pizz",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.2,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-contrabass-drone",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "drone",
+  "octave": -2,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Контрабас: бурдон",
+   "en": "Double bass: drone"
+  },
+  "note": {
+   "ru": "Контрабас смычком тянет основной тон и квинту — тёмный гул под всем. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A bowed double bass holds root and fifth — a dark hum under everything. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-contrabass/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-harp",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-strings",
+  "style": "arp",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Арфа: арпеджио",
+   "en": "Harp: arpeggio"
+  },
+  "note": {
+   "ru": "Арфа перебирает аккорд — сказочно, светло, хорошо во вступлениях и бриджах. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A harp runs through the chord — fairy-tale and bright, good for intros and bridges. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-harp/harp",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.8,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.3
+   }
+  ]
+ },
+ {
+  "id": "orch-flutes",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-winds",
+  "style": "pad",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Флейты: аккорды",
+   "en": "Flutes: chords"
+  },
+  "note": {
+   "ru": "Флейты без вибрато тянут аккорды — воздушно и прозрачно. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Flutes without vibrato hold the chords — airy and transparent. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-flute/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-flute-arp",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-winds",
+  "style": "arp",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Флейта: коротко, арпеджио",
+   "en": "Flute: staccato arpeggio"
+  },
+  "note": {
+   "ru": "Флейта короткими нотами перебирает аккорд — лёгкое движение сверху. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A flute in short notes runs the chord — light motion on top. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-flute/stac",
+    "cutoff_hz": 16000,
+    "attack_s": 0.005,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.15,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-oboe",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-winds",
+  "style": "drone",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Гобой: тянет",
+   "en": "Oboe: sustained"
+  },
+  "note": {
+   "ru": "Гобой тянет основной тон и квинту — носовой, грустный, пасторальный звук. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "An oboe holds root and fifth — nasal, sad, pastoral. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-oboe/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-clarinets",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-winds",
+  "style": "pad",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Кларнеты: аккорды",
+   "en": "Clarinets: chords"
+  },
+  "note": {
+   "ru": "Кларнеты тянут аккорды — мягко и тепло, чуть по-джазовому. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Clarinets hold the chords — soft and warm, a little jazzy. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-clarinet/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-bassoon",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-winds",
+  "style": "pulse",
+  "octave": -1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Фагот: пульс",
+   "en": "Bassoon: pulse"
+  },
+  "note": {
+   "ru": "Фагот короткими нотами бьёт основной тон — забавный, «мультяшный» бас. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A bassoon in short notes bounces on the root — a funny, cartoonish bass. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-bassoon/stac",
+    "cutoff_hz": 16000,
+    "attack_s": 0.005,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.15,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-horns",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-brass",
+  "style": "pad",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Валторны: аккорды",
+   "en": "French horns: chords"
+  },
+  "note": {
+   "ru": "Валторны тянут аккорды — благородно, эпично, как в кино. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "French horns hold the chords — noble and epic, like a film score. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-horn/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-trumpets",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-brass",
+  "style": "pad",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Трубы: аккорды",
+   "en": "Trumpets: chords"
+  },
+  "note": {
+   "ru": "Трубы тянут аккорды — ярко и торжественно. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Trumpets hold the chords — bright and festive. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-trumpet/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-brass-stabs",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-brass",
+  "style": "pulse",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Медь: короткие удары",
+   "en": "Brass: short stabs"
+  },
+  "note": {
+   "ru": "Трубы короткими нотами бьют основной тон восьмыми — напор, как духовая секция в соуле. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Trumpets in short eighths on the root — the punch of a soul horn section. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-trumpet/stac",
+    "cutoff_hz": 16000,
+    "attack_s": 0.005,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.12,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-trombones",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-brass",
+  "style": "pad",
+  "octave": -1,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Тромбоны: аккорды",
+   "en": "Trombones: chords"
+  },
+  "note": {
+   "ru": "Тромбоны тянут аккорды — тяжёлый, мрачный низ меди. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Trombones hold the chords — the heavy, dark low brass. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-trombone/sus",
+    "cutoff_hz": 16000,
+    "attack_s": 0.05,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.6,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-tuba",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-brass",
+  "style": "pulse",
+  "octave": -2,
+  "place": {
+   "pan": 0,
+   "width": 1.5
+  },
+  "name": {
+   "ru": "Туба: пульс",
+   "en": "Tuba: pulse"
+  },
+  "note": {
+   "ru": "Туба короткими нотами — «умпа»-бас духового оркестра. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A tuba in short notes — the oom-pah bass of a brass band. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-tuba/stac",
+    "cutoff_hz": 16000,
+    "attack_s": 0.005,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.15,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.12
+   }
+  ]
+ },
+ {
+  "id": "orch-glock",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-mallets",
+  "style": "arp",
+  "octave": 2,
+  "place": {
+   "pan": 0,
+   "width": 1.2
+  },
+  "name": {
+   "ru": "Колокольчики: арпеджио",
+   "en": "Glockenspiel: arpeggio"
+  },
+  "note": {
+   "ru": "Колокольчики (глокеншпиль) перебирают аккорд — звонко, по-детски, рождественски. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A glockenspiel runs the chord — ringing, childlike, Christmassy. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-mallets/glock",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 1,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.25
+   }
+  ]
+ },
+ {
+  "id": "orch-marimba",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-mallets",
+  "style": "arp",
+  "octave": 0,
+  "place": {
+   "pan": 0,
+   "width": 1.2
+  },
+  "name": {
+   "ru": "Маримба: арпеджио",
+   "en": "Marimba: arpeggio"
+  },
+  "note": {
+   "ru": "Деревянная маримба — мягкие тёплые удары, как в инди и эмбиенте. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A wooden marimba — soft warm strikes, as in indie and ambient. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-mallets/marimba",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.5,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-xylo",
+  "stems": [
+   "synth"
+  ],
+  "group": "orch-mallets",
+  "style": "arp",
+  "octave": 1,
+  "place": {
+   "pan": 0,
+   "width": 1.2
+  },
+  "name": {
+   "ru": "Ксилофон: арпеджио",
+   "en": "Xylophone: arpeggio"
+  },
+  "note": {
+   "ru": "Ксилофон — сухой, звонкий, «скелетный» звук; гротеск и шутка. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A xylophone — dry, clacky, skeletal; grotesque and playful. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "synth",
+    "kit": "vsco-mallets/xylo",
+    "cutoff_hz": 16000,
+    "attack_s": 0.002,
+    "decay_s": 0.1,
+    "sustain": 1,
+    "release_s": 0.3,
+    "output_db": 0
+   },
+   {
+    "type": "reverb",
+    "decay_s": 2,
+    "predelay_ms": 20,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-cello-pizz",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → виолончели щипком",
+   "en": "Bass → cellos pizzicato"
+  },
+  "note": {
+   "ru": "Ноты баса играют виолончели щипком: упругий камерный низ. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "The bass notes are played by plucked cellos: a springy chamber low end. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-cello/pizz",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-cello-bow",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → виолончели смычком",
+   "en": "Bass → bowed cellos"
+  },
+  "note": {
+   "ru": "Ноты баса тянут виолончели смычком: густой, тёплый, «киношный» низ. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Bowed cellos play the bass notes: a dense, warm, cinematic low end. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-cello/ens",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-viola-pizz",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → альты щипком",
+   "en": "Bass → violas pizzicato"
+  },
+  "note": {
+   "ru": "Альты щипком вместо баса — линия баса октавой-двумя выше, лёгкая и прозрачная. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "Plucked violas instead of the bass — the bass line an octave or two up, light and transparent. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-viola/pizz",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-contrabass",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → контрабас щипком (оркестр)",
+   "en": "Bass → orchestral double bass, pizzicato"
+  },
+  "note": {
+   "ru": "Оркестровый контрабас щипком — классический, глубокий. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "An orchestral double bass, plucked — classical and deep. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-contrabass/pizz",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-bassoon",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → фагот",
+   "en": "Bass → bassoon"
+  },
+  "note": {
+   "ru": "Фагот короткими нотами вместо баса — забавно, по-сказочному. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A bassoon in short notes instead of the bass — playful, fairy-tale. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-bassoon/stac",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-bass-tuba",
+  "stems": [
+   "bass"
+  ],
+  "group": "orch-bass",
+  "name": {
+   "ru": "Бас → туба",
+   "en": "Bass → tuba"
+  },
+  "note": {
+   "ru": "Туба вместо баса — духовой оркестр, полька, «умпа». Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "A tuba instead of the bass — brass band, polka, oom-pah. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-tuba/stac",
+    "division": 2,
+    "floor_db": -20
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.15
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-violin",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → скрипка",
+   "en": "Melody → violin"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-violin/solo",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-flute",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → флейта",
+   "en": "Melody → flute"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-flute/sus",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-oboe",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → гобой",
+   "en": "Melody → oboe"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-oboe/sus",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-clarinet",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → кларнет",
+   "en": "Melody → clarinet"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-clarinet/sus",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-trumpet",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → труба",
+   "en": "Melody → trumpet"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-trumpet/sus",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
+   }
+  ]
+ },
+ {
+  "id": "orch-lead-horn",
+  "stems": [
+   "guitar",
+   "other",
+   "vocals"
+  ],
+  "group": "orch-lead",
+  "name": {
+   "ru": "Мелодия → валторна",
+   "en": "Melody → French horn"
+  },
+  "note": {
+   "ru": "На одноголосную мелодию (соло гитары, голос): две ноты на долю, быстрые пассажи и подтяжки упрощаются. Сэмплы VSCO-2 Community Edition, CC0; набор воркер качает сам.",
+   "en": "For a single-line melody (guitar solo, vocal): two notes per beat, fast runs and bends get simplified. Samples VSCO-2 Community Edition, CC0; the worker downloads the kit."
+  },
+  "chain": [
+   {
+    "type": "bass",
+    "kit": "vsco-horn/sus",
+    "division": 2,
+    "floor_db": -20,
+    "fmin_hz": 80,
+    "fmax_hz": 1500
+   },
+   {
+    "type": "reverb",
+    "decay_s": 1.4,
+    "predelay_ms": 15,
+    "lowpass_hz": 8000,
+    "wet": 0.2
    }
   ]
  },

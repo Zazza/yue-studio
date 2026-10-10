@@ -2,6 +2,7 @@
 // превью, затем запись в реестр пересборки). Вызывают пульт дорожек студии (TrackDesk) и InstrumentsPage.
 import RU from './i18n/ru.js'
 import { missingKits } from './fxChain.js'
+import { installKit } from './kitProgress.js'
 
 export const PREVIEW_SEC = 10 // проверка цепочки перед записью — короткий кусок
 
@@ -13,7 +14,7 @@ export async function ensureKits(api, chain, kits, onKit) {
   const need = missingKits(chain, kits)
   for (const k of need) {
     if (onKit) onKit(k)
-    await api.installFxKit(k)
+    await installKit(api, k)   // прогресс — KitProgress на странице
   }
   return need
 }

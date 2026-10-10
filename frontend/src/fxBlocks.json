@@ -542,8 +542,8 @@
  },
  "bass": {
   "label": {
-   "ru": "Замена баса (набор)",
-   "en": "Bass replace (kit)"
+   "ru": "Замена партии (набор)",
+   "en": "Part replace (kit)"
   },
   "params": [
    {
@@ -557,6 +557,28 @@
      "en": "notes per beat (2 — eighths)"
     },
     "integer": true
+   },
+   {
+    "id": "fmin_hz",
+    "default": 30,
+    "min": 20,
+    "max": 1000,
+    "step": 5,
+    "label": {
+     "ru": "нижняя нота входа, Гц (бас 30, мелодия 80)",
+     "en": "input low note, Hz (bass 30, melody 80)"
+    }
+   },
+   {
+    "id": "fmax_hz",
+    "default": 400,
+    "min": 100,
+    "max": 2000,
+    "step": 10,
+    "label": {
+     "ru": "верхняя нота входа, Гц (бас 400, мелодия 1500)",
+     "en": "input high note, Hz (bass 400, melody 1500)"
+    }
    },
    {
     "id": "floor_db",

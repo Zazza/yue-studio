@@ -30,11 +30,13 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 import arc
 import llm
 import media
+import instruments as fx_instruments
 import presets as sound_presets
 import waveform
 from pathlib import Path
@@ -250,6 +252,19 @@ def _migrate():
                 (b["slug"], b["name"], b["note"], json.dumps(b["specs"]), json.dumps(b["final"]),
                  b["reference_job_id"], b.get("target_lufs"), json.dumps(b.get("master", [])),
                  json.dumps(b.get("parts", [])), b.get("family", ""), "2026-10-08T00:00:00"))
+        # свои инструменты страницы «Инструменты» (этап 13в): цепочка движка под своим именем
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS fx_instruments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            base TEXT NOT NULL DEFAULT '',
+            grp TEXT NOT NULL DEFAULT '',
+            stems TEXT NOT NULL DEFAULT '[]',
+            chain TEXT NOT NULL DEFAULT '[]',
+            extra TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+        """)
         conn.execute("""
         CREATE TABLE IF NOT EXISTS voices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -885,6 +900,7 @@ def get_config():
         "roformer_available": roformer_available(),
         "fx_engine": fx_engine_enabled(),
         "fx_preview": True,   # воркер умеет превью движка (страница «Инструменты»); старый — нет поля
+        "fx_phrases": True,   # фразы по кругу для страницы «Инструменты» (/fx/phrases)
     }
 
 
@@ -3434,6 +3450,7 @@ def fx_assets():
 
 # каталог наборов, которые воркер качает сам по требованию: части → (каталог в репозитории, отбор
 # файлов). В поставку не входят; лицензия — у автора набора (docs/deployment.md)
+VSCO_REF = "440300901dfe9275fd84e0b7763af1f8443ae62e"   # VSCO-2-CE, версия закреплена
 FX_KITS = {
     "osdk": {  # The Open Source Drum Kit (Real Music Media) — public domain
         "repo": "crabacus/the-open-source-drumkit",
@@ -3461,6 +3478,140 @@ FX_KITS = {
         "ref": "4f483268fc66b5a6d5781d421c0d11b8d08d3fc6",
         "parts": {"bass": ("sustain", r"[\w-]+\.wav")},
         "max_s": 6.0,  # сэмпл читается не дольше: 224 файла по 6 с (долгая нота целиком, память — 240 МБ)
+    },
+    # ещё бас-гитары и контрабас Karoryfer (CC0, github sfzinstruments): один слой силы, первый повтор — ноты
+    # по полутонам/терциям, высоту блок bass меряет по звуку; ~7…28 МБ на часть
+    "swagbass": {  # Ibanez BTB-400 со старыми плоскими струнами — глухой «мотаун»
+        "repo": "sfzinstruments/karoryfer.swagbass",
+        "ref": "9d10fcae71af1975988ddecd5af1c95d372c7355",
+        "parts": {"bass": ("notes", r"[a-g]b?\d_f_rr1\.wav")},
+        "max_s": 6.0,
+    },
+    "blackblue": {  # Black And Blue Basses: 5-струнные — darkblack пальцами (тёплый), babyblue медиатором (яркий)
+        "repo": "sfzinstruments/karoryfer.black-and-blue-basses",
+        "ref": "6e7d674cdb41be7a54dbccb15472401ad01099b9",
+        "parts": {"darkblack": ("Samples/darkblack/reg", r"darkblack_[a-g]b?\d_f_rr1\.wav"),
+                  "babyblue": ("Samples/babyblue/reg", r"babyblue_[a-g]b?\d_f_rr1\.wav")},
+        "max_s": 6.0,
+    },
+    "meatbass": {  # контрабас Otto Rubner 1958, щипок (pizz)
+        "repo": "sfzinstruments/karoryfer.meatbass",
+        "ref": "ac9e859564bda286ab5ec672d00ff1aa2fef2895",
+        "parts": {"pizz": ("Samples/pizz", r"[a-g]b?\d_vl3_rr1\.wav")},
+        "max_s": 6.0,
+    },
+    "pastabass": {  # Squier Bass VI: плоские струны медиатором — щёлкающий баритон-бас
+        "repo": "sfzinstruments/karoryfer.pastabass",
+        "ref": "90135cd026db5d4fa0fe538240b4203f085f5244",
+        "parts": {"linguine": ("samples/linguine", r"[a-g]b?\d_vl3_rr1\.wav")},
+        "max_s": 6.0,
+    },
+    # оркестр VSCO-2 Community Edition (Sam Gossner и др., CC0): один слой силы, первый повтор; набор на инструмент —
+    # качается, когда инструмент выбран впервые (~5…100 МБ). Третий элемент части — поправка октавы к ноте из имени:
+    # VSCO почти везде считает C3 = 60 (+12), скрипка соло и арфа — C4 = 60 (0); замер pyin по каждому сэмплу
+    # 2026-10-10. Файлы ставятся под точной высотой m<MIDI>.wav — synth и bass берут её из имени
+    "vsco-violin": {  # скрипка соло и группа скрипок: смычок с вибрато, щипок, коротко
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "solo": ("Strings/Solo Violin/Arco Vib", r"LLVln_ArcoVib_[A-G]#?\d_f\.wav", 0),
+            "ens": ("Strings/Violin Section/susVib", r"VlnEns_susVib_[A-G]#?\d_v2\.wav", 12),
+            "pizz": ("Strings/Violin Section/Pizz", r"VlnEns_Pizz_[A-G]#?\d_v2_rr1\.wav", 12),
+            "spic": ("Strings/Violin Section/Spic", r"VlnEns_Spic_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-viola": {  # альты: смычок, щипок, коротко
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "ens": ("Strings/Viola Section/susvib", r"ViolaEns_susvib_[A-G]#?\d_v2_1\.wav", 12),
+            "pizz": ("Strings/Viola Section/pizz", r"ViolaEns_pizz_[A-G]#?\d_v2_rr1\.wav", 12),
+            "spic": ("Strings/Viola Section/spic", r"Violas_spic_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-cello": {  # виолончели: смычок, щипок, коротко
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "ens": ("Strings/Cello Section/susvib", r"susvib_[A-G]#?\d_v3_1\.wav", 12),
+            "pizz": ("Strings/Cello Section/pizzT", r"pizzT_[A-G]#?\d_v2_RR1\.wav", 12),
+            "spic": ("Strings/Cello Section/spic", r"spic_[A-G]#?\d_v2_RR1\.wav", 12),
+        },
+    },
+    "vsco-contrabass": {  # контрабас: смычок, щипок, коротко
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Strings/Solo Contrabass/SusVib", r"BKCtbss_SusVib_[A-G]#?\d_v3_rr1\.wav", 12),
+            "pizz": ("Strings/Solo Contrabass/Pizz", r"BKCtbss_Pizz_[A-G]#?\d_v3_rr1\.wav", 12),
+            "spic": ("Strings/Solo Contrabass/Spic", r"BKCtbss_Spic_[A-G]#?\d_v3_rr1\.wav", 12),
+        },
+    },
+    "vsco-harp": {  # арфа
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "harp": ("Strings/Harp", r"KSHarp_[A-G]#?\d_mf\.wav", 0),
+        },
+    },
+    "vsco-flute": {  # флейта: протяжно, коротко
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Woodwinds/Flute/susNV", r"LDFlute_susNV_[A-G]#?\d_v3_1\.wav", 12),
+            "stac": ("Woodwinds/Flute/stac", r"LDFlute_stac_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-oboe": {  # гобой
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Woodwinds/Oboe/Sus", r"Oboe_Sus_[A-G]#?\d_v3_Main\.wav", 12),
+            "stac": ("Woodwinds/Oboe/Stacc", r"Oboe_Stacc_[A-G]#?\d_v2_rr1_Main\.wav", 12),
+        },
+    },
+    "vsco-clarinet": {  # кларнет
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Woodwinds/Clarinet/susLong", r"DCClar_susLong_[A-G]#?\d_v2_rr1_sum\.wav", 12),
+            "stac": ("Woodwinds/Clarinet/stac", r"DCClar_stac_[A-G]#?\d_v2_rr1_sum\.wav", 12),
+        },
+    },
+    "vsco-bassoon": {  # фагот
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Woodwinds/Bassoon/sus", r"PSBassoon_[A-G]#?\d_v2_1\.wav", 12),
+            "stac": ("Woodwinds/Bassoon/stac", r"PSBassoon_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-trumpet": {  # труба
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Brass/Trumpet/sus", r"Sum_SHTrumpet_sus_[A-G]#?\d_v3_rr1\.wav", 12),
+            "stac": ("Brass/Trumpet/stac", r"Sum_SHTrumpet_stac_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-horn": {  # валторна
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Brass/F Horn/sus", r"MOHorn_sus_[A-G]#?\d_v2_1\.wav", 12),
+            "stac": ("Brass/F Horn/stac", r"MOHorn_stac_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-trombone": {  # тромбон
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Brass/Tenor Trombone/sus", r"tenortbn_sus_[A-G]#?\d_v2_1\.wav", 12),
+            "stac": ("Brass/Tenor Trombone/stac", r"tenortbn_stac_[A-G]#?\d_v2_rr1\.wav", 12),
+        },
+    },
+    "vsco-tuba": {  # туба
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "sus": ("Brass/Tuba/sus", r"Tuba3_sus_[A-G]#?\d_v2_rr1_Mid\.wav", 12),
+            "stac": ("Brass/Tuba/stac", r"Tuba3_stac_[A-G]#?\d_v2_rr1_Sum\.wav", 12),
+        },
+    },
+    "vsco-mallets": {  # колокольчики, маримба, ксилофон
+        "repo": "sgossner/VSCO-2-CE", "ref": VSCO_REF, "max_s": 8.0,
+        "parts": {
+            "glock": ("Percussion/Glock", r"glock_medium_[A-G]#?\d\.wav", 12),
+            "marimba": ("Percussion/Marimba", r"Marimba_hit_Outrigger_[A-G]#?\d_loud_01\.wav", 12),
+            "xylo": ("Percussion/Xylo", r"Xylo_Medium_[A-G]#?\d_ff_01_far\.wav", 12),
+        },
     },
     # драм-машины и синт-басы — воркер синтезирует сам (drumsynth.py): без сети и чужих лицензий
     **{k: {"synth": "drums"} for k in ("tr808", "tr909", "linn", "cr78", "simmons")},
@@ -3510,6 +3661,180 @@ def _http_get(url: str, timeout: float = 60) -> bytes:
         return r.read()
 
 
+# ---------- фразы страницы «Инструменты»: круг через цепочку движка ----------
+
+FX_PHRASE_KEEP = 40       # кругов в кэше (каждый — секунды звука; старые вытесняются)
+FX_PHRASE_RE = re.compile(r"phrase-[0-9a-f]{12}\.wav")
+
+
+def _phrase_dir() -> Path:
+    d = DATA_DIR / "fx-phrases"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+class PhraseIn(BaseModel):
+    phrase: str
+    tempo: float = 1.0
+    chain: list = []
+    stems: list[str] = []
+    bypass: bool = False
+
+
+@app.get("/fx/phrases")
+def fx_phrases():
+    """Каталог фраз: id, семья (guitar/bass/drums/synth), название, темп, долей в круге, аккорды по тактам (ноты синта
+    и перкуссии кладёт страница), стиль синта, части и длина круга при темпе 1."""
+    import phrases
+    out = []
+    for pid, p in phrases.PHRASES.items():
+        _, cycle = phrases.render_dry(pid, 1.0)
+        out.append({"id": pid, "family": p["family"], "name": p["name"], "bpm": p["bpm"], "beats": p["beats"],
+                    "chords": p["chords"], "style": p.get("style", ""), "parts": list(phrases.parts_of(pid)),
+                    "cycle_sec": round(cycle, 4)})
+    return out
+
+
+@app.post("/fx/phrase")
+def fx_phrase(req: PhraseIn):
+    """Круг фразы через цепочку (WAV 16 бит стерео): играет по кругу, пока крутятся регуляторы. Тот же запрос —
+    тот же файл без пересчёта."""
+    import hashlib
+    import uuid
+    import numpy as np
+    import soundfile as sf
+    import fx_engine
+    import phrases
+    if not fx_engine_enabled():
+        raise HTTPException(503, "звуковой движок выключен (настройка fx_engine / YUE_FX_ENGINE=0)")
+    if req.phrase not in phrases.PHRASES:
+        raise HTTPException(404, f"нет фразы {req.phrase}")
+    bad = [s for s in req.stems if s not in phrases.parts_of(req.phrase)]
+    if bad:
+        raise HTTPException(422, f"у фразы нет частей: {', '.join(bad)}")
+    if not (phrases.TEMPO_MIN <= req.tempo <= phrases.TEMPO_MAX):
+        raise HTTPException(422, f"темп {phrases.TEMPO_MIN}…{phrases.TEMPO_MAX}")
+    # без эффектов: остаются блоки, которые сами играют ноты (синт, перкуссия), — иначе синт-фраза — тишина
+    chain = [b for b in req.chain if isinstance(b, dict) and b.get("type") in phrases.NOTE_BLOCKS] if req.bypass \
+        else req.chain
+    try:
+        if chain:                        # пустая — сухая фраза (как bypass)
+            fx_engine.parse_chain(chain)
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+    src = phrases.DIR / f"{req.phrase}.flac"
+    # бас фразы — набором бас-гитары (если есть): его файлы тоже в ключе
+    src_chain = [{"type": "bass", "kit": phrases.BASS_KIT}] if phrases.PHRASES[req.phrase]["family"] == "bass" else []
+    key = json.dumps({"phrase": req.phrase, "tempo": round(req.tempo, 4), "chain": chain,
+                      "stems": sorted(req.stems), "bypass": req.bypass, "engine": fx_engine.ENGINE_VERSION,
+                      "files": _fx_stamp([src] if src.is_file() else [], chain + src_chain)}, sort_keys=True)
+    fname = f"phrase-{hashlib.sha1(key.encode()).hexdigest()[:12]}.wav"
+    d = _phrase_dir()
+    target = d / fname
+    if target.is_file():
+        try:
+            info = sf.info(str(target))  # вытесняются самые старые по времени расчёта
+            # «срезано» — метка рядом с кругом: повтор тех же настроек не теряет подсказку «громко»
+            return {"file": fname, "cycle_sec": round(info.frames / info.samplerate, 4),
+                    "clipped": target.with_name(target.name + ".clipped").is_file()}
+        except (OSError, RuntimeError):
+            pass  # вытеснили параллельно — считаем заново
+    res = fx_resources()
+    try:
+        dry, cycle = phrases.render_dry(req.phrase, req.tempo, res=res)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    try:
+        with gpu_queue("fx phrase") if fx_engine.needs_gpu(chain) else contextlib.nullcontext():
+            try:
+                out, clipped = phrases.loop_render(dry, req.stems, chain, phrases.SR, res, bypass=req.bypass)
+            finally:
+                close = getattr(res, "close", None)
+                if close:
+                    close()
+    except fx_engine.ChainError as e:
+        raise HTTPException(422, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    tmp = target.with_name(f"{target.name}.{uuid.uuid4().hex[:8]}.part")
+    sf.write(str(tmp), np.clip(out, -1.0, 1.0), phrases.SR, format="WAV", subtype="PCM_16")
+    mark = target.with_name(target.name + ".clipped")
+    if clipped:
+        mark.touch()                  # метка — до публикации круга: попадание в кэш видит её сразу
+    else:
+        mark.unlink(missing_ok=True)
+    tmp.replace(target)
+    olds = sorted(d.glob("phrase-*.wav"), key=_mtime_or_zero, reverse=True)
+    for old in olds[FX_PHRASE_KEEP:]:
+        old.unlink(missing_ok=True)
+        old.with_name(old.name + ".clipped").unlink(missing_ok=True)
+    return {"file": fname, "cycle_sec": round(len(out) / phrases.SR, 4), "clipped": bool(clipped)}
+
+
+@app.get("/fx/phrase/files/{file}")
+def fx_phrase_file(file: str):
+    """Круг из кэша фраз (имя — из ответа /fx/phrase)."""
+    path = _phrase_dir() / file
+    if not FX_PHRASE_RE.fullmatch(file) or not path.is_file():
+        raise HTTPException(404, "нет такого круга")
+    return FileResponse(path, media_type="audio/wav")
+
+
+# ---------- свои инструменты (страница «Инструменты», выбор в студии) ----------
+
+def _instrument_row(r) -> dict:
+    return {"id": r["id"], "name": r["name"], "base": r["base"], "group": r["grp"], "stems": json.loads(r["stems"]),
+            "chain": json.loads(r["chain"]), "extra": json.loads(r["extra"]), "created_at": r["created_at"]}
+
+
+def _instrument_body(body, partial: bool) -> dict:
+    import fx_engine
+    try:
+        return fx_instruments.validate(body, fx_engine.parse_chain, partial=partial)
+    except fx_instruments.InstrumentError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.get("/fx/instruments")
+def fx_instruments_list():
+    with db() as conn:
+        return [_instrument_row(r) for r in conn.execute("SELECT * FROM fx_instruments ORDER BY id")]
+
+
+@app.post("/fx/instruments")
+def fx_instrument_create(body: dict):
+    p = _instrument_body(body, partial=False)
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO fx_instruments(name,base,grp,stems,chain,extra,created_at) VALUES(?,?,?,?,?,?,?)",
+            (p["name"], p["base"], p["group"], json.dumps(p["stems"]), json.dumps(p["chain"]),
+             json.dumps(p["extra"]), time.strftime("%Y-%m-%dT%H:%M:%S")))
+        r = conn.execute("SELECT * FROM fx_instruments WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _instrument_row(r)
+
+
+@app.put("/fx/instruments/{iid}")
+def fx_instrument_update(iid: int, body: dict):
+    p = _instrument_body(body, partial=True)
+    cols = {"name": "name", "base": "base", "group": "grp", "stems": "stems", "chain": "chain", "extra": "extra"}
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM fx_instruments WHERE id=?", (iid,)).fetchone():
+            raise HTTPException(404, f"нет инструмента {iid}")
+        for k, v in p.items():
+            conn.execute(f"UPDATE fx_instruments SET {cols[k]}=? WHERE id=?",
+                         (json.dumps(v) if k in ("stems", "chain", "extra") else v, iid))
+        r = conn.execute("SELECT * FROM fx_instruments WHERE id=?", (iid,)).fetchone()
+    return _instrument_row(r)
+
+
+@app.delete("/fx/instruments/{iid}")
+def fx_instrument_delete(iid: int):
+    with db() as conn:
+        if conn.execute("DELETE FROM fx_instruments WHERE id=?", (iid,)).rowcount == 0:
+            raise HTTPException(404, f"нет инструмента {iid}")
+    return {"ok": True}
+
+
 @app.post("/fx/kits/install")
 def fx_kit_install(name: str = ""):
     """Скачать набор сэмплов из каталога FX_KITS (повтор — без сети). Одновременные установки
@@ -3517,10 +3842,24 @@ def fx_kit_install(name: str = ""):
     spec = FX_KITS.get(name)
     if spec is None:
         raise HTTPException(422, f"unknown kit {name!r} (есть: {', '.join(FX_KITS)})")
-    with _fx_kits_guard_for(name):
+    with _fx_kits_guard_for(name), _kit_file_lock(name):
         if spec.get("synth"):
             return _fx_kit_generate(name, spec["synth"])
         return _fx_kit_install(name, spec)
+
+
+@contextmanager
+def _kit_file_lock(name: str):
+    """Блокировка набора между процессами (воркер и kits_install.py при make worker): иначе оба писали бы в одну
+    <часть>.part, и replace одного ронял бы установку другого."""
+    import fcntl
+    _kits_dir().mkdir(parents=True, exist_ok=True)
+    with open(_kits_dir() / f".{name}.lock", "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def _fx_kits_guard_for(name: str) -> threading.Lock:
@@ -3550,9 +3889,15 @@ def _fx_kit_generate(name: str, kind: str) -> dict:
         tmp = dst.with_name(dst.name + ".part")
         shutil.rmtree(tmp, ignore_errors=True)
         tmp.mkdir(parents=True)
-        for fname, fn in items:
-            y = np.clip(fn(), -1.0, 1.0)
-            sf.write(str(tmp / f"{fname}.wav"), y, FX_KIT_SR, subtype="PCM_16")
+        # синтез — тот же прогресс, что скачивание (kits_install печатает, приложение показывает)
+        _kit_progress_set(name, part=part, done=0, total=len(items), bytes=0)
+        try:
+            for i, (fname, fn) in enumerate(items):
+                y = np.clip(fn(), -1.0, 1.0)
+                sf.write(str(tmp / f"{fname}.wav"), y, FX_KIT_SR, subtype="PCM_16")
+                _kit_progress_add(name, done=i + 1, size=(tmp / f"{fname}.wav").stat().st_size)
+        finally:
+            _kit_progress_set(name)
         shutil.rmtree(dst, ignore_errors=True)
         tmp.replace(dst)
         out[part] = len(items)
@@ -3561,10 +3906,67 @@ def _fx_kit_generate(name: str, kind: str) -> dict:
     return {"name": name, "parts": out, "downloaded": False, "generated": generated}
 
 
+FX_KIT_FILES = Path(__file__).with_name("fx_kit_files.json")
+FX_KIT_RETRIES = 3            # попыток на файл набора
+FX_KIT_RETRY_PAUSE_S = 1.0    # пауза перед повтором: 1, 2 с
+
+# идущие установки по наборам: {набор: {name, part, done, total, bytes}} — несколько наборов разом (пульт студии и
+# страница «Инструменты») не затирают и не очищают прогресс друг друга
+_kit_progress: dict = {}
+_kit_progress_lock = threading.Lock()
+
+
+def _kit_progress_set(name: str, **kw) -> None:
+    """Прогресс набора name; без полей — установка закончена (запись убирается)."""
+    with _kit_progress_lock:
+        if kw and name in _kit_progress:
+            _kit_progress[name].update(kw)       # следующая часть того же набора — место в порядке прежнее
+        elif kw:
+            _kit_progress[name] = {"name": name, **kw}
+        else:
+            _kit_progress.pop(name, None)
+
+
+def _kit_progress_add(name: str, done: int, size: int) -> None:
+    with _kit_progress_lock:
+        p = _kit_progress.get(name)
+        if p:
+            p["done"] = done
+            p["bytes"] = p.get("bytes", 0) + size
+
+
+def _http_get_retry(url: str) -> bytes:
+    """Файл набора с повторами: сеть рвётся, GitHub иногда отвечает 5xx — без повтора набор не ставился целиком."""
+    import http.client
+    for k in range(FX_KIT_RETRIES):
+        try:
+            return _http_get(url)
+        except (OSError, http.client.HTTPException):
+            if k == FX_KIT_RETRIES - 1:
+                raise
+            time.sleep(FX_KIT_RETRY_PAUSE_S * (k + 1))
+    raise OSError(url)   # недостижимо: цикл либо вернул, либо поднял
+
+
+@app.get("/fx/kits/progress")
+def fx_kits_progress():
+    """Идущая установка набора {name, part, done, total, bytes} (нет — {}): прогресс для приложения."""
+    with _kit_progress_lock:
+        return dict(list(_kit_progress.values())[-1]) if _kit_progress else {}   # последняя начатая
+
+
+def _kit_pinned_files() -> dict:
+    """Закреплённые списки файлов наборов {набор: {часть: [имена]}} (fx_kit_files.json рядом с воркером; нет — {})."""
+    try:
+        return json.loads(FX_KIT_FILES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def _fx_kit_install(name: str, spec: dict) -> dict:
     import http.client
     parts, downloaded = {}, False
-    for part, (src, pattern) in spec["parts"].items():
+    for part, (src, pattern, *shift) in spec["parts"].items():
         dst = _kits_dir() / name / part
         have = _kit_files(dst)   # wav и flac: установленный Salamander (flac) не качается заново
         if have:
@@ -3572,26 +3974,55 @@ def _fx_kit_install(name: str, spec: dict) -> dict:
             continue
         tmp = dst.with_name(dst.name + ".part")   # недокачанное — не набор: в список не попадёт
         try:
-            listing = json.loads(_http_get(
-                f"https://api.github.com/repos/{spec['repo']}/contents/{src}?ref={spec['ref']}"))
-            if not isinstance(listing, list):
-                raise ValueError("GitHub ответил не списком файлов")
-            files = [f for f in listing if isinstance(f, dict) and re.fullmatch(pattern, str(f.get("name", "")))]
+            pinned = _kit_pinned_files().get(name, {}).get(part)
+            if pinned:
+                # список файлов закреплён (fx_kit_files.json): без API GitHub — у него 60 запросов в час на адрес
+                # без ключа, а у оркестра 31 часть; сами файлы — прямыми ссылками raw (лимит API на них не действует)
+                bad = [n for n in pinned if not re.fullmatch(pattern, n)]
+                if bad:   # список и шаблон части разошлись — не ставить чужие файлы молча
+                    raise ValueError(f"закреплённый список не по шаблону части: {', '.join(bad[:3])}")
+                base = f"https://raw.githubusercontent.com/{spec['repo']}/{spec['ref']}/{urllib.parse.quote(src)}"
+                files = [{"name": n, "download_url": f"{base}/{urllib.parse.quote(n)}"} for n in pinned]
+            else:
+                listing = json.loads(_http_get(
+                    # каталоги с пробелами («Solo Violin/Arco Vib») — экранируются; «/» остаётся
+                    f"https://api.github.com/repos/{spec['repo']}/contents/{urllib.parse.quote(src)}?ref={spec['ref']}"))
+                if not isinstance(listing, list):
+                    raise ValueError("GitHub ответил не списком файлов")
+                files = [f for f in listing if isinstance(f, dict) and re.fullmatch(pattern, str(f.get("name", "")))]
             if not files:
                 raise ValueError("в источнике нет файлов")
-            shutil.rmtree(tmp, ignore_errors=True)
-            tmp.mkdir(parents=True)
-            for f in files:
-                (tmp / f["name"]).write_bytes(_http_get(str(f["download_url"])))
+            # .part не стирается: файлы, скачанные до обрыва, не качаются заново (докачка)
+            tmp.mkdir(parents=True, exist_ok=True)
+            _kit_progress_set(name, part=part, done=0, total=len(files), bytes=0)
+            for i, f in enumerate(files):
+                fname = str(f["name"])
+                if shift:   # нота из имени + поправка октавы → точная высота в имени (m<MIDI>.wav)
+                    import fx_engine
+                    midi = fx_engine.sample_midi(Path(fname).stem)
+                    if midi is None:
+                        raise ValueError(f"{fname}: нет ноты в имени")
+                    fname = f"m{midi + shift[0]}{Path(fname).suffix}"
+                out = tmp / fname
+                if not (out.is_file() and out.stat().st_size > 0):
+                    try:
+                        data = _http_get_retry(str(f["download_url"]))
+                    except (OSError, http.client.HTTPException) as e:
+                        raise OSError(f"{f['name']}: {e}") from e   # причина — с именем файла
+                    part_file = out.with_name(out.name + ".dl")   # недокачанный файл не выдаёт себя за целый
+                    part_file.write_bytes(data)
+                    part_file.replace(out)
+                _kit_progress_add(name, done=i + 1, size=out.stat().st_size)
         except (OSError, ValueError, KeyError, http.client.HTTPException) as e:
-            # сеть, обрыв ответа, разбор — причина в ответ, без полукаталога
-            shutil.rmtree(tmp, ignore_errors=True)
+            # сеть, обрыв ответа, разбор — причина в ответ; скачанное остаётся в .part до повтора
+            _kit_progress_set(name)
             raise HTTPException(502, f"kit {name}/{part}: не скачать — {e}") from e
         shutil.rmtree(dst, ignore_errors=True)
         tmp.replace(dst)
         parts[part] = len(files)
         downloaded = True
         log.info("fx kit %s/%s: %d samples", name, part, len(files))
+    _kit_progress_set(name)   # установка набора закончена — прогресса нет (между частями запись не удаляется)
     return {"name": name, "parts": parts, "downloaded": downloaded}
 
 

@@ -16,6 +16,8 @@ const OLD_IDS = ['synth-solina', 'synth-juno', 'synth-moog-bass', 'synth-moog-le
 
 const synthBlock = (p) => p.chain.find((b) => b.type === 'synth')
 const synths = fxPresets.filter((p) => JSON.stringify(p.stems) === JSON.stringify(['synth']) && synthBlock(p))
+  // оркестр (этап 14, группы orch-*) — партии по аккордам тем же блоком synth, но не синты: свои группы
+  .filter((p) => !String(p.group || '').startsWith('orch-'))
 const withKit = (kit) => synths.filter((p) => synthBlock(p).kit === kit)
 
 describe('ТК98: группы синтов (условие 64)', () => {

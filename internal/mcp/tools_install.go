@@ -166,6 +166,7 @@ const (
 	sizeSeedvcPeakGB = 14
 	sizeSepGB        = 7.3 // разделение дорожек: окружение audio-separator 6,1 + веса RoFormer/DrumSep 1,1
 	sizeReserveGB    = 2   // запас под данные треков на первое время
+	sizeKitsGB       = 1.2 // наборы сэмплов заранее (kits_install.py): барабаны, басы, оркестр
 )
 
 // gbStr — «17.5», «11»: без лишних нулей.
@@ -192,7 +193,7 @@ func workerAddress(s *Server) string {
 
 // diskNeedGB — сколько места нужно под выбранные компоненты (Seed-VC — по пику установки).
 func diskNeedGB(whisper, seedvc, roformer bool) float64 {
-	need := sizeWorkerGB + sizeReserveGB
+	need := sizeWorkerGB + sizeKitsGB + sizeReserveGB
 	if roformer {
 		need += sizeSepGB
 	}
@@ -291,7 +292,8 @@ func installSteps(local, whisper, seedvc, roformer bool, need float64, hfHome, s
 	if local {
 		steps = append(steps, step{name: "скопировать файлы воркера", must: true, cmd: "test -f worker/yue_worker.py || " +
 			"{ echo 'запусти из корня репозитория Yue Studio'; exit 1; }; mkdir -p ~/yue-studio && " +
-			"cp worker/*.py worker/fx_blocks.json worker/requirements.txt worker/requirements-seedvc.txt worker/seedvc_install.sh ~/yue-studio/"})
+			"cp worker/*.py worker/fx_blocks.json worker/fx_kit_files.json worker/requirements.txt worker/requirements-seedvc.txt worker/seedvc_install.sh ~/yue-studio/ && " +
+			"mkdir -p ~/yue-studio/phrases && cp worker/phrases/*.flac worker/phrases/README.md ~/yue-studio/phrases/"})
 	}
 	steps = append(steps,
 		step{name: "каталоги", cmd: "mkdir -p ~/yue-studio/data ~/yue-studio/units"},
@@ -299,6 +301,10 @@ func installSteps(local, whisper, seedvc, roformer bool, need float64, hfHome, s
 		step{name: "пакеты (torch cu128 + API)", must: true, cmd: "uv pip install --python ~/yue/.venv/bin/python -r ~/yue-studio/requirements.txt " +
 			"--index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple || " +
 			"~/yue/.venv/bin/pip install -r ~/yue-studio/requirements.txt"},
+		// наборы сэмплов заранее (барабаны, басы, оркестр ~1 ГБ): приложение не ждёт скачивания; не must — без них
+		// воркер работает, недостающий набор приложение докачает при первом выборе
+		step{name: "наборы сэмплов (барабаны, басы, оркестр; ~1 ГБ)", cmd: "cd ~/yue-studio && set -a && " +
+			"{ [ -f worker.env ] && . ./worker.env || true; } && set +a && ~/yue/.venv/bin/python kits_install.py"},
 	)
 	if roformer { // не must: без него разделение идёт прежним demucs
 		venv, py := "~/sep-venv", "~/sep-venv/bin/python"

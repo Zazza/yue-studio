@@ -105,7 +105,7 @@ async function save() {
 </script>
 
 <template>
-  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop page-backdrop">
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('settings.title') }}</h2>

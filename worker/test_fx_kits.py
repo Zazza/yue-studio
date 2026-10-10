@@ -485,8 +485,10 @@ class TestKitInstallRobust(_KitCase):
         # (условие — «каталога части нет»), но установку не должен считать готовой — см. повтор ниже
         osdk = self.kits / "osdk"
         left = sorted(str(p.relative_to(osdk)) for p in osdk.rglob("*")) if osdk.exists() else []
-        self.assertEqual(left, [], "после сбоя остался полукаталог набора")
-        self._no_part_files()
+        # условие 116 (internal-own-track, этап 14б): целиком скачанные файлы остаются в <часть>.part для докачки;
+        # опубликованных частей и недокачанных файлов (*.dl) нет
+        self.assertTrue(all(x.split("/")[0].endswith(".part") for x in left), f"после сбоя — каталог части: {left}")
+        self.assertFalse([x for x in left if x.endswith(".dl")], f"недокачанный файл остался: {left}")
         self.assertEqual(self._assets().get("kits"), [], "недокачанный набор в списке")
         # сеть починилась — установка проходит
         self.gh.fault = None

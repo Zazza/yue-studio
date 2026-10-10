@@ -721,9 +721,9 @@ def _kit_notes(raw, ksr: int, names=None) -> list[tuple[float, float, int, np.nd
         if peak <= 0:
             continue
         a = int(np.argmax(np.abs(s) > 0.1 * peak))          # начало атаки
-        m = KIT_MIDI_NAME.match(nm or "")
-        if m:
-            out.append((float(m.group(1)), peak, a, s, True))
+        named = sample_midi(nm) if nm else None   # m<MIDI> или нота в имени (VSCO) — высота точная
+        if named is not None:
+            out.append((float(named), peak, a, s, True))
             continue
         body = s[a + int(0.05 * ksr):a + int(0.6 * ksr)]    # после щелчка струны — тон
         if len(body) < 2048:
@@ -924,7 +924,8 @@ def _band_follow(y: np.ndarray, ref: np.ndarray, sr: int) -> np.ndarray:
 
 
 def _bass(x, sr, p, res):
-    """Замена баса сэмплами бас-гитары: ячейки — доли дорожки (division на долю) и её удары; в ячейке —
+    """Замена партии сэмплами набора (бас-гитара, виолончель, скрипка…): ячейки — доли дорожки (division на долю)
+    и её удары; в ячейке —
     нота дорожки (медиана частоты, строй учтён); новый щипок — на ударе, смене ноты или после тишины,
     иначе нота тянется. Атака сэмпла — на начале удара (без сдвига); громкость и баланс низ/верх
     следуют за входом во времени (+ output_db)."""
@@ -945,7 +946,9 @@ def _bass(x, sr, p, res):
     md = _resample(m[:, None], sr, dsr)[:, 0]
     hop = 256
     with np.errstate(invalid="ignore"):       # то же предупреждение librosa/numba, см. _kit_notes
-        f0 = librosa.yin(md, fmin=30, fmax=400, sr=dsr, frame_length=2048, hop_length=hop, center=True)
+        # диапазон поиска высоты входа: бас (30…400 Гц) или выше — мелодия для скрипки, флейты (fmin_hz/fmax_hz)
+        f0 = librosa.yin(md, fmin=float(p.get("fmin_hz", 30)), fmax=float(p.get("fmax_hz", 400)), sr=dsr,
+                         frame_length=2048, hop_length=hop, center=True)
     fr = librosa.feature.rms(y=md, frame_length=2048, hop_length=hop, center=True)[0]
     bounds, onsets = _bass_cells(m, sr, int(round(p["division"])), _pitch_changes(f0, fr, hop * sr / dsr))
     cells = []
@@ -1118,6 +1121,9 @@ def _rbj_lp(f0, q, sr):
 
 
 NOTE_NAME = re.compile(r"^([A-Ga-g])([#b]?)(-?\d)(?:v\d+)?$")   # «A0v10», «C#4v4», «Eb3» → MIDI
+# нота внутри имени (VSCO-2: «LLVln_ArcoVib_A3_f», «BKCtbss_Pizz_A#0_v3_rr1», «glock_medium_C5») — заглавная буква
+# между «_»: строчные «a1_f_rr1» (Karoryfer) сюда не попадают — их высота по звуку, как раньше
+NOTE_TOKEN = re.compile(r"(?:^|_)([A-G])([#b]?)(-?\d)(?=_|$)")
 SEMITONE = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 
 
@@ -1126,7 +1132,7 @@ def sample_midi(name: str) -> int | None:
     m = KIT_MIDI_NAME.match(name or "")
     if m:
         return int(m.group(1))
-    m = NOTE_NAME.match(name or "")
+    m = NOTE_NAME.match(name or "") or NOTE_TOKEN.search(name or "")
     if not m:
         return None
     return 12 * (int(m.group(3)) + 1) + SEMITONE[m.group(1).lower()] + {"#": 1, "b": -1, "": 0}[m.group(2)]

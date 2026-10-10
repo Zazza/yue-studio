@@ -10,7 +10,7 @@ const emit = defineEmits(['close'])
 </script>
 
 <template>
-  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop page-backdrop">
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('preset.title') }}</h2>

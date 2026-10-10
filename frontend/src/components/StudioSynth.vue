@@ -14,6 +14,7 @@ import ChainEditor from './ChainEditor.vue'
 import PlaceControls from './PlaceControls.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
+import { useInstruments } from '../composables/useInstruments.js'
 import { fromWorkerChain, toWorkerChain } from '../fxChain.js'
 import { applyEngine, ensureKits } from '../engineRun.js'
 import { groupPresets } from '../presetGroups.js'
@@ -32,7 +33,10 @@ const inserts = useInserts()
 const { toggleArtifact, playBtn } = usePlayer()
 const before = useWindowPlay('synth-before', () => t('instr.before'))
 
-const SYNTHS = fxPresets.filter((p) => (p.stems || []).includes('synth'))
+const SYNTHS = fxPresets.filter((p) => (p.stems || []).includes('synth'))   // умолчания — первый готовый
+// выбор — готовые и свои (страница «Инструменты»): свой внизу своей группы с пометкой «(мой)»
+const { all: instruments } = useInstruments()
+const synthList = computed(() => instruments.value.filter((p) => (p.stems || []).includes('synth')))
 const STYLES = ['pad', 'arp', 'pulse', 'drone']
 const grid = ref(null)            // {bpm, bars}
 const sections = ref([])          // выбранные секции
@@ -47,9 +51,9 @@ const msg = ref('')
 const err = ref('')
 
 const tr = (lbl) => (lbl && (lbl[locale.value] || lbl.ru)) || ''
-const preset = computed(() => SYNTHS.find((p) => p.id === presetId.value))
+const preset = computed(() => synthList.value.find((p) => p.id === presetId.value))
 // по группам (пэды, органы, клавиши, лиды, игрушки): подпись группы — неактивная строка списка
-const presetOptions = computed(() => groupPresets(SYNTHS, locale.value).flatMap((g) => [
+const presetOptions = computed(() => groupPresets(synthList.value, locale.value).flatMap((g) => [
   ...(g.label ? [{ value: `group:${g.group}`, label: `— ${g.label} —`, disabled: true }] : []),
   ...g.items.map((p) => ({ value: p.id, label: tr(p.name) })),
 ]))

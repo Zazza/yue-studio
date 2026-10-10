@@ -85,7 +85,7 @@ function delCustomStyle(gid, sid) {
 
 <template>
   <!-- страница-модалка, как голоса и свои треки: ✕/Esc/клик по фону закрывают -->
-  <div class="modal-backdrop page-backdrop" @click.self="emit('close')">
+  <div class="modal-backdrop page-backdrop">
     <section class="panel page-modal">
       <div class="page-modal-head">
         <h2>{{ t('library.title') }}</h2>

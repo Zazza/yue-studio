@@ -29,7 +29,8 @@ function needsFiles(p) {
   return false
 }
 
-const guitars = grouped.filter((p) => (p.stems || []).includes('guitar') && !has(p, 'amp'))
+// оркестровая замена мелодии (этап 14, orch-lead: stems guitar/other/vocals, набор VSCO) — не «готовая гитара»
+const guitars = grouped.filter((p) => (p.stems || []).includes('guitar') && !has(p, 'amp') && p.group !== 'orch-lead')
 // басы 7а — группа bass-tone (уточнение ТК86, условие 58: синт-басы набором — в группе bass-kit)
 const basses = grouped.filter((p) => p.group === 'bass-tone' && JSON.stringify(p.stems) === JSON.stringify(['bass']))
 

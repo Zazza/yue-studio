@@ -110,6 +110,34 @@ export function YueFxAssets() {
   return window['go']['main']['App']['YueFxAssets']();
 }
 
+export function YueFxInstrumentCreate(arg1) {
+  return window['go']['main']['App']['YueFxInstrumentCreate'](arg1);
+}
+
+export function YueFxInstrumentDelete(arg1) {
+  return window['go']['main']['App']['YueFxInstrumentDelete'](arg1);
+}
+
+export function YueFxInstrumentUpdate(arg1, arg2) {
+  return window['go']['main']['App']['YueFxInstrumentUpdate'](arg1, arg2);
+}
+
+export function YueFxInstruments() {
+  return window['go']['main']['App']['YueFxInstruments']();
+}
+
+export function YueFxKitProgress() {
+  return window['go']['main']['App']['YueFxKitProgress']();
+}
+
+export function YueFxPhrase(arg1) {
+  return window['go']['main']['App']['YueFxPhrase'](arg1);
+}
+
+export function YueFxPhrases() {
+  return window['go']['main']['App']['YueFxPhrases']();
+}
+
 export function YueFxPreview(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['YueFxPreview'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
@@ -200,6 +228,10 @@ export function YuePlayAudio(arg1) {
 
 export function YuePlayFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['YuePlayFile'](arg1, arg2, arg3);
+}
+
+export function YuePlayLoop(arg1, arg2) {
+  return window['go']['main']['App']['YuePlayLoop'](arg1, arg2);
 }
 
 export function YuePlayPreview(arg1, arg2, arg3, arg4) {
