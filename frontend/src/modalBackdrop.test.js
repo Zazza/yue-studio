@@ -10,12 +10,16 @@ import { describe, expect, test } from 'vitest'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
+// относительный путь всегда со слешем: на Windows path.relative даёт «\»,
+// а ожидания в тестах записаны через «/» (CI — Linux)
+const relPath = (p) => relative(here, p).split('\\').join('/')
+
 function vueFiles(dir) {
   const out = []
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name)
     if (e.isDirectory()) {
-      if (relative(here, p) === 'wailsjs') continue
+      if (relPath(p) === 'wailsjs') continue
       out.push(...vueFiles(p))
     } else if (e.name.endsWith('.vue')) {
       out.push(p)
@@ -114,7 +118,7 @@ function closeExpressions(backdrop) {
 }
 
 const files = vueFiles(here)
-  .map((p) => ({ rel: relative(here, p), tags: openTags(templateOf(readFileSync(p, 'utf8'))) }))
+  .map((p) => ({ rel: relPath(p), tags: openTags(templateOf(readFileSync(p, 'utf8'))) }))
   .filter((f) => f.tags.some(isBackdrop))
 
 test('подложки модалок найдены (обход исходников работает)', () => {
