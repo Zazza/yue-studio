@@ -25,6 +25,7 @@ import LibraryPage from './components/LibraryPage.vue'
 import CorpusPage from './components/CorpusPage.vue'
 import VoicesPage from './components/VoicesPage.vue'
 import InstrumentsPage from './components/InstrumentsPage.vue'
+import PresetsPage from './components/PresetsPage.vue'
 import PresetChips from './components/PresetChips.vue'
 import JobPresets from './components/JobPresets.vue'
 import StudioPage from './components/StudioPage.vue'
@@ -563,18 +564,21 @@ const libraryPage = ref(false)
 const corpusPage = ref(false)
 const voicesPage = ref(false)
 const instrumentsPage = ref(false)   // «Инструменты»: дорожка через цепочку звукового движка
+const presetsPage = ref(false)       // «Пресеты звука»: библиотека пресетов
 const studioJob = ref(null)
 // главная — список треков; форма нового трека — отдельная страница
 const newTrackPage = ref(false)
 
 function closeOverlays() {
   libraryPage.value = false; settingsPage.value = false
-  corpusPage.value = false; voicesPage.value = false; instrumentsPage.value = false; navOpen.value = false
+  corpusPage.value = false; voicesPage.value = false; instrumentsPage.value = false; presetsPage.value = false
+  navOpen.value = false
 }
 
 // «＋ Новый трек»: модалка поверх любого экрана (список, студия, библиотека)
 function openNewTrack() {
-  settingsPage.value = false; corpusPage.value = false; voicesPage.value = false; instrumentsPage.value = false; navOpen.value = false
+  settingsPage.value = false; corpusPage.value = false; voicesPage.value = false; instrumentsPage.value = false
+  presetsPage.value = false; navOpen.value = false
   newTrackPage.value = true
 }
 
@@ -611,7 +615,8 @@ function navGo(page) {
   navOpen.value = false
   libraryPage.value = false
   instrumentsPage.value = page === 'instruments' ? !instrumentsPage.value : false
-  if (page === 'instruments') {
+  presetsPage.value = page === 'presets' ? !presetsPage.value : false
+  if (page === 'instruments' || page === 'presets') {
     corpusPage.value = false; settingsPage.value = false; voicesPage.value = false
   } else if (page === 'tracks') {
     corpusPage.value = !corpusPage.value; settingsPage.value = false; voicesPage.value = false
@@ -882,6 +887,7 @@ function onWindowClick(e) {
         <li :title="t('nav.tracks.tip')" @click="navGo('tracks')"><AppIcon class="nav-ico" name="music" />{{ t('nav.tracks') }}</li>
         <li :title="t('nav.voices.tip')" @click="navGo('voices')"><AppIcon class="nav-ico" name="mic" />{{ t('nav.voices') }}</li>
         <li :title="t('nav.instruments.tip')" @click="navGo('instruments')"><AppIcon class="nav-ico" name="pedal" />{{ t('nav.instruments') }}</li>
+        <li :title="t('nav.presets.tip')" @click="navGo('presets')"><AppIcon class="nav-ico" name="disc" />{{ t('nav.presets') }}</li>
         <li :title="t('nav.settings.tip')" @click="navGo('settings')"><AppIcon class="nav-ico" name="sliders" />{{ t('nav.settings') }}</li>
         <li :title="t('nav.about.tip')" @click="navOpen = false; welcome = 'about'"><AppIcon class="nav-ico" name="info" />{{ t('nav.about') }}</li>
       </ul>
@@ -1291,7 +1297,8 @@ function onWindowClick(e) {
               @close="voicesPage = false; loadVoiceCards()"
               @apply-voice="applyVoice" />
 
-  <InstrumentsPage v-if="instrumentsPage" @close="instrumentsPage = false; loadPresetNames(); refresh()" />
+  <InstrumentsPage v-if="instrumentsPage" @close="instrumentsPage = false; refresh()" />
+  <PresetsPage v-if="presetsPage" @close="presetsPage = false; loadPresetNames()" />
 
   <LibraryPage v-if="libraryPage" @close="libraryPage = false" />
 

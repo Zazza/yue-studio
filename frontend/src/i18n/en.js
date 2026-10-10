@@ -54,7 +54,7 @@ export default {
   'welcome.news.title': 'What\'s new in {v}',
   'welcome.dontShow': 'Don\'t show on start',
   'welcome.ok': 'Got it',
-  'nav.menu.tip': 'Menu: my tracks · voices · settings',
+  'nav.menu.tip': 'Menu: my tracks · voices · instruments · sound presets · settings',
 
   'player.prev': 'Previous finished track',
   'player.next': 'Next finished track',
@@ -705,6 +705,8 @@ export default {
   'voicelab.delete.body': 'The card and its audio copy on the server will be deleted. Cannot be undone.',
   'nav.instruments': 'instruments',
   'nav.instruments.tip': 'Instruments: hear a track stem through pedals, NAM amp, cabinet and reverb — the worker sound engine',
+  'nav.presets': 'sound presets',
+  'nav.presets.tip': 'Sound presets: what is inside each (drums, bass, guitar, balance, master); your own — rename and delete',
   'instr.title': 'Instruments',
   'instr.desc': 'A piece of a track stem through the sound engine chain: pedals → amp → cabinet → space. The sound is not shifted — like it, apply the same chain to the whole track.',
   'instr.engine.old': 'The worker does not know the sound engine — update the worker.',

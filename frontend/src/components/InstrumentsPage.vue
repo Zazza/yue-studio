@@ -14,7 +14,6 @@ import VSelect from '../VSelect.vue'
 import BLOCKS from '../fxBlocks.json'
 import { fxPresets } from '../fxPresets.js'
 import ChainEditor from './ChainEditor.vue'
-import PresetLibrary from './PresetLibrary.vue'
 import { toWorkerChain, fromWorkerChain, missingRequired, fillAmp } from '../fxChain.js'
 import { groupPresets } from '../presetGroups.js'
 
@@ -293,9 +292,6 @@ async function upload(kind) {
         <p v-if="err" class="err">{{ err }}</p>
         <p class="muted voice-hint">{{ t('instr.window', { from: window_().from.toFixed(1), to: end.toFixed(1) }) }}</p>
 
-        <h3>{{ t('preset.title') }}</h3>
-        <p class="muted">{{ t('preset.lib.desc') }}</p>
-        <PresetLibrary />
       </div>
     </section>
   </div>
