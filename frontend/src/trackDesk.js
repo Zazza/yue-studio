@@ -68,7 +68,7 @@ export function rhythmSection(stemNames, presets, room, locale = 'ru', kit = 'os
     }
     let label = tr(p.name)
     if (set.id !== 'osdk') {
-      chain = [kitSampler(chain[0], set.parts[stem])]
+      chain = [kitSampler(chain[0], set.parts[stem], stem)]
       label = `${tr(set.name)} · ${tr(PART_NAMES[stem])}`
     }
     chain.push(...JSON.parse(JSON.stringify(treat.chain)))

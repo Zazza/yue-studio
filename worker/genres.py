@@ -1633,18 +1633,27 @@ def _load_fx() -> dict:
 # цели громкости бочки и малого к треку: замена ударов идёт по уровню исходных, цель двигает уже новые удары
 # (цель на всю дорожку «барабаны» вернула бы в микс старые удары под новыми). В электронике бочка впереди,
 # в тихих (мастер soft) — барабаны глубже
-DRUM_LEVELS = {"default": (-11.0, -12.0), "Электроника": (-9.0, -12.0)}
+# цели громкости к треку (rms_p95 дорожки к сумме основных) — по замеру настоящих записей (этап 10, разделение
+# RoFormer): рок (Interpol, Bloc Party, Hives, Libertines, Dead Weather, Kings of Leon) — бочка −7,7, малый −9,6,
+# хэт −23,5, гитара −10; тяжёлое (Disturbed) — бочка −9,4, малый −12; электроника (La Roux, Digitalism, Postal
+# Service) — бочка ≈ −6, малый ≈ −11, хэт ≈ −25. Прежние −11/−12 давали барабаны на 5 дБ тише настоящих (#711)
+DRUM_LEVELS = {"default": (-7.5, -9.5), "Тяжёлое": (-8.0, -10.0), "Электроника": (-6.0, -11.0)}
+HH_LEVELS = {"default": -23.0, "Электроника": -25.0}
+# сдвиг цели гитары варианта по семье: середина рока была −8 (настоящие −10) — гитара закрывала барабаны (#711)
+GTR_SHIFT = {"Рок": -2.5, "Тяжёлое": -4.5, "Поп и другое": -1.0, "Электроника": 0.0}
 
 
-def _drums(fx: dict, kit: str, treat: str, levels: tuple) -> list:
+def _drums(fx: dict, kit: str, treat: str, levels: tuple, hh: float) -> list:
     """Части барабанов набором: готовая цепочка части (drums-<часть>-kit — живой osdk, drums-<часть>-<машина>)
-    + обработка ритм-секции; у бочки и малого — цель громкости."""
+    + обработка ритм-секции; у бочки, малого и хэта — цель громкости."""
     out = []
     for part in DRUM_PARTS:
         pid = f"drums-{part}-kit" if kit == "osdk" else f"drums-{part}-{kit}"
         spec = {"stems": [part], "engine": copy.deepcopy(fx[pid]["chain"]) + copy.deepcopy(TREATMENTS[treat])}
         if part in ("kick", "snare"):
             spec["level_db"] = levels[0] if part == "kick" else levels[1]
+        elif part == "hh":
+            spec["level_db"] = hh
         out.append(spec)
     return out
 
@@ -1673,9 +1682,10 @@ def build() -> list:
             kick, snare = DRUM_LEVELS.get(family, DRUM_LEVELS["default"])
             if master == "soft":
                 kick, snare = kick - 2, snare - 2
-            specs = _drums(fx, kit, treat, (kick, snare))
+            specs = _drums(fx, kit, treat, (kick, snare), HH_LEVELS.get(family, HH_LEVELS["default"]))
             specs.append({"stems": ["bass"], "engine": copy.deepcopy(fx[bass]["chain"]), "level_db": float(bass_lv)})
-            specs.append({"stems": ["guitar"], "engine": copy.deepcopy(fx[gtr]["chain"]), "level_db": float(gtr_lv)})
+            specs.append({"stems": ["guitar"], "engine": copy.deepcopy(fx[gtr]["chain"]),
+                          "level_db": float(gtr_lv) + GTR_SHIFT.get(family, 0.0)})
             out.append(
                 {
                     "slug": f"{gslug}-{vslug}",

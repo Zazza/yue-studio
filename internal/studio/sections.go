@@ -59,6 +59,11 @@ type SectionSpec struct {
 	// fx_apply) на дорожки Stems в окне: считается на воркере, в трек — разница
 	// «обработанная − исходная», как у Chain/Steps
 	Engine []map[string]any `json:"engine,omitempty"`
+	// LevelTarget (пресет звука, level_db у записи с Engine) — громкость ОБРАБОТАННОГО куска к треку, дБ: подстройка
+	// по замеру куска (dsp.LoudLevelDb) минус LevelTotal — громкость трека, ±presetLevelMax, сверх Db. Цель по
+	// исходной дорожке промахивалась: перегруз поднял гитару на +3,6 дБ над целью (#711, этап 10)
+	LevelTarget *float64 `json:"-"`
+	LevelTotal  float64  `json:"-"`
 	// Add у записи Engine — добавить обработанный кусок поверх трека, исходную дорожку не вычитать
 	// (синт-партия по аккордам); дорожка "mix" (весь трек как вход, без разделения) — только с Add
 	Add bool `json:"add,omitempty"`
@@ -645,9 +650,17 @@ func engineInserts(ctx context.Context, svc yue.Service, parentID int64, s Secti
 		if err != nil {
 			return nil, fmt.Errorf("движок на %s: кусок %s: %w", name, v.File, err)
 		}
+		db := s.Db
+		if s.LevelTarget != nil && !s.Add {
+			lv, err := dsp.LoudLevelDb(wet)
+			if err != nil {
+				return nil, fmt.Errorf("движок на %s: замер куска: %w", name, err)
+			}
+			db += max(-presetLevelMax, min(presetLevelMax, *s.LevelTarget-(lv-s.LevelTotal)))
+		}
 		// кусок от начала трека (Pad): на место без adelay — тем же отсчётом, что дорожка
 		*inputs = append(*inputs, wet)
-		out = append(out, dsp.Insert{Gain: math.Pow(10, s.Db/20)})
+		out = append(out, dsp.Insert{Gain: math.Pow(10, db/20)})
 		if s.Add {
 			continue // добавление: исходная дорожка остаётся как есть
 		}

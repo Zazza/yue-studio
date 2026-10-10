@@ -1144,8 +1144,8 @@
    "en": "Hi-hat: kit"
   },
   "note": {
-   "ru": "На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Громкость +4 дБ: хэт YuE тихий, на слух лучше заметнее (опыт #663). Набор — fx_kit_install osdk.",
-   "en": "On the \"hi-hat\" stem (RoFormer): hi-hat hits with The Open Source Drum Kit samples. A short hit gets a closed hat, a long-ringing one a half-closed hat; each hit chokes the previous one like the pedal. Output +4 dB: the YuE hi-hat is quiet, a bit more presence sounds better. Kit — fx_kit_install osdk."
+   "ru": "На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Эквалайзер: в сэмплах хэта слышны бочка и малый, и сам он тусклее, чем в записях, — низ срезан, верх поднят (центр звука 5 → 8,6 кГц, как у хэта настоящих записей). Набор — fx_kit_install osdk.",
+   "en": "On the \"hi-hat\" stem (RoFormer): hi-hat hits with The Open Source Drum Kit samples. A short hit gets a closed hat, a long-ringing one a half-closed hat; each hit chokes the previous one like the pedal. EQ: the kit hat samples carry kick and snare bleed and sound duller than on records — lows cut, top lifted (spectral centre 5 → 8.6 kHz, like a hi-hat on real records). Kit — fx_kit_install osdk."
   },
   "chain": [
    {
@@ -1154,7 +1154,23 @@
     "kit_open": "osdk/hh-half",
     "choke": 1,
     "floor_db": -24,
-    "output_db": 4
+    "output_db": 0
+   },
+   {
+    "type": "eq",
+    "highpass_hz": 1000,
+    "bands": [
+     {
+      "freq_hz": 1000,
+      "gain_db": -6,
+      "q": 0.7
+     },
+     {
+      "freq_hz": 10000,
+      "gain_db": 8,
+      "q": 0.7
+     }
+    ]
    }
   ]
  },

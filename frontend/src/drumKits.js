@@ -62,11 +62,15 @@ export const ROOM = { type: 'reverb', decay_s: 0.5, predelay_ms: 5, lowpass_hz: 
 
 const KIT_FIELDS = ['kit', 'kit_open', 'kit_mid', 'kit_low', 'choke']
 
+// параметры удара машин, которые расходятся с живым набором: у живого хэта громкость 0 — его поднимает эквалайзер
+// (этап 10, сэмплы osdk тусклые), у машин хэт и так яркий, без eq — прежние +4 (усл. 84: машины не меняются)
+const MACHINE_STRIKE = { hh: { output_db: 4 } }
+
 /** Блок sampler части набора: параметры удара (floor_db, dynamics, output_db…) — от блока живого набора той же
- *  части, наборы сэмплов (kit, kit_open, kit_mid, kit_low, choke) — от части набора. */
-export function kitSampler(live, part) {
+ *  части (кроме MACHINE_STRIKE у машин), наборы сэмплов (kit, kit_open, kit_mid, kit_low, choke) — от части набора. */
+export function kitSampler(live, part, stem = '') {
   const base = Object.fromEntries(Object.entries(live).filter(([k]) => !KIT_FIELDS.includes(k)))
-  return { ...base, ...part }
+  return { ...base, ...(MACHINE_STRIKE[stem] || {}), ...part }
 }
 
 // части пульта по-человечески — для подписей записей «набором»

@@ -110,7 +110,9 @@ GET  /sound-presets    пресеты звука [{id, slug, name, note, specs, 
                        встроенные (slug transmission, sex-on-fire; при старте обновляются по slug из кода, id прежний) первыми
 POST /sound-presets    {name, note?, specs?, final?, master?, parts?, reference_job_id?, target_lufs?} → пресет с id.
                        level_db у записи одной дорожки (−40…+6) — цель громкости дорожки к треку: приложение при
-                       применении подстраивает db по замеру дорожки (±12 дБ); {stems: [одна], level_db} — только
+                       применении подстраивает db по замеру дорожки (±12 дБ; с обработкой — по замеру обработанной;
+                       после мастера — сверка по итогу: разделение версии, до двух исправляющих пересборок,
+                       промежуточные версии удаляются); {stems: [одна], level_db} — только
                        громкость (и на частях барабанов). parts (до 8) — партии-рецепты поверх трека: {kind synth|perc,
                        engine (первый блок synth|perc, без notes), style pad|arp|pulse|drone, octave −2…2 | pattern
                        fours|eighths|sixteenths|backbeat|offbeat, swing 0…0,5, accent 0…1, sections [], place}; ноты

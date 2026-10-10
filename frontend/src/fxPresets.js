@@ -393,10 +393,15 @@ export const fxPresets = [
     stems: ['hh'], group: 'drum-kits',
     name: { ru: 'Хэт: набор', en: 'Hi-hat: kit' },
     note: {
-      ru: 'На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Громкость +4 дБ: хэт YuE тихий, на слух лучше заметнее (опыт #663). Набор — fx_kit_install osdk.',
-      en: 'On the "hi-hat" stem (RoFormer): hi-hat hits with The Open Source Drum Kit samples. A short hit gets a closed hat, a long-ringing one a half-closed hat; each hit chokes the previous one like the pedal. Output +4 dB: the YuE hi-hat is quiet, a bit more presence sounds better. Kit — fx_kit_install osdk.',
+      ru: 'На дорожку «хэт» (RoFormer): удары хэта — сэмплами The Open Source Drum Kit. Коротко звучащий удар — закрытый хэт, долго звучащий — полузакрытый; новый удар глушит предыдущий, как педаль. Эквалайзер: в сэмплах хэта слышны бочка и малый, и сам он тусклее, чем в записях, — низ срезан, верх поднят (центр звука 5 → 8,6 кГц, как у хэта настоящих записей). Набор — fx_kit_install osdk.',
+      en: 'On the "hi-hat" stem (RoFormer): hi-hat hits with The Open Source Drum Kit samples. A short hit gets a closed hat, a long-ringing one a half-closed hat; each hit chokes the previous one like the pedal. EQ: the kit hat samples carry kick and snare bleed and sound duller than on records — lows cut, top lifted (spectral centre 5 → 8.6 kHz, like a hi-hat on real records). Kit — fx_kit_install osdk.',
     },
-    chain: [{ type: 'sampler', kit: 'osdk/hh-closed', kit_open: 'osdk/hh-half', choke: 1, floor_db: -24, output_db: 4 }],
+    // эквалайзер — этап 10: сэмплы osdk — центр 5,1 кГц, 15 % ниже 500 Гц (протечка бочки/малого); хэт настоящих
+    // записей — 5,8–9 кГц, низа нет; на #135 эта eq дала 8,6 кГц, 76 % выше 6 кГц, 0 % ниже 500 Гц
+    chain: [
+      { type: 'sampler', kit: 'osdk/hh-closed', kit_open: 'osdk/hh-half', choke: 1, floor_db: -24, output_db: 0 },
+      { type: 'eq', highpass_hz: 1000, bands: [{ freq_hz: 1000, gain_db: -6, q: 0.7 }, { freq_hz: 10000, gain_db: 8, q: 0.7 }] },
+    ],
   },
   {
     id: 'drums-ride-kit',
@@ -821,7 +826,7 @@ export const fxPresets = [
         id: `drums-${part}-${k.id}`, stems: [part], group: 'drum-kits',
         name: { ru: `${cap(PART_NAMES[part].ru)}: ${k.name.ru}`, en: `${cap(PART_NAMES[part].en)}: ${k.name.en}` },
         note: k.note,
-        chain: [kitSampler(live, k.parts[part])],
+        chain: [kitSampler(live, k.parts[part], part)],
       })
     }
   }

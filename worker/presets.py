@@ -329,6 +329,11 @@ def _eq(*bands, highpass=0):
 ROOM = {"type": "reverb", "decay_s": 0.5, "predelay_ms": 5, "lowpass_hz": 7000, "wet": 0.12}
 
 
+# эквалайзер хэта набора osdk — как в «Хэт: набор» (fxPresets.js drums-hh-kit, этап 10)
+HH_KIT_EQ = {"type": "eq", "highpass_hz": 1000,
+             "bands": [{"freq_hz": 1000, "gain_db": -6, "q": 0.7}, {"freq_hz": 10000, "gain_db": 8, "q": 0.7}]}
+
+
 def _part(stem, sampler):
     return {"stems": [stem], "engine": [dict(sampler, type="sampler"), dict(ROOM)]}
 
@@ -375,8 +380,10 @@ BUILTIN = [
             _part("snare", {"kit": "osdk/snare", "floor_db": -20, "output_db": -2}),
             _part("toms", {"kit": "osdk/tom-small", "kit_mid": "osdk/tom-medium", "kit_low": "osdk/tom-large",
                            "floor_db": -18, "output_db": -2}),
-            _part("hh", {"kit": "osdk/hh-closed", "kit_open": "osdk/hh-half", "choke": 1,
-                         "floor_db": -24, "output_db": 4}),
+            # хэт — как «Хэт: набор»: сэмплы тусклые и с протечкой бочки/малого — eq ярче (этап 10)
+            {"stems": ["hh"], "engine": [
+                {"type": "sampler", "kit": "osdk/hh-closed", "kit_open": "osdk/hh-half", "choke": 1,
+                 "floor_db": -24, "output_db": 0}, dict(HH_KIT_EQ), dict(ROOM)]},
             _part("ride", {"kit": "osdk/ride", "floor_db": -18, "output_db": -2}),
             _part("crash", {"kit": "osdk/crash", "floor_db": -18, "output_db": -2}),
             {"stems": ["bass"], "engine": [{"type": "bass", "kit": "growlybass/bass", "division": 2, "floor_db": -20}]},

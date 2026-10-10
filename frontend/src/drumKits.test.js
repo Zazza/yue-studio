@@ -190,7 +190,9 @@ describe('rhythmSection с набором и обработкой (ТК93)', () 
       const b = r.chain[0]
       expect(b.type).toBe('sampler')
       expect(b).toMatchObject(parts[r.stem])
-      for (const k of ['floor_db', 'dynamics', 'output_db']) expect(b[k], `${r.stem}.${k}`).toEqual(old[k])
+      // усл. 84 (этап 10): у живого хэта громкость 0 (его поднимает эквалайзер), у хэта машин — прежние +4
+      const want = (k) => (r.stem === 'hh' && k === 'output_db' ? 4 : old[k])
+      for (const k of ['floor_db', 'dynamics', 'output_db']) expect(b[k], `${r.stem}.${k}`).toEqual(want(k))
       for (const k of ['kit', 'kit_mid', 'kit_low', 'kit_open', 'choke']) expect(b[k], `${r.stem}.${k}`).toEqual(parts[r.stem][k])
     }
     expect(out.find((r) => r.stem === 'kick').chain[0].kit).toBe('tr808/kick')
