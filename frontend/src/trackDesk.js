@@ -103,3 +103,11 @@ export function stemAudibility(db) {
   if (db < -20) return 'quiet'
   return ''
 }
+
+// Части барабанов как цель правок (линия громкости, эффекты) не бывают — работают через барабаны целиком.
+const DRUM_PART_TARGET = { kick: 'drums', snare: 'drums', toms: 'drums', hh: 'drums', ride: 'drums', crash: 'drums' }
+
+/** Цель правок для выбранной дорожки: часть барабанов → барабаны, остальные — сами собой. */
+export function envTargetFor(stem) {
+  return DRUM_PART_TARGET[stem] || stem
+}

@@ -3,7 +3,7 @@
 // окно записи в трек, готовые цепочки для дорожки. Окна — {from, to} в секундах.
 // Написаны по карточке, без чтения реализации.
 import { describe, it, expect } from 'vitest'
-import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection } from './trackDesk.js'
+import { deskRows, previewWindow, applyWindow, presetsFor, rhythmSection, envTargetFor } from './trackDesk.js'
 import { fxPresets } from './fxPresets.js'
 
 // запись реестра правок (как в useInserts): нужны childId, stems, off
@@ -229,5 +229,14 @@ describe('rhythmSection — ритм-секция набором (ТК37)', () =
     expect(b).toEqual(a)
     a[0].chain.push({ type: 'gain', gain_db: 1 })
     expect(snapshot()).toEqual(before)
+  })
+})
+
+describe('envTargetFor — цель правок выбранной дорожки', () => {
+  it('части барабанов идут через барабаны целиком', () => {
+    for (const p of ['kick', 'snare', 'toms', 'hh', 'ride', 'crash']) expect(envTargetFor(p)).toBe('drums')
+  })
+  it('основные и подробные дорожки — сами собой', () => {
+    for (const s of ['vocals', 'drums', 'bass', 'other', 'guitar', 'piano']) expect(envTargetFor(s)).toBe(s)
   })
 })

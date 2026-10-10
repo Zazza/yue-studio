@@ -925,4 +925,5 @@ export default {
   'desk.level.tip': 'Level of the stem\'s loud parts relative to the whole track',
   'desk.level.silent': 'barely audible — placement and processing will not be heard',
   'desk.level.quiet': 'quiet',
+  'desk.select.tip': 'click — waveform, spectrum and volume/FX edits for this stem only; click again — whole track',
 }

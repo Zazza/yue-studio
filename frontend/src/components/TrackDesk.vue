@@ -32,9 +32,10 @@ const props = defineProps({
   cursor: { type: Number, default: 0 },          // курсор волны, с
   names: { type: Object, required: true },       // подписи записей реестра (как в «Правках трека»)
   win: { type: Object, required: true },         // подписи окон записей
+  active: { type: String, default: '' },         // выбранная дорожка: волна/спектр и правки громкости — по ней
 })
-// applied — трек пересобран; stems — дорожки сделаны (студии перечитать список)
-const emit = defineEmits(['applied', 'stems'])
+// applied — трек пересобран; stems — дорожки сделаны (студии перечитать список); select — выбрана дорожка
+const emit = defineEmits(['applied', 'stems', 'select'])
 const { t, locale } = useI18n()
 const inserts = useInserts()
 const { toggleArtifact, playBtn, isPlaying, playBusy } = usePlayer()
@@ -253,7 +254,9 @@ async function upload(kind) {
     <div class="desk-head">
       <button class="ghost play-mini" :class="{ stop: isPlaying(stemKey(row)) }" :disabled="playBusy[stemKey(row)]"
               :title="t('desk.solo.tip')" @click="playStem(row)">{{ playBtn(stemKey(row)) }}</button>
-      <strong class="desk-name" :title="t('desk.what.' + row.stem)">{{ stemName(row.stem) }}</strong>
+      <button class="ghost desk-name desk-select" :class="{ on: props.active === row.stem }"
+              :title="(t('desk.what.' + row.stem) || '') + ' · ' + t('desk.select.tip')"
+              @click="emit('select', props.active === row.stem ? '' : row.stem)">{{ stemName(row.stem) }}</button>
       <span v-if="levelText(row.stem)" class="muted desk-level" :class="levelMark(row.stem)" :title="t('desk.level.tip')">
         {{ levelText(row.stem) }}<template v-if="levelMark(row.stem)"> · {{ t('desk.level.' + levelMark(row.stem)) }}</template></span>
       <span v-for="e in row.edits" :key="e.childId" class="desk-chip" :class="{ off: e.off }"
@@ -295,7 +298,8 @@ async function upload(kind) {
 .desk-row { border-bottom: 1px solid var(--line, #2a2a35); padding: 4px 0; }
 .desk-row.open { background: var(--panel-2, rgba(255, 255, 255, 0.02)); }
 .desk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.desk-name { min-width: 90px; cursor: help; }
+.desk-select { font-weight: 600; min-width: 90px; text-align: left; }
+.desk-select.on { border-color: var(--accent, #7aa2f7); color: var(--accent, #7aa2f7); }
 .desk-level { font-size: 12px; }
 .desk-level.silent { opacity: 0.6; font-style: italic; }
 .desk-chip { font-size: 12px; border: 1px solid var(--line, #2a2a35); border-radius: 10px; padding: 1px 8px; }

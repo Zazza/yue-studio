@@ -21,6 +21,7 @@ import { chainDefaults, hasGrid, needsStem, voiceTarget } from '../dspVoice.js'
 import { previewWindow } from '../fxPreview.js'
 import { sectionLabel } from '../sectionNames.js'
 import { cursorSec as cursorInterp, gridMarks, posEdges, secToPosRange } from '../waveLogic.js'
+import { envTargetFor } from '../trackDesk.js'
 import VSelect from '../VSelect.vue'
 import WaveView from './WaveView.vue'
 import PedalBoard from './PedalBoard.vue'
@@ -136,6 +137,18 @@ const waveFiles = computed(() => {
 })
 
 const waveKey = computed(() => `w${props.job.id}:${waveFile.value || 'main'}`)
+
+// выбранная дорожка: файл волны — стем → волна/спектр и правки громкости/эффектов идут по ней
+const activeStem = computed(() => (stemsList.value.find((s) => s.file === waveFile.value) || {}).name || '')
+watch(activeStem, (stem) => {
+  if (!stem) return
+  const tgt = envTargetFor(stem)
+  if (DSP_TARGETS.includes(tgt)) { envTarget.value = tgt; dspTarget.value = tgt }
+})
+function selectStem(stem) {
+  const s = stemsList.value.find((x) => x.name === stem)
+  waveFile.value = s ? s.file : ''
+}
 
 // цвет волны (амплитуда, выделение, курсор): янтарь/коралл — наши, плюс классика.
 // Выбор живёт между запусками; '' = акцент темы не входит в список — янтарь по умолчанию
@@ -1889,8 +1902,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
           <div ref="deskBox" class="studio-box">
             <div class="studio-box-head"><span><AppIcon name="sliders" /> {{ t('desk.title') }}</span> <span class="muted studio-box-hint">{{ t('desk.sub') }}</span></div>
             <div class="studio-box-body">
-              <TrackDesk ref="deskRef" :job="job" :stems="stemsList" :sel="selRange" :cursor="waveCursor"
-                         :names="insertNames" :win="insertWin" @applied="reloadVariants" @stems="reloadStems" />
+              <TrackDesk ref="deskRef" :job="job" :stems="stemsList" :active="activeStem" :sel="selRange" :cursor="waveCursor"
+                         :names="insertNames" :win="insertWin" @applied="reloadVariants" @stems="reloadStems" @select="selectStem" />
               <div class="stems-inline">
                 <span class="muted">{{ t('studio.stems.minus') }}</span>
                 <label v-for="nm in ['drums', 'bass', 'other', 'vocals']" :key="nm" class="stem-toggle">
