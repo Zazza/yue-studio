@@ -2,7 +2,7 @@
 
 // приёмы, меняющие голос: только они уходят в план дубля «перепеть»
 // (от дубля берётся лишь голос — музыкальные приёмы там бессмысленны)
-export const revoiceSpecKinds = new Set(['octave', 'vocalUp', 'vocalVary'])
+export const revoiceSpecKinds = new Set(['octave', 'vocalUp', 'vocalVary', 'vocalHold'])
 
 // источник голоса версии — рендер, чей голос в ней звучит (продолжения для
 // «перепеть» берутся от него): voice_src версии; сгенерированный трек

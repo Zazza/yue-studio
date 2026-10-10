@@ -91,7 +91,7 @@ function octTranspose(s, dir) {
 // 2026-09-30: модель поёт мелодию Vocal плана нота в ноту; выше потолка
 // голоса (верх плана + 2 ступени) — писк/фальцет.
 const LETTERS = 'CDEFGAB'
-const VOCAL_KINDS = new Set(['octave', 'vocalUp', 'vocalVary'])
+const VOCAL_KINDS = new Set(['octave', 'vocalUp', 'vocalVary', 'vocalHold'])
 
 function noteStep(letter, oct) {
   const low = letter === letter.toLowerCase()
@@ -159,6 +159,37 @@ function vocalVary(chunk, ceil, k, n) {
     else if (late && i === cnt - 2) ns = st + 1
     return Math.min(ns, ceil)
   })
+}
+
+// «протянуть концы фраз» (этап 11, #747): нота, за которой в том же такте сразу пауза, тянется за счёт паузы на
+// min(пауза, half) единиц. Начала нот (ритм слогов), высоты и длина такта — прежние: сдвиги слогов модель поёт «мимо
+// доли» (#740–#743), а протянутое слово звучит живее. Дроби длительностей (B/2) — такт не трогается.
+const HOLD_TOKEN_RE = /("[^"]*")|([=_^]?[A-Ga-g][,']*|z)(\d*)(\/\d*)?|(\s+)|(.)/g
+function vocalHold(chunk, half) {
+  const toks = []
+  for (const m of chunk.matchAll(HOLD_TOKEN_RE)) {
+    if (m[2]) {
+      if (m[4] !== undefined) return chunk
+      toks.push({ kind: m[2] === 'z' ? 'rest' : 'note', head: m[2], len: m[3] ? Number(m[3]) : 1 })
+    } else toks.push({ kind: 'raw', text: m[0] })
+  }
+  for (let i = 0; i < toks.length - 1; i++) {
+    const a = toks[i], b = toks[i + 1]
+    if (a.kind !== 'note' || b.kind !== 'rest') continue
+    const ext = Math.min(b.len, half)
+    a.len += ext
+    b.len -= ext
+  }
+  return toks.map((x) => (x.kind === 'raw' ? x.text : x.len > 0 ? x.head + (x.len === 1 ? '' : x.len) : '')).join('')
+}
+
+// половина доли в единицах L: (4/4 + 1/16 → 2, 4/4 + 1/8 → 1); не меньше 1
+function halfBeatUnits(abc) {
+  const m = String(abc).match(/^M:\s*(\d+)\/(\d+)/m)
+  const l = String(abc).match(/^L:\s*(\d+)\/(\d+)/m)
+  const beatDen = m ? Number(m[2]) : 4
+  const lDen = l ? Number(l[2]) : 16
+  return Math.max(1, Math.floor(lDen / beatDen / 2))
 }
 
 // план для «заново с места»: приёмы ролла ровно по разу поверх исходника
@@ -438,6 +469,7 @@ export function applyTrick(abc, spec) {
   const ceilNote = vocal ? (spec.ceiling || vocalCeiling(abc)) : null
   const ceil = ceilNote ? parseNote(ceilNote) : Infinity
   let varied = 0
+  const half = halfBeatUnits(abc)
   for (const p of splitBars(abc)) {
     if (p.kind !== 'body' || !p.voice) {
       const qm = p.kind === 'head' && p.raw.match(/^Q:.*?=\s*(\d+)/)
@@ -464,6 +496,7 @@ export function applyTrick(abc, spec) {
       } else if (spec.kind === 'octave') kept.push(octTranspose(c, spec.dir || 'up'))
       else if (spec.kind === 'vocalUp') kept.push(vocalUp(c, ceil))
       else if (spec.kind === 'vocalVary') kept.push(vocalVary(c, ceil, varied++, want.size))
+      else if (spec.kind === 'vocalHold') kept.push(/vocal/i.test(p.voice) ? vocalHold(c, half) : c)
       // 'cut' — такт просто не попадает в kept
     }
     counters[p.voice] = base + bars.length

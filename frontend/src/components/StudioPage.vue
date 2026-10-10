@@ -1707,6 +1707,8 @@ onUnmounted(() => window.removeEventListener('mouseup', onWindowMouseup))
                         :title="t('studio.trick.vocalUp.tip')" @click="runTrick('vocalUp')">{{ t('studio.trick.vocalUp') }}</button>
                 <button class="ghost small-btn" :disabled="trickBusy"
                         :title="t('studio.trick.vocalVary.tip')" @click="runTrick('vocalVary')">{{ t('studio.trick.vocalVary') }}</button>
+                <button class="ghost small-btn" :disabled="trickBusy"
+                        :title="t('studio.trick.vocalHold.tip')" @click="runTrick('vocalHold')">{{ t('studio.trick.vocalHold') }}</button>
                 <button class="ghost small-btn" :disabled="trickBusy || isImport"
                         :title="importTip('studio.revoice.tip')" @click="revoiceFromSel">{{ t('studio.revoice') }}</button>
               </div>

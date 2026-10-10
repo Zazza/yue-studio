@@ -346,6 +346,8 @@ export default {
   'studio.trick.vocalUp.tip': 'Same vocal melody a third higher — strained and pushing, capped at the voice ceiling (plan top + 2 steps). Applied by «re-sing from here»',
   'studio.trick.vocalVary': 'voice: variations',
   'studio.trick.vocalVary.tip': 'Motif variations: same rhythm and anchor notes, phrase ends move to neighbour notes, wider towards the end of the selection. Press again for wider. Applied by «re-sing from here»',
+  'studio.trick.vocalHold': 'voice: hold phrase ends',
+  'studio.trick.vocalHold.tip': 'The last note of a phrase is held into the rest after it (by half a beat): same syllable rhythm and notes, the closing word rings longer. Applied by «re-sing from here»',
   'studio.trick.inst.vocalstop': 'voice: stop',
   'studio.revoice': '↻ re-sing from here',
   'studio.revoice.tip': 'The voice of the selected part is sung again with the voice tricks (2 takes); music and the voice outside the part stay. New versions appear among the track versions in a few minutes',
