@@ -869,13 +869,13 @@
    },
    {
     "id": "rel_db",
-    "default": -6,
+    "default": -8,
     "min": -30,
     "max": 6,
     "step": 0.5,
     "label": {
-     "ru": "громкость к треку, дБ (−10 — на 10 дБ тише трека)",
-     "en": "level vs track, dB (−10 — 10 dB below the track)"
+     "ru": "громкость к треку на слух, дБ (−10 — на 10 дБ тише трека)",
+     "en": "level vs track by ear, dB (−10 — 10 dB below the track)"
     }
    },
    {

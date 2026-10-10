@@ -3066,23 +3066,42 @@ def _fx_render(job_id: int, req: FxIn) -> dict:
 SYNTH_LEAD_S = 1.0   # нота, начатая задолго до окна, считается не раньше чем за столько (и за атаку+спад) до окна
 
 
-def synth_ref_rms(track, sr: int, notes: list) -> float:
-    """Громкость трека (RMS, по всем каналам) там, где звучат ноты партии (секунды трека), — опора уровня синта:
-    одна и та же для превью любого окна и для пересборки (иначе 15 с тихого куплета и весь трек давали партию
-    разной громкости). Нот нет — 0."""
+SYNTH_LEVEL_SPAN_S = 24.0   # уровень партии на выходе цепочки меряется по стольким секундам от первой ноты (+ хвост)
+# предел поправки уровня на блоки после synth, дБ: нелинейный блок (гейт, компрессор) не разгонит партию на +80 дБ
+SYNTH_POST_CORR_DB = (-24.0, 12.0)
+
+
+def _notes_mask(n: int, sr: int, notes: list):
     import numpy as np
-    n = len(track)
     m = np.zeros(n, dtype=bool)
     for nt in notes:
         a, b = max(0, int(nt["t"] * sr)), min(n, int((nt["t"] + nt["d"]) * sr))
         if b > a:
             m[a:b] = True
-    return float(np.sqrt(np.mean(np.asarray(track)[m] ** 2))) if m.any() else 0.0
+    return m
 
 
-def synth_part_level(blk: dict, n: int, sr: int) -> tuple[float, float]:
-    """Громкость (RMS там, где звучит) и пик сырой партии синта по всем нотам на всём треке — один раз на запрос
-    (пэд на всю песню ~2 с): общий множитель уровня для любого окна."""
+def synth_ref_rms(track, sr: int, notes: list) -> float:
+    """Громкость трека «на ухо» (A-уровень, по всем каналам) там, где звучат ноты партии (секунды трека), — опора
+    уровня синта: одна и та же для превью любого окна и для пересборки (иначе 15 с тихого куплета и весь трек давали
+    партию разной громкости). Нот нет — 0."""
+    import numpy as np
+    import fx_engine
+    m = _notes_mask(len(track), sr, notes)
+    if not m.any():
+        return 0.0
+    a = fx_engine.a_weight(np.asarray(track, dtype=np.float64), sr)
+    return float(np.sqrt(np.mean(a[m] ** 2)))
+
+
+def synth_part_level(blk: dict, n: int, sr: int, post: list | None = None, ch: int = 2,
+                     target: float = 0.1) -> tuple[float, float]:
+    """Громкость партии синта «на ухо» (A-уровень там, где звучит) на единицу сырого усиления и пик сырой партии —
+    по всем нотам на всём треке, один раз на запрос (пэд на всю песню ~2 с): общий множитель уровня для любого окна.
+    post — блоки цепочки после synth (до следующего synth/perc): уровень меряется на их выходе (eq +8 дБ после synth
+    не делает партию громче цели) — по отрезку SYNTH_LEVEL_SPAN_S от первой ноты, сырой синт в нём заранее выставлен
+    к целевому A-уровню target (гейт, перегруз и лента зависят от уровня входа — замер на рабочем уровне); поправка —
+    в пределах SYNTH_POST_CORR_DB."""
     import numpy as np
     import fx_engine
     full = fx_engine.parse_chain([blk])[0]          # умолчания блока (в эндпоинте цепочка уже разобрана)
@@ -3092,8 +3111,39 @@ def synth_part_level(blk: dict, n: int, sr: int) -> tuple[float, float]:
     finally:
         if res is not None:
             res.close()
+    peak = float(np.abs(y).max()) if len(y) else 0.0
     m = np.abs(y) > 1e-6
-    return (float(np.sqrt(np.mean(y[m] ** 2))) if m.any() else 0.0), float(np.abs(y).max()) if len(y) else 0.0
+    if not m.any():
+        return 0.0, peak
+    level = float(np.sqrt(np.mean(fx_engine.a_weight(y, sr)[m] ** 2)))
+    # усилитель NAM выравнивает выход по входу (и идёт через очередь видеокарты) — в замер не входит
+    post = [b for b in (post or []) if b.get("type") not in ("synth", "perc", "amp")]
+    if not post or level <= 0.0:
+        return level, peak
+    s0 = int(np.argmax(m))
+    tail = int(fx_engine.MAX_TAIL_S * sr) if any(b.get("type") in ("reverb", "delay", "spring") for b in post) else 0
+    s1 = min(n, s0 + int(SYNTH_LEVEL_SPAN_S * sr))
+    seg = np.zeros(s1 - s0 + tail)
+    seg[: s1 - s0] = y[s0:s1] * (max(target, 1e-6) / level)
+    sm = np.zeros(len(seg), dtype=bool)
+    sm[: s1 - s0] = m[s0:s1]
+    x = np.repeat(seg[:, None], max(1, ch), axis=1)
+    post = [dict({k: v for k, v in b.items() if not k.startswith("_")}, _t0=s0 / sr) if b.get("type") == "tremolo"
+            else b for b in post]
+    # IR реверба/кабинета и наборы sampler/bass после synth — из хранилища
+    res = fx_resources() if any(b.get("ir") or b.get("kit") for b in post) else None
+    try:
+        out = np.asarray(fx_engine.process(x, sr, post, res), dtype=np.float64)
+    finally:
+        if res is not None:
+            res.close()
+    before = float(np.sqrt(np.mean(fx_engine.a_weight(x, sr)[sm] ** 2)))
+    after = float(np.sqrt(np.mean(fx_engine.a_weight(out, sr)[sm] ** 2)))
+    if before <= 0:
+        return level, peak
+    lo, hi = SYNTH_POST_CORR_DB
+    corr = min(max(after / before, 10 ** (-hi / 20)), 10 ** (-lo / 20))   # громче цели — не больше чем на hi дБ
+    return level * corr, peak
 
 
 def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -> list:
@@ -3102,7 +3152,7 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
     сэмплов, а давняя нота упиралась бы в лимит начала); длинные — до края окна; _until — глушить синт на краю
     окна (затухание и сам синт не заходят в хвост реверба/дилея)."""
     out = []
-    for b in chain:
+    for i, b in enumerate(chain):
         if b["type"] == "perc":
             out.append(perc_window(b, frm, win, track, sr))
             continue
@@ -3136,9 +3186,21 @@ def synth_window(chain: list, frm: float, win: float, track=None, sr: int = 0) -
             notes.append(dict(nt, t=t, d=min(end, win) - t))
         blk = dict(b, notes=notes, _until=win, _t0=frm)   # _t0 — фазы нот от их места в треке
         if track is not None:
+            import numpy as np
+            import fx_engine
             # общий уровень партии: громкость трека и синта по ВСЕМ нотам (синт — сырой, без нормировки окна)
             blk["_ref_rms"] = synth_ref_rms(track, sr, b["notes"])
-            blk["_syn_rms"], blk["_syn_peak"] = synth_part_level(b, len(track), sr)
+            # блоки после synth до следующей партии: уровень партии — на их выходе
+            post = []
+            for nb in chain[i + 1:]:
+                if nb["type"] in ("synth", "perc"):
+                    break
+                post.append(nb)
+            ch = np.asarray(track).shape[1] if np.asarray(track).ndim > 1 else 1
+            ref = blk["_ref_rms"]
+            target = ref * fx_engine._db(b.get("rel_db", fx_engine.SYNTH_REL_DB)) \
+                if ref > fx_engine._db(fx_engine.SYNTH_QUIET_DB) else 0.1
+            blk["_syn_rms"], blk["_syn_peak"] = synth_part_level(b, len(track), sr, post, ch, target)
         out.append(blk)
     return out
 

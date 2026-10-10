@@ -791,7 +791,7 @@ export default {
   'synth.octave': 'octave',
   'synth.level': 'level',
   'synth.edit': 'synth sound and effects',
-  'synth.level.tip': 'Part level vs the track where it plays: −6 — 6 dB below the track, 0 — level. Can’t hear it — raise the octave: in the guitar range the part blends in',
+  'synth.level.tip': 'Part level vs the track by ear where it plays: −8 — 8 dB below the track, 0 — level. Can’t hear it — raise the octave: in the guitar range the part blends in',
   'synth.solo': 'part alone',
   'synth.solo.tip': 'Only the part, without the track, same window — to hear what to listen for in the mix',
   'synth.notes': 'notes: {n}',

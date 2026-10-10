@@ -28,9 +28,9 @@ describe('синт слышен: умолчания (ТК63)', () => {
     expect(synth.cutoff_hz).toBe(6000)
   })
 
-  it('fxBlocks: synth rel_db по умолчанию −6', () => {
+  it('fxBlocks: synth rel_db по умолчанию −8 (на ухо, этап 9)', () => {
     const rel = BLOCKS.synth.params.find((p) => p.id === 'rel_db')
     expect(rel).toBeDefined()
-    expect(rel.default).toBe(-6)
+    expect(rel.default).toBe(-8)
   })
 })

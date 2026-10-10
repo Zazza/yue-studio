@@ -60,7 +60,7 @@ const notes = computed(() => (grid.value ? partNotes(grid.value.bars, { style: s
 // громкость партии относительно трека — это rel_db блока synth: верхний ползунок и крутилка в редакторе цепочки —
 // один параметр, а не два (кросс-ревью: второй ничего не делал)
 const db = computed({
-  get: () => { const b = chain.value.find((x) => x.type === 'synth'); return b ? b.params.rel_db : -6 },
+  get: () => { const b = chain.value.find((x) => x.type === 'synth'); return b ? b.params.rel_db : -8 },
   set: (v) => { chain.value = chain.value.map((b) => (b.type === 'synth' ? { ...b, params: { ...b.params, rel_db: Number(v) } } : b)) },
 })
 const listenWin = computed(() => previewWindow(props.sel, props.cursor, props.job.duration_sec))
@@ -93,7 +93,8 @@ function toggleSection(s) {
 }
 
 // цепочка воркеру: ноты партии — в блок synth (секунды трека; воркер сдвигает их на окно превью); громкость —
-// относительно трека там, где играет синт (rel_db): по пику пэд тонул в плотном припеве (прослушивание #681)
+// относительно трека «на ухо» там, где играет синт (rel_db, −8): по пику пэд тонул в плотном припеве (#681),
+// по простому RMS яркий синт «пищал» (#707–#709)
 function workerChain() {
   return toWorkerChain(chain.value).map((b) => (b.type === 'synth' ? { ...b, notes: notes.value } : b))
 }

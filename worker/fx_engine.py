@@ -41,8 +41,8 @@ BASS_FOLLOW_DB = 15.0  # bass: предел подгонки громкости 
 BASS_RISE_DB = 2.0   # bass: удар — рост громкости 25 мс после начала против 25 мс до, не меньше
 AMP_INPUT_RMS_DB = -20.0  # уровень входа захвата NAM (так шли опыты на гитаре YuE)
 # версия звучания движка — в ключе кэша превью /fx: поднимать при правке звука блоков, иначе «▶ стало» отдаст
-# превью, посчитанное до правки (2 — лента без подъёма тихого сигнала, этап 7б)
-ENGINE_VERSION = 2
+# превью, посчитанное до правки (2 — лента без подъёма тихого сигнала, этап 7б; 3 — уровень synth «на ухо», этап 9)
+ENGINE_VERSION = 3
 MAX_BLOCKS = 16      # блоков в цепочке не больше: длинная цепочка надолго заняла бы воркер и очередь GPU
 MAX_BANDS = 12       # полос эквалайзера в блоке не больше
 
@@ -193,6 +193,20 @@ def _db(v: float) -> float:
 
 def _rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(x, dtype=np.float64)))) if x.size else 0.0
+
+
+def a_weight(x: np.ndarray, sr: int) -> np.ndarray:
+    """Сигнал через кривую A (IEC 61672: ухо глухо к низу и чувствительно к 2–5 кГц) — громкость «на ухо» для уровня
+    синт-партии к треку: при равном простом RMS яркий синт слышен громче тёплого на 5–8 дБ (замер «Gone», 2026-10-10).
+    Ось 0 — время; форма та же. Фильтр причинный: для RMS сдвиг фазы не важен. Билинейное преобразование занижает
+    верх (44,1 кГц: 10 кГц −4,0 дБ при норме −2,5; 16 кГц −15,2 при −6,6) — очень яркая партия чуть громче цели."""
+    f1, f2, f3, f4 = 20.598997, 107.65265, 737.86223, 12194.217
+    z = [0.0, 0.0, 0.0, 0.0]
+    p = [-2 * np.pi * f1, -2 * np.pi * f1, -2 * np.pi * f4, -2 * np.pi * f4, -2 * np.pi * f2, -2 * np.pi * f3]
+    k = (2 * np.pi * f4) ** 2 * 10 ** (1.9997 / 20)
+    zd, pd, kd = signal.bilinear_zpk(z, p, k, sr)
+    sos = signal.zpk2sos(zd, pd, kd)
+    return signal.sosfilt(sos, np.asarray(x, dtype=np.float64), axis=0)
 
 
 def _zero_phase(sos, x: np.ndarray) -> np.ndarray:
@@ -1355,13 +1369,15 @@ def _tremolo(x, sr, p, _res=None):
     return out
 
 
-SYNTH_QUIET_DB = -60.0   # вход тише (RMS там, где звучит синт) — громкость синта по пику, а не от трека
+SYNTH_QUIET_DB = -60.0   # вход тише (A-уровень там, где звучит синт) — громкость синта по пику, а не от трека
+SYNTH_REL_DB = -8.0      # умолчание rel_db: «на ухо» на 8 дБ тише трека (#707–#709: −6 по простому RMS — «писк»)
 
 
 def _synth(x, sr, p, _res):
-    """Синт по нотам партии notes [{t, d, midi[], vel}] (t — от начала окна). Громкость — от входа (трека при
-    source mix): RMS выхода там, где синт звучит, = RMS входа на тех же отсчётах · rel_db (прослушивание #681:
-    по пику −6 пэд тонул в плотном припеве); тихий вход — пик −6 дБFS. Сверху output_db."""
+    """Синт по нотам партии notes [{t, d, midi[], vel}] (t — от начала окна). Громкость «на ухо» — от входа (трека
+    при source mix): A-уровень (a_weight) выхода там, где синт звучит, = A-уровень входа на тех же отсчётах · rel_db
+    (простой RMS давал ярким синтам +5…+8 дБ на слух — «писк», #707–#709); тихий вход — пик −6 дБFS. Сверху output_db.
+    _syn_rms воркер меряет на выходе всей цепочки партии (eq/реверб после synth входят в уровень)."""
     if _num(p.get("_ref_rms")) and _num(p.get("_syn_rms")):
         # превью/пересборка: один множитель на всю партию (воркер посчитал громкость трека и синта по всем нотам) —
         # любое окно звучит так же, как этот кусок в треке; тихий трек — по пику всей партии (−6 дБFS)
@@ -1369,7 +1385,7 @@ def _synth(x, sr, p, _res):
         if p["_syn_rms"] <= EPS:
             return y * 0.0
         if p["_ref_rms"] > _db(SYNTH_QUIET_DB):
-            g = p["_ref_rms"] * _db(p.get("rel_db", -6.0)) / p["_syn_rms"]
+            g = p["_ref_rms"] * _db(p.get("rel_db", SYNTH_REL_DB)) / p["_syn_rms"]
         else:
             g = _db(-6.0) / max(float(p.get("_syn_peak", 0.0)), EPS)
         return y * g * _db(p["output_db"])
@@ -1377,10 +1393,10 @@ def _synth(x, sr, p, _res):
     mask = np.abs(y).max(axis=1) > 1e-6
     if mask.any():
         # опора — громкость трека по всем нотам партии (_ref_rms ставит воркер для превью и пересборки), иначе —
-        # вход окна на звучащих отсчётах
-        rin = float(p["_ref_rms"]) if _num(p.get("_ref_rms")) else _rms(x[mask])
+        # вход окна на звучащих отсчётах; обе — «на ухо»
+        rin = float(p["_ref_rms"]) if _num(p.get("_ref_rms")) else _rms(a_weight(x, sr)[mask])
         if rin > _db(SYNTH_QUIET_DB):
-            y = y * (rin * _db(p.get("rel_db", -6.0)) / max(_rms(y[mask]), EPS))
+            y = y * (rin * _db(p.get("rel_db", SYNTH_REL_DB)) / max(_rms(a_weight(y, sr)[mask]), EPS))
     return y * _db(p["output_db"])
 
 
@@ -1673,4 +1689,4 @@ def process(audio, sr: int, chain, resources=None) -> np.ndarray:
     return out.astype(np.float32)
 
 
-__all__ = ["ChainError", "SPEC", "parse_chain", "needs_gpu", "process"]
+__all__ = ["ChainError", "SPEC", "a_weight", "parse_chain", "needs_gpu", "process"]

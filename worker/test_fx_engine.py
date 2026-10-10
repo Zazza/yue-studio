@@ -2779,15 +2779,18 @@ class TestSynthTimeAndLevel(unittest.TestCase):
     # условие 29 (прослушивание #681: пэд по пику −6 тонул в плотном припеве): громкость синта — от трека.
     # Прежний тест «вход не влияет» заменён: условие изменилось по прослушиванию, не под код.
     def test_tk53_level_relative_to_input(self):
+        # усл. 78 (этап 9): уровень «на ухо» — A-уровень партии к A-уровню входа (кривая сверена в test_synth_level)
+        fx = _fx()
         t = np.arange(2 * SR) / SR
         x = (10 ** (-20 / 20) * np.sqrt(2) * np.sin(2 * np.pi * 100 * t)).astype(np.float32)   # RMS −20 дБFS
+        ref = 20 * np.log10(np.sqrt(np.mean(fx.a_weight(x.astype(np.float64), SR)[int(0.6 * SR):int(1.4 * SR)] ** 2)))
         notes = [_snote(0.5, 1.0, [69])]
-        for rel, want in ((-10, -30), (0, -20)):
+        for rel in (-10, 0):
             with self.subTest(rel=rel):
                 y = _synth(notes, x=x, rel_db=rel)
-                seg = y[int(0.6 * SR):int(1.4 * SR)]
-                rms = 20 * np.log10(np.sqrt(np.mean(seg ** 2)))
-                self.assertAlmostEqual(rms, want, delta=1.0)
+                seg = fx.a_weight(np.asarray(y, dtype=np.float64), SR)[int(0.6 * SR):int(1.4 * SR)]
+                a = 20 * np.log10(np.sqrt(np.mean(seg ** 2)))
+                self.assertAlmostEqual(a - ref, rel, delta=1.0)
 
     def test_tk53_silent_input_peak_mode(self):
         y = _synth([_snote(0.1, 1.0, [69])], rel_db=-10)          # вход по умолчанию — тишина

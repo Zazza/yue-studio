@@ -762,10 +762,12 @@ class TestSynthWindowShift(_FxApiCase):
         self.assertAlmostEqual(len(y) / SR, 4.0, delta=0.01)       # окно 10–14 с, без хвоста
         a = np.abs(y).max(axis=1)
         peak = float(a.max())
-        self.assertGreater(peak, 0.1, "в превью нет синта")
+        # усл. 78 (этап 9): уровень «на ухо» — к тону трека 100 Гц (A ≈ −19 дБ) синус 440 Гц встаёт на ~15 дБ тише по
+        # простому уровню, чем было по RMS; тест — про сдвиг окна, порог «синт есть» ниже
+        self.assertGreater(peak, 0.02, "в превью нет синта")
         # до 2 с (12 − 10) — тишина, нота звучит на 2,1–2,9 с
         self.assertLess(_db(float(a[:int(1.98 * SR)].max()) / peak), -60, "нота не на t − from")
-        self.assertGreater(_amp(y, 440, 2.1, 2.9), 0.1, "нота A4 не звучит через 2 с от начала окна")
+        self.assertGreater(_amp(y, 440, 2.1, 2.9), 0.02, "нота A4 не звучит через 2 с от начала окна")
 
     def test_tk50_solo_without_track(self):
         jid, d = self._long_job()
@@ -855,13 +857,17 @@ class TestSynthRefLevel(unittest.TestCase):
     def test_ref_same_for_any_window(self):
         import numpy as np
         import yue_worker as w
-        sr = 1000
-        track = np.concatenate([np.full((15 * sr, 2), 0.01), np.full((25 * sr, 2), 0.1)])   # тихо, затем громко
+        import fx_engine
+        sr = 8000
+        tone = np.sin(2 * np.pi * 1000 * np.arange(40 * sr) / sr)[:, None].repeat(2, axis=1)
+        track = tone * np.concatenate([np.full(15 * sr, 0.01), np.full(25 * sr, 0.1)])[:, None]   # тихо, затем громко
         chain = [{"type": "synth", "notes": [{"t": 2.0, "d": 30.0, "midi": [60]}]}]
         a = w.synth_window(chain, 0.0, 15.0, track, sr)[0]["_ref_rms"]
         b = w.synth_window(chain, 0.0, 40.0, track, sr)[0]["_ref_rms"]
         self.assertAlmostEqual(a, b)
-        self.assertAlmostEqual(a, float(np.sqrt(np.mean(track[2 * sr:32 * sr] ** 2))), places=6)
+        # усл. 78: опора — уровень трека «на ухо» (A) на нотах партии
+        want = float(np.sqrt(np.mean(fx_engine.a_weight(track, sr)[2 * sr:32 * sr] ** 2)))
+        self.assertAlmostEqual(a, want, places=6)
 
 
     def test_window_level_equals_full(self):
